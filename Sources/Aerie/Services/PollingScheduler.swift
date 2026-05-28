@@ -15,6 +15,7 @@ actor PollingScheduler {
 
     private let clock: any Clock
     private let refresh: @Sendable (UUID) async -> Void
+    private let maxInFlight: Int
 
     private(set) var activeRepoId: UUID?
     private(set) var activeCadence: TimeInterval = 30
@@ -30,9 +31,11 @@ actor PollingScheduler {
 
     init(
         clock: any Clock,
+        maxInFlight: Int = 5,
         refresh: @escaping @Sendable (UUID) async -> Void
     ) {
         self.clock = clock
+        self.maxInFlight = maxInFlight
         self.refresh = refresh
     }
 
@@ -99,10 +102,34 @@ actor PollingScheduler {
     }
 
     private func refreshAll(_ ids: [UUID], now: Date) async {
-        // 7.2 will swap this for a bounded TaskGroup.
-        for id in ids {
-            await refresh(id)
-            fetchedAt[id] = now
+        guard !ids.isEmpty else { return }
+        let cap = max(1, maxInFlight)
+        let refresh = self.refresh   // capture sendable closure into local
+
+        await withTaskGroup(of: UUID.self) { group in
+            var iterator = ids.makeIterator()
+
+            // Prime the pump up to the in-flight cap.
+            var primed = 0
+            while primed < cap, let id = iterator.next() {
+                group.addTask {
+                    await refresh(id)
+                    return id
+                }
+                primed += 1
+            }
+
+            // Drain + refill: as each task finishes, mark fetchedAt and feed
+            // the next id (if any) into the group.
+            while let finishedId = await group.next() {
+                fetchedAt[finishedId] = now
+                if let next = iterator.next() {
+                    group.addTask {
+                        await refresh(next)
+                        return next
+                    }
+                }
+            }
         }
     }
 }

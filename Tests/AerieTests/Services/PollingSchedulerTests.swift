@@ -90,6 +90,34 @@ final class PollingSchedulerTests: XCTestCase {
         XCTAssertEqual(third.count, 1)
     }
 
+    // MARK: Task 7.2 — bounded concurrency
+
+    func test_refreshAll_capsConcurrencyToFive() async throws {
+        actor Counter {
+            private(set) var current = 0
+            private(set) var peak = 0
+            func enter() { current += 1; peak = max(peak, current) }
+            func leave() { current -= 1 }
+            func snapshotPeak() -> Int { peak }
+        }
+        let counter = Counter()
+        let ids = (0..<50).map { _ in UUID() }
+        let scheduler = PollingScheduler(
+            clock: VirtualClock(),
+            maxInFlight: 5
+        ) { _ in
+            await counter.enter()
+            // ~5ms hold so contention is real and we actually hit the cap.
+            try? await Task.sleep(nanoseconds: 5_000_000)
+            await counter.leave()
+        }
+        // distantFuture ensures all 50 repos are due.
+        await scheduler.tickOnce(repoIds: ids, now: Date.distantFuture)
+        let peak = await counter.snapshotPeak()
+        XCTAssertLessThanOrEqual(peak, 5)
+        XCTAssertEqual(peak, 5, "should saturate the in-flight cap")
+    }
+
     func test_setActive_changesWhichRepoUsesActiveCadence() async throws {
         let recorder = RefreshRecorder()
         let a = UUID()
