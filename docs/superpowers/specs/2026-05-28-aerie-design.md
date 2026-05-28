@@ -7,11 +7,13 @@
 **Author**: carlos
 **Status**: draft
 
-> **Design status**: Claude Design has produced the **PRs view**, **Repos view**,
-> **Settings (Accounts + Repositories)**, **Add-repo sheet**, and the four
-> primary **confirmation dialogs** (reset, merge, sign-out, remove). Five
-> screens are still being designed in a follow-up pass — see [§9 UI Handoff
-> Notes](#9-ui-handoff-notes) for the contract and what is still open.
+> **Design status**: Claude Design has produced every UI surface this
+> spec calls for — two top-level views (PRs, Repos), Settings (Accounts,
+> Repositories, MCP, Advanced, About), Add-repo sheet, four confirmation
+> dialogs (reset, merge, sign-out, remove), first-run gh setup (both
+> sub-states), MCP consent dialog, and the MCP activity toast. See
+> [§9 UI Handoff Notes](#9-ui-handoff-notes) for the visual + behavioral
+> contract derived from the design.
 
 ## Goal
 
@@ -116,24 +118,32 @@ each MCP write surfaces a GUI toast for audit instead.
 ### F5. Polling
 
 - App fetches all data on launch.
-- Single global cadence: every configured repo is refreshed every **5 minutes**.
-  Cadence is user-configurable (1–30 min) in Settings. Default chosen so that
-  50 repos × 12 fetches/hour = 600 GitHub API calls/hour — well under the
-  5000/hour quota per token, with headroom for multi-account fallback.
-- A heartbeat tick (default every 30 s) drives the scheduler; on each tick
-  the scheduler computes which repos are due and refreshes them in a
-  bounded-concurrency `TaskGroup` (limit 5).
+- Two-tier cadence (matches the Settings → Advanced design):
+  - **Active repo** → refresh every **30 s** (range: 10 s — 5 min).
+  - **Background repos** → refresh every **5 min** (range: 1 min — 30 min).
+- Default values keep 50 repos within the 5000/hr per-token quota with
+  headroom for multi-account fallback (50 × 12/hr = 600/hr at the
+  background cadence; the active repo adds at most one row at 120/hr).
+- **Active-repo definition**: the repo the user is currently paying
+  attention to. Without a dedicated detail view, attention is captured
+  from these signals (in priority order):
+  1. The repo of the PR card whose action menu is open / merge is being
+     considered.
+  2. The repo card most recently hovered or selected (within a sliding
+     30 s window).
+  3. If no signal applies, there is no active repo — every repo polls at
+     the background cadence.
+  Only ever one active repo at a time. The PollingScheduler holds an
+  optional `activeRepoId` updated by the view models.
+- A heartbeat tick (default 30 s, equal to the minimum cadence) drives
+  the scheduler; on each tick the scheduler computes which repos are
+  due and refreshes them in a bounded-concurrency `TaskGroup` (limit 5).
 - The titlebar shows a "live" indicator with countdown to the next tick.
-- Manual refresh: per-repo button + a global "refresh all" button.
-- When app loses foreground (`NSApplication.didResignActive`): pause the
-  scheduler entirely.
-- When app regains foreground (`didBecomeActive`): one-shot refresh of every
-  repo, then resume the normal cadence.
+- Manual refresh: per-repo button + a global "Refresh all" button.
+- Two user-toggleable behaviors (Settings → Advanced):
+  - "Refresh immediately when Aerie regains focus" — default on.
+  - "Pause polling when Aerie loses focus" — default on.
 - App closed = zero activity. No background daemon.
-
-The active-vs-background distinction from earlier drafts is dropped — without
-a per-repo detail view, there is no "currently focused" repo, and a single
-cadence keeps the scheduler easier to reason about.
 
 ### F6. Multi-account GitHub auth
 
@@ -151,9 +161,23 @@ cadence keeps the scheduler easier to reason about.
 
 ### F7. Settings
 
-- Manage repo list (add / remove / hide / reorder / rename / change primary account).
-- Polling interval overrides (advanced; default values exposed but rarely touched).
-- Show `gh` accounts in use (read-only; managed via `gh` CLI).
+Separate window with a sidebar of five sections (design-confirmed):
+
+- **Accounts** — list `gh` identities (login, host, scopes, last used,
+  repo count); mark primary; surface a banner showing `gh` CLI version;
+  add-account section shows the `gh auth login` command with Copy button
+  (sign-in is done in a terminal, not in Aerie).
+- **Repositories** — manage configured repos (rename, hide, reorder via
+  drag handle, change primary account, remove). Top bar has `Refresh all`
+  and `+ Add repository`. Add Repository is a sheet (see §9).
+- **MCP** — server status (endpoint, bearer token with reveal/copy,
+  discovery file with reveal), Claude Code integration toggle, Recent
+  activity table (last N MCP calls, both reads and writes), `Rotate token
+  now` action. Sidebar shows a green dot when the server is running.
+- **Advanced** — polling cadence (two sliders: Active / Background),
+  per-account rate-limit cards, two behavior toggles
+  (refresh-on-focus / pause-on-blur), `Reset to defaults`.
+- **About** — version, license, build SHA, link to source repo. Minimal.
 
 ## Architecture
 
@@ -216,9 +240,11 @@ struct LocalGitStatus {
     let repoId: UUID
     let currentBranch: String
     let isDirty: Bool
+    let dirtyFileCount: Int       // for the reset dialog's "N modified, M untracked"
     let aheadOfDefault: Int       // current branch vs origin/<defaultBranch>
     let behindOfDefault: Int
     let unpushedCommits: Int      // current branch vs its upstream
+    let originDefaultSha: String  // resolved sha of origin/<defaultBranch> (short)
     let fetchedAt: Date
 }
 
@@ -228,6 +254,8 @@ struct PullRequest {
     let number: Int
     let title: String
     let authorLogin: String
+    let sourceBranch: String      // PR's head.ref — used to resolve PRLocalState
+    let isMine: Bool              // author matches any configured account login
     let state: PRState            // open / closed / merged
     let ciState: CIState          // success / failure / pending / none
     let reviewState: ReviewState  // approved / changesRequested / reviewRequired
@@ -298,11 +326,35 @@ CREATE TABLE git_status_cache (
     fetched_at REAL NOT NULL
 );
 
+CREATE TABLE mcp_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at REAL NOT NULL,               -- epoch seconds
+    agent_id TEXT,                  -- nullable; "unknown" if header missing
+    tool TEXT NOT NULL,             -- e.g. "aerie_merge_pr"
+    target TEXT,                    -- e.g. "cems-ui · #1234", nullable for global tools
+    is_write INTEGER NOT NULL DEFAULT 0,
+    ok INTEGER NOT NULL,            -- 1 success, 0 failure
+    error_message TEXT,             -- nullable; populated on failure
+    request_json TEXT NOT NULL,     -- raw JSON-RPC request (for View request)
+    response_json TEXT NOT NULL     -- raw JSON-RPC response
+);
+
+CREATE INDEX idx_mcp_activity_at ON mcp_activity(at DESC);
+
 CREATE TABLE settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
 ```
+
+The settings table holds user preferences as JSON-encoded values keyed
+by name — e.g. `polling.active_seconds`, `polling.background_seconds`,
+`behavior.refresh_on_focus`, `behavior.pause_on_blur`,
+`mcp.auto_register_claude_code`, `mcp.consent_decision` (one of
+`granted` / `declined` / `unset`).
+
+The `mcp_activity` table is bounded — pruned to the last 1000 rows on
+every insert past that threshold, so it doesn't grow unbounded.
 
 Note on `payload_json`: storing each entity as JSON makes schema migration
 cheap (the app code owns the shape) at the cost of not being able to query
@@ -311,11 +363,16 @@ the trade-off favors flexibility.
 
 ## Polling specifics
 
-`PollingScheduler` is an actor that owns a single recurring `Task`:
+`PollingScheduler` is an actor that owns a single recurring `Task` plus
+an `activeRepoId: UUID?`:
 
 ```
-every <heartbeat>s (default 30):
-    let dueRepos = repos where now - fetched_at >= <cadence>   // default 5 min
+every heartbeatInterval (default 30s):
+    let active = self.activeRepoId
+    let dueRepos = repos where:
+        (id == active && now - fetched_at >= activeCadence)   // 30s default
+        OR
+        (id != active && now - fetched_at >= backgroundCadence) // 5min default
     refreshConcurrently(dueRepos, limit: 5)
 ```
 
@@ -324,26 +381,29 @@ case (50 repos all overdue at the same minute), the scheduler issues 50
 requests across 10 batches, ~5 per second. GitHub's quota is 5000/hr per
 authenticated token, so headroom is ample.
 
-When the response header reports `≥ 4500/hr` used on any account, the
-scheduler doubles the cadence (e.g. 5 min → 10 min) until the next hour
-rolls over and surfaces a yellow rate-limit badge in the UI.
+When any account's response header reports `≥ 4500/hr` used, the scheduler
+doubles both cadences (e.g. 30 s → 60 s, 5 min → 10 min) until the next
+hour rolls over and surfaces a yellow rate-limit badge in the UI.
 
-Per refresh of one repo, three independent fetches happen in parallel
-(scoped to that repo's primary account, with fallback):
-1. `local_git_status` (no network — SwiftGit2 reads `.git/`)
-2. `prs + their_local_state` (one GraphQL query covers PRs;
-   `PRLocalState` per PR comes from SwiftGit2)
-3. (no other network calls — issues and commit history were dropped from v1)
+Per refresh of one repo, two parallel lanes execute (scoped to that repo's
+primary account, with fallback):
+1. `local_git_status` — local only; SwiftGit2 reads `.git/`. Never fails
+   the lane; the repo's last status is preserved on read error.
+2. `prs + per-PR local checkout state` — one GraphQL query gathers all
+   open PRs for the repo; for each PR, `PRLocalState` is computed locally
+   via SwiftGit2 (does the source branch exist? is it current? if so,
+   its dirty / ahead / behind / unpushed counts).
 
-The three lanes are awaited together; the repo's `fetched_at` is updated
-only when all three complete (or any failure is recorded with reason).
+Both lanes are awaited together; the repo's `fetched_at` is updated only
+when both complete (or each failure is recorded with reason and surfaced
+as a per-repo badge).
 
 ## Error handling
 
 | Condition | UI surface | Recovery |
 |---|---|---|
-| `gh` not installed | Blocking setup screen | Link to install instructions |
-| `gh` has no accounts logged in | Blocking setup screen | "Copy command" button: `gh auth login` |
+| `gh` not installed (`gh: command not found` or `which gh` empty) | Full-window first-run setup, state `no-gh`: `brew install gh` block, Copy button, "I've installed it — re-check" + "Quit Aerie" | Auto-recheck every 5 s for state change; manual recheck via button |
+| `gh` installed, no accounts logged in (`gh auth status` reports none) | Full-window first-run setup, state `no-auth`: `gh auth login --hostname github.com --git-protocol ssh` block + GHE hint | Same 5 s auto-recheck pattern |
 | Per-repo `401`/`403` after all account fallbacks | Repo row shows "no access" icon | Tooltip: how to invite the account / change primary account |
 | GitHub `5xx` / network error | Banner: "Offline — showing cached data" | Auto-retry next polling tick |
 | GitHub rate-limit nearing exhaustion | Top bar badge with reset time | Auto-throttle (see polling) |
@@ -378,100 +438,201 @@ confirmation dialog showing the target.
   canned `gh auth status` output (single account, multi-account, none).
 - **PollingScheduler tests**: scheduler exposes a virtual-clock injection
   point; tests step time and assert which repos got refreshed.
-- **Snapshot tests** for SwiftUI views: deferred until Claude Design lands
-  the screens.
+- **Snapshot tests** for SwiftUI views (now that Claude Design has landed
+  the screens): one snapshot per view with a deterministic mock data
+  fixture, run on every PR via `swift-snapshot-testing`.
 
 ## 9. UI Handoff Notes
 
-This section is a contract for the follow-up UI design pass.
+This section is the captured-from-design contract — what the UI must
+look like and behave like, derived from the Claude Design pass.
 
-### Decided in design pass 1
+### Visual system
 
-- Two top-level views: **Pull Requests** and **Repos**, switched by a
-  segmented control in the titlebar (also `⌘1` / `⌘2`).
-- No per-repo detail screen — everything fits on the card.
-- Main window: 1240 × 880. Settings window: 1040 × 760.
-- Aesthetic: dark glass material with sodium amber as the only accent color.
-- Typography: Inter (sans), JetBrains Mono (mono).
-- Settings is a separate window with its own sidebar.
-- Add-repo is a sheet that slides from the settings titlebar, with
-  drag-and-drop, Browse button, and "Recently seen" suggestions
-  (suggestions only — Aerie still does not auto-add repos).
-- Confirmation dialogs use a dimmed-parent glass card with a key/value
-  list of what's about to happen; danger ops use a red accent ring.
-- Titlebar shows a live polling heartbeat (`live · 14s`).
+- **Window chrome**: macOS-style with traffic-light buttons. Main window
+  1240 × 880; Settings window 1040 × 760; First-run uses the main window
+  size.
+- **Material**: glass with `backdrop-filter: blur(40px) saturate(160%)`;
+  inner cards `glass-2` background; dialogs `blur(48px) saturate(180%)`.
+- **Backdrop behind glass**: dark base (`#0b0b10` / `#131218`) with two
+  soft radial gradients (warm amber upper-right, cool blue lower-left)
+  plus a faint SVG noise overlay to give the glass something to refract.
+- **Accent color**: sodium amber (`oklch(0.86 0.140 78)`) — the **only**
+  color used to signal "actionable" (merge-ready, primary buttons, brand
+  mark). Status colors are desaturated (`ok` green, `warn` yellow, `err`
+  red) and used sparingly.
+- **Text on glass**: white with stepped opacity (96 / 72 / 50 / 32 %)
+  rather than gray — reads cleaner on the refracting backdrop.
+- **Typography**: `Inter` (sans, weights 400/500), `JetBrains Mono` (mono,
+  weights 400/500). Display sizes use weight 500 with negative letter
+  spacing.
 
-### Still open — pending design pass 2
+### Two top-level views
 
-These are the five screens going back to Claude Design (see the user's
-handoff list):
+- Segmented toggle in the titlebar (center), keyboard `⌘1` / `⌘2`:
+  - **Pull Requests** — flat list across all configured repos. Each card
+    shows: repo · #num · author · `yours` pill when applicable, big title,
+    CI / Review chips, "ready to ship" eyebrow when both pass, then a
+    divider, then a `local` strip with: branch tag, `dirty / clean`,
+    `↑ahead ↓behind ⤒unpushed` (`⤒` shown in amber when > 0). Right:
+    `Merge` (amber when mergeable, dimmed otherwise) + `Open ↗`.
+  - **Repositories** — flat card list. Each card shows: name + `owner/name`
+    in mono, branch tag, `dirty / clean`, ahead/behind/unpushed. Right:
+    `Open ↗` + `Hard reset` (amber tone except when already at clean origin).
+- Titlebar right: live polling indicator (`● live · 14s`) + small spinner-style
+  icon. No per-repo detail screen — everything fits on the card.
 
-- MCP integration consent dialog (first-run prompt).
-- MCP activity toast (raised on every agent write).
-- Settings → MCP section (server status, Claude Code integration toggle,
-  recent activity table).
-- First-run `gh` setup screen (gh missing vs. signed-out states).
-- Settings → Advanced (polling cadence slider + rate-limit status).
+### Settings (separate window)
 
-### What the UI must support
+Sidebar items: **Accounts** · **Repositories** · **MCP** (green dot when
+running) · **Advanced** · **About** (footer).
 
-Screens / views that need to exist:
+- **Accounts**:
+  - `gh` CLI version banner at top (`gh CLI 2.62.0 is authenticated to N hosts`,
+    "tokens kept in memory only" footnote).
+  - Account cards: avatar (colored radial gradient), `login @ host`,
+    `primary` pill, `signed in · N repos · last call X ago · scopes: …`,
+    actions: `Make primary` (non-primary only) + `Sign out…`.
+  - "Add another account" section: shows the `gh auth login` command with
+    Copy. Sign-in is performed in the user's terminal.
+- **Repositories**:
+  - All repos in one big glass card with row separators.
+  - Each row: drag grip · name + local path (mono) · `owner/repo` + branch
+    tag with status dot · account avatar+login · `×` remove.
+  - Header right: `↻ Refresh all` + amber `+ Add repository`.
+  - `+ Add repository` opens a sheet (see below).
+- **MCP**:
+  - Status row: `● Server running` + `uptime / pid`. Top-right: `Rotate
+    token now`.
+  - Server card: rows for `endpoint` (mono URL + Copy), `bearer token`
+    (masked `aer_••••…` + eye reveal + Copy), `discovery file` (path +
+    `Reveal` opens Finder).
+  - Claude Code integration card: `Auto-register in ~/.claude/.mcp.json`
+    toggle + status pill `aerie entry present · token in sync · last
+    written X ago`.
+  - Recent activity card: table columns `TIME · AGENT · TOOL · TARGET ·
+    RESULT` (`✓` / `✕`). Records **every** MCP call (reads and writes).
+    Footer link `View all…` opens a complete log view.
+- **Advanced**:
+  - Polling cadence card: two slider rows
+    - `Active repo` — value `30s`, range `10s — 5m`.
+    - `Background repos` — value `5 min`, range `1 min — 30 min`.
+    - Warning chip: "Lower values use more of your GitHub API quota
+      (5,000 / hr)."
+  - Rate limit card: one column per account, each shows the per-account
+    remaining quota (e.g. `4823 / 5000`), a small color-graded bar
+    (green / amber / red by depletion), and `resets in N min`.
+  - Behavior card: two toggle rows for the F5 focus / blur policies.
+  - `Reset to defaults` link in the header.
+- **About**: minimal — version, license, build SHA, source link.
 
-1. **PRs view** — flat list across all configured repos of every open PR;
-   each row carries both GitHub status (CI, review, labels) and the local
-   checkout state of the PR's source branch (F2, F3).
-2. **Repos view** — flat list of cards, one per configured repo, showing
-   current branch + dirty / ahead / behind / unpushed counts (F1, F2).
-   No separate detail screen — everything fits on the card.
-3. **Add-repo flow** — folder picker (or recently-seen suggestions) + the
-   detected origin/owner/repo/default-branch fields + primary account
-   selection (F1, F6).
-4. **Settings** — sidebar with Accounts (manage gh accounts, mark primary),
-   Repositories (rename, hide, reorder, change account, remove), MCP
-   (server status, Claude Code integration toggle, recent activity), and
-   Advanced (polling cadence) (F7, §10).
-5. **First-run / `gh` setup screen** — blocking screen when `gh` is missing
-   or unauthenticated (F6).
-6. **Confirmation dialogs** — for hard reset, merge PR, sign-out account,
-   remove repo (F4).
-7. **MCP integration consent dialog** — one-time first-run prompt asking
-   whether Aerie may add itself to `~/.claude/.mcp.json` (§10).
-8. **MCP activity toast** — non-blocking surface shown when an agent calls
-   a write tool; includes agent ID, target repo/PR, result, and a "view
-   request" affordance (§10).
+### Add-repo sheet
+
+Slides down from the Settings titlebar (no separate window). Two states:
+
+- **Empty** — dashed drop zone with `Drag a folder here / or / Browse…`,
+  plus a "Recently seen" list of nearby `.git` directories the user might
+  want to add (Aerie does not auto-add; it surfaces candidates only).
+- **Detected** — after a folder is chosen, shows a card with the folder
+  name + absolute path + `Change…`, then a key/value list:
+  `github` (from origin URL), `default branch` (with the detection source,
+  e.g. `refs/remotes/origin/HEAD`), `current branch` (+ dirty indicator
+  if applicable), `account` (a dropdown of known `gh` accounts, inferred
+  from origin host).
+- Footer: `polling starts within 30s` hint + `Cancel` + amber `Add to fleet`.
+
+### Confirmation dialogs
+
+All use the same shell: dim + blur the parent view, center a glass card.
+Each dialog opens with a small accent-tinted icon, title, subtitle, and a
+key/value list of what's about to happen.
+
+- **Reset** (danger / red ring) — shows repository, current branch, dirty
+  file count, unpushed commit count, and target (`origin/<defaultBranch>
+  @ <sha>`). Primary button red.
+- **Merge** (amber ring) — shows PR card preview (`+/- lines · N files`,
+  checks passed, approvers), then a key/value list of `method` (squash),
+  `commit subj` (auto-generated), `account`. Primary button amber.
+- **Sign out** (danger) — lists the affected repos that will go into
+  no-access state. Footnote: "Tokens were never persisted — gh CLI keeps them".
+- **Remove repo** (neutral) — lists display name, path, github, and
+  "will delete: nothing — files are untouched".
+
+### First-run gh setup
+
+Full-window takeover (no main views behind), warm radial gradients in
+the backdrop, single primary action.
+
+- **State A — `gh` not installed**: title `Aerie needs the GitHub CLI`,
+  body explaining gh's role, `$ brew install gh` command line with Copy,
+  hint about cli.github.com if no Homebrew, `I've installed it — re-check`
+  (amber) + `Quit Aerie` (ghost) + `checking every 5s` indicator (5 s
+  auto-recheck polling for state change).
+- **State B — `gh` installed, no auth**: title `Sign in to GitHub through gh`,
+  command `gh auth login --hostname github.com --git-protocol ssh` with
+  Copy, info card about GitHub Enterprise (`--hostname your-ghe-host.com`
+  for repeats), same action row.
+
+### MCP consent dialog
+
+Appears once on first launch after `gh` is authenticated and at least one
+repo is configured. If declined, never appears again; re-enable in Settings
+→ MCP.
+
+- Hero: two pill icons (red C for Claude + amber Aerie orb).
+- Title: `Let Claude Code talk to Aerie?`
+- Body explains the value (shared cache, queued merges, confirmed resets).
+- JSON diff preview block: shows the `aerie` entry that will be added in
+  green `+` lines, with a header `~/.claude/.mcp.json · diff` and a Copy
+  button.
+- Three bulleted footnotes (token rotates per launch / Aerie only touches
+  its own entry / can revoke later in Settings).
+- Footer: subtle text "You can change this later in Settings" + `Not now`
+  (ghost) + `Allow` (amber).
+
+### MCP activity toast
+
+Bottom-right stack of cards (max 3 visible at once). Each card:
+- Top row: status icon (green ✓ / red ✕) + `mcp · <tool>` (mono, "mcp"
+  in amber) + relative time.
+- Target line (e.g. `cems-ui · #1234`).
+- Bottom row: `by <agent-id>` (mono) + `success` / `failed` (color-coded).
+- If failed: error block with mono red text, monospaced for SHA / paths.
+- Footer: `View request` button (mono, ghost) — opens a modal with the
+  raw MCP request + response JSON.
+- Auto-dismiss after 6 s; mouse hover pauses the countdown.
 
 ### Available actions the UI must expose
 
-- Hard reset to `origin/<defaultBranch>` (one repo at a time)
-- Merge PR (one PR at a time)
+- Hard reset to `origin/<defaultBranch>` (one repo at a time, GUI confirms)
+- Merge PR (one PR at a time, GUI confirms)
 - Open in browser: repo home, Pull Requests tab, Code tab, individual PR
 - Manual refresh: global, and per-repo
-- Add repo / remove repo / hide repo / rename repo / change repo's primary account
-- Reorder repos
+- Add repo / remove repo / hide repo / rename repo / change repo's primary account / reorder repos
+- Sign out an account; mark another as primary
+- MCP server: rotate token, toggle Claude Code auto-register, reveal discovery file
+- Polling: edit active / background cadences, reset to defaults
+- Quit Aerie from the first-run blocking screen
 
-### Data the UI has access to
+### State surfaces
 
-Anything in the [Data model](#data-model) section, plus per-entity
-`fetched_at` timestamps so the UI can show "freshness" if desired.
-
-### State surfaces the UI may want to indicate
-
-- Per-repo: dirty/clean, ahead/behind counts, open PR count,
-  GitHub access status (ok / no-access / offline), data freshness.
-- Per-PR: CI status, review status, label set, local checkout state of
-  the PR's source branch (not checked out / checked out & clean / checked
-  out & dirty / checked out with ahead/behind/unpushed).
-- Global: rate-limit warning, offline banner, in-flight refresh, `gh` health,
-  **MCP server status** (running / port + token, recent agent activity count).
+- Per-repo: dirty / clean, ahead / behind / unpushed counts, open PR
+  count, GitHub access status (ok / no-access / offline), data freshness,
+  primary account (avatar dot).
+- Per-PR: CI status, review status, label set, `yours` flag, local
+  checkout state of source branch.
+- Global: live-polling heartbeat with countdown, rate-limit status,
+  offline banner, in-flight refresh, MCP server status (running / off,
+  recent agent activity count).
 
 ### Constraints to preserve
 
-- Polling cadence (F5) — UI should reflect refresh activity but not block on
-  individual fetches.
+- Polling cadence (F5) — UI reflects refresh activity but never blocks
+  on individual fetches.
 - "Open in browser is the only jump" — no editor / terminal launch.
-- Confirmation required for destructive ops **in the GUI path** (MCP path
-  is confirmation-free; agent actions surface as toasts).
-- No filter / search / sort UI for now (per spec).
+- Confirmation required for destructive ops **in the GUI path** (MCP
+  path is confirmation-free; agent actions surface as toasts).
+- No filter / search / sort UI for now.
 
 ## 10. MCP server (agent interface)
 
@@ -528,9 +689,29 @@ On **first launch**, Aerie offers to register itself in
 ```
 
 - User accepts → Aerie writes / updates the `aerie` entry on each launch
-  (so the token rotation stays in sync).
-- User declines → Aerie remembers; there is a re-enable toggle in Settings.
-- Aerie never touches other entries in `~/.claude/.mcp.json`.
+  and on every token rotation (so Claude Code's view of the token stays
+  in sync).
+- User declines → recorded in `settings` (`mcp.consent_decision = declined`);
+  Aerie does not prompt again. Re-enable from Settings → MCP via the
+  "Auto-register in ~/.claude/.mcp.json" toggle.
+- The Settings toggle is the canonical control after first run:
+  - Toggle off → Aerie removes its own `aerie` entry from
+    `~/.claude/.mcp.json` and stops writing it. Existing Claude Code
+    sessions will fail until the user toggles back on or restarts.
+  - Toggle on → Aerie writes the entry and keeps it in sync.
+- Aerie never touches other entries in `~/.claude/.mcp.json`. Parsing is
+  permissive (preserves comments / formatting where possible).
+
+### Token rotation
+
+- A fresh token is generated on every launch (default).
+- The Settings → MCP page exposes a **Rotate token now** button which:
+  1. Generates a new token in memory.
+  2. Rewrites the discovery file with the new token (atomic write).
+  3. If Claude Code integration is on, rewrites `~/.claude/.mcp.json`'s
+     `aerie` entry with the new token.
+  4. From that moment, any in-flight or future request bearing the old
+     token gets `-32001 Invalid token`.
 
 ### Tool catalog
 
@@ -579,19 +760,26 @@ toasts and logs show `unknown agent`.
 - While a write is in flight, the GUI's equivalent button is disabled
   to prevent dual-source races.
 
-### Toasts (GUI surface for MCP activity)
+### GUI surfaces for MCP activity
 
-Each write call raises a toast:
+Two complementary surfaces:
 
-```
-Aerie MCP: aerie_merge_pr on cems-ui (#1234)
-by agent: cc-session-7f2a
-✅ Merged (squash) at 14:23:01
-[ view request ]
-```
+- **Toast** (transient, write-only): every successful or failed write
+  call raises a glass toast in the bottom-right of the active window.
+  Stacks up to 3; auto-dismisses after ~6 s (paused on hover). Each
+  toast shows status icon, `mcp · <tool>`, target, agent id, success/
+  failed badge, and a `View request` action that opens a modal with the
+  raw JSON-RPC request + response. See §9 → MCP activity toast for the
+  visual contract.
+- **Activity log** (persistent, all calls): every MCP call — including
+  read tools — is recorded in `mcp_activity` (see Persistence schema)
+  and surfaced in Settings → MCP → Recent activity. The activity card
+  shows the last N rows (e.g. 6) with columns `TIME · AGENT · TOOL ·
+  TARGET · RESULT`; a `View all…` link opens a complete history view.
 
-Toasts persist for ~6 s then collapse into a "recent MCP activity" list
-in the Settings view.
+Rationale: writes need user awareness even if not interrupting flow
+(toast), but the audit trail must include reads so the user can see who
+called what and when, even for non-write activity (full activity log).
 
 ### Errors (JSON-RPC error codes)
 
@@ -629,16 +817,19 @@ in the Settings view.
 
 ## Open questions
 
-- Per-PR "is this mine?" hint — the design adds a `yours` pill when
-  `pr.mine === true`. Spec: author login matches any of the configured
-  accounts' login. Trivial to compute. Closed.
-- App icon — deferred.
+- App icon — the design pass produced an icon showcase (radar rings +
+  amber orb in a dark squircle). Status: art-direction approved; the
+  actual `.icns` asset generation is a build-pipeline task. Pending
+  during implementation.
 - Should the MCP server also expose `aerie_refresh_repo(repo)` to let an
   agent force a fresh fetch when cache is stale? Currently out of scope
   (cache-only by design). — Revisit after first usage.
 - Should write tools support a `dry_run` parameter (return what *would*
   happen without doing it)? — Defer until requested.
-- The Reset confirmation dialog in the design shows the target commit
-  SHA (`origin/main @ a91f3c2`). To populate this, Aerie needs the
-  resolved commit at fetch time; cheap to add to `LocalGitStatus` once
-  needed. — Capture during implementation.
+- Per-account rate-limit display (Advanced) implies Aerie tracks the
+  most recent `x-ratelimit-remaining` / `x-ratelimit-reset` header from
+  each account. Stored as an in-memory map keyed by account id (no need
+  to persist).
+- The MCP recent-activity card surfaces calls from "this Aerie session"
+  primarily; the persisted `mcp_activity` table makes calls survive
+  restart. Confirmed both should be available.
