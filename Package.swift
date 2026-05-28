@@ -29,7 +29,13 @@ let package = Package(
             dependencies: [
                 "Aerie",
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
-            ]
+            ],
+            // swift-snapshot-testing reads baselines from disk relative to
+            // the test source file (via `#file`), not from the test bundle,
+            // so SwiftPM does not need to package the PNGs. Excluding the
+            // folder silences the "unhandled file" warning that would
+            // otherwise grow with every new snapshot test.
+            exclude: ["__Snapshots__"]
         ),
     ]
 )
