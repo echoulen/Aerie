@@ -1,0 +1,264 @@
+import XCTest
+@testable import Aerie
+
+// MARK: - URLProtocol stub
+
+/// Single-threaded test-only URL protocol that lets each test install a
+/// handler closure mapping `URLRequest -> (HTTPURLResponse, Data)`.
+final class StubURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    nonisolated(unsafe) static var lastRequest: URLRequest?
+    nonisolated(unsafe) static var lastBody: Data?
+    nonisolated(unsafe) static var requestCount: Int = 0
+
+    static func reset() {
+        handler = nil
+        lastRequest = nil
+        lastBody = nil
+        requestCount = 0
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for r: URLRequest) -> URLRequest { r }
+
+    override func startLoading() {
+        // Capture the request (and body — URLProtocol consumes it from the
+        // upload stream when the original `URLRequest.httpBody` was set via a
+        // BodyStream, so we read from both pathways).
+        Self.requestCount += 1
+        Self.lastRequest = request
+        if let body = request.httpBody {
+            Self.lastBody = body
+        } else if let stream = request.httpBodyStream {
+            stream.open()
+            var data = Data()
+            let bufSize = 4096
+            var buffer = [UInt8](repeating: 0, count: bufSize)
+            while stream.hasBytesAvailable {
+                let read = stream.read(&buffer, maxLength: bufSize)
+                if read <= 0 { break }
+                data.append(buffer, count: read)
+            }
+            stream.close()
+            Self.lastBody = data
+        } else {
+            Self.lastBody = nil
+        }
+
+        guard let handler = Self.handler else {
+            fatalError("StubURLProtocol.handler not set")
+        }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+func makeStubSession() -> URLSession {
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [StubURLProtocol.self]
+    return URLSession(configuration: config)
+}
+
+// MARK: - Tests
+
+final class GitHubAPIClientTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        StubURLProtocol.reset()
+    }
+
+    override func tearDown() {
+        StubURLProtocol.reset()
+        super.tearDown()
+    }
+
+    // MARK: listOpenPRs
+
+    func test_listOpenPRs_decodesGraphQLResponse() async throws {
+        let responseJSON = """
+        {
+          "data": {
+            "repository": {
+              "pullRequests": {
+                "nodes": [
+                  {
+                    "id": "PR_kw1",
+                    "number": 42,
+                    "title": "Fix the thing",
+                    "author": { "login": "carlos-li" },
+                    "headRefName": "fix/the-thing",
+                    "state": "OPEN",
+                    "mergeable": "MERGEABLE",
+                    "labels": { "nodes": [ { "name": "bug" }, { "name": "p1" } ] },
+                    "commits": {
+                      "nodes": [
+                        { "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }
+                      ]
+                    },
+                    "reviewDecision": "APPROVED",
+                    "updatedAt": "2026-05-28T10:00:00Z",
+                    "url": "https://github.com/acme/widgets/pull/42"
+                  },
+                  {
+                    "id": "PR_kw2",
+                    "number": 43,
+                    "title": "Tweak the knob",
+                    "author": { "login": "octocat" },
+                    "headRefName": "octocat/tweak",
+                    "state": "OPEN",
+                    "mergeable": "UNKNOWN",
+                    "labels": { "nodes": [] },
+                    "commits": {
+                      "nodes": [
+                        { "commit": { "statusCheckRollup": { "state": "PENDING" } } }
+                      ]
+                    },
+                    "reviewDecision": null,
+                    "updatedAt": "2026-05-28T09:30:00Z",
+                    "url": "https://github.com/acme/widgets/pull/43"
+                  }
+                ]
+              }
+            }
+          }
+        }
+        """
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let repoId = UUID()
+        let prs = try await client.listOpenPRs(
+            owner: "acme",
+            repo: "widgets",
+            repoId: repoId,
+            token: "ghp_test"
+        )
+
+        XCTAssertEqual(prs.count, 2)
+
+        let p1 = prs[0]
+        XCTAssertEqual(p1.repoId, repoId)
+        XCTAssertEqual(p1.number, 42)
+        XCTAssertEqual(p1.title, "Fix the thing")
+        XCTAssertEqual(p1.authorLogin, "carlos-li")
+        XCTAssertEqual(p1.sourceBranch, "fix/the-thing")
+        XCTAssertEqual(p1.state, .open)
+        XCTAssertEqual(p1.ciState, .success)
+        XCTAssertEqual(p1.reviewState, .approved)
+        XCTAssertEqual(p1.labels, ["bug", "p1"])
+        XCTAssertEqual(p1.htmlUrl.absoluteString, "https://github.com/acme/widgets/pull/42")
+        XCTAssertFalse(p1.isMine)
+
+        let p2 = prs[1]
+        XCTAssertEqual(p2.number, 43)
+        XCTAssertEqual(p2.authorLogin, "octocat")
+        XCTAssertEqual(p2.ciState, .pending)
+        XCTAssertEqual(p2.reviewState, .reviewRequired)
+        XCTAssertEqual(p2.labels, [])
+    }
+
+    func test_listOpenPRs_sendsCorrectQuery() async throws {
+        let responseJSON = """
+        { "data": { "repository": { "pullRequests": { "nodes": [] } } } }
+        """
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: nil
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        _ = try await client.listOpenPRs(
+            owner: "acme",
+            repo: "widgets",
+            repoId: UUID(),
+            token: "ghp_secret"
+        )
+
+        let req = try XCTUnwrap(StubURLProtocol.lastRequest)
+        XCTAssertEqual(req.url?.absoluteString, "https://api.github.com/graphql")
+        XCTAssertEqual(req.httpMethod, "POST")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer ghp_secret")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Content-Type"), "application/json")
+
+        let body = try XCTUnwrap(StubURLProtocol.lastBody)
+        let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        let query = try XCTUnwrap(json?["query"] as? String)
+        XCTAssertTrue(query.contains("pullRequests(states: OPEN"))
+        XCTAssertTrue(query.contains("statusCheckRollup"))
+        let variables = try XCTUnwrap(json?["variables"] as? [String: Any])
+        XCTAssertEqual(variables["owner"] as? String, "acme")
+        XCTAssertEqual(variables["repo"] as? String, "widgets")
+    }
+
+    func test_listOpenPRs_throwsOnHTTPError() async throws {
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 401,
+                httpVersion: "HTTP/1.1",
+                headerFields: nil
+            )!
+            let body = #"{"message":"Bad credentials"}"#
+            return (response, Data(body.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        do {
+            _ = try await client.listOpenPRs(
+                owner: "acme",
+                repo: "widgets",
+                repoId: UUID(),
+                token: "ghp_bad"
+            )
+            XCTFail("expected throw")
+        } catch let error as GitHubAPIError {
+            XCTAssertEqual(error.status, 401)
+            XCTAssertEqual(error.message, "Bad credentials")
+        }
+    }
+
+    func test_listOpenPRs_handlesEmpty() async throws {
+        let responseJSON = """
+        { "data": { "repository": { "pullRequests": { "nodes": [] } } } }
+        """
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: nil
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let prs = try await client.listOpenPRs(
+            owner: "acme",
+            repo: "widgets",
+            repoId: UUID(),
+            token: "ghp_test"
+        )
+        XCTAssertEqual(prs, [])
+    }
+}
