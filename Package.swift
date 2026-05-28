@@ -21,7 +21,7 @@ let package = Package(
                 .product(name: "SwiftGitX", package: "SwiftGitX"),
                 .product(name: "Hummingbird", package: "hummingbird"),
             ],
-            exclude: ["Resources/Info.plist"],
+            exclude: ["Resources/Info.plist", "Resources/Assets.xcassets"],
             resources: [.process("Resources")]
         ),
         .testTarget(

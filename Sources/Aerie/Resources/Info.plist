@@ -4,6 +4,18 @@
 <dict>
     <key>CFBundleIdentifier</key>
     <string>dev.echoulen.Aerie</string>
+    <key>CFBundleName</key>
+    <string>Aerie</string>
+    <key>CFBundleDisplayName</key>
+    <string>Aerie</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2026 echoulen. All rights reserved.</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSApplicationCategoryType</key>
