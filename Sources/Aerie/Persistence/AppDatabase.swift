@@ -2,7 +2,9 @@ import GRDB
 import Foundation
 
 actor AppDatabase {
-    let dbQueue: DatabaseQueue
+    nonisolated let dbQueue: DatabaseQueue
+
+    nonisolated var repos: RepoDAO { RepoDAO(dbQueue: dbQueue) }
 
     static func defaultURL() -> URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
