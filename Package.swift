@@ -33,9 +33,14 @@ let package = Package(
             // swift-snapshot-testing reads baselines from disk relative to
             // the test source file (via `#file`), not from the test bundle,
             // so SwiftPM does not need to package the PNGs. Excluding the
-            // folder silences the "unhandled file" warning that would
-            // otherwise grow with every new snapshot test.
-            exclude: ["__Snapshots__"]
+            // folders silences the "unhandled file" warning that would
+            // otherwise grow with every new snapshot test. Each subdirectory
+            // that owns snapshots needs its own exclude entry — SwiftPM's
+            // `exclude` patterns are path-prefix, not glob.
+            exclude: [
+                "__Snapshots__",
+                "Dialogs/__Snapshots__",
+            ]
         ),
     ]
 )
