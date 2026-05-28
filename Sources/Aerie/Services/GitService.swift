@@ -13,6 +13,18 @@ import SwiftGitX
 /// identity, so we don't want this service inventing UUIDs.
 protocol GitService: Actor {
     func readStatus(at url: URL, repoId: UUID) async throws -> LocalGitStatus
+
+    /// Resolves the local checkout state of a PR's source branch.
+    /// Mirrors `readStatus`'s pattern of taking an external identity
+    /// (`prId`) so the git layer stays stateless.
+    ///
+    /// When the branch exists but is not currently checked out, only
+    /// existence is reported — dirty/ahead/behind/unpushed are nil because
+    /// computing them would require either a worktree switch (destructive)
+    /// or a fast-path that doesn't apply to most PR review flows.
+    func prLocalState(
+        repoAt url: URL, prId: UUID, sourceBranch: String
+    ) async throws -> PRLocalState
 }
 
 actor LiveGitService: GitService {
@@ -89,6 +101,88 @@ actor LiveGitService: GitService {
             unpushedCommits: unpushed,
             originDefaultSha: originDefaultSha,
             fetchedAt: Date()
+        )
+    }
+
+    // MARK: - PRLocalState
+
+    func prLocalState(
+        repoAt url: URL, prId: UUID, sourceBranch: String
+    ) async throws -> PRLocalState {
+        // 1. Does the local branch exist?
+        let exists = runGit(
+            ["show-ref", "--verify", "--quiet", "refs/heads/\(sourceBranch)"],
+            at: url
+        ) != nil
+
+        guard exists else {
+            return PRLocalState(
+                prId: prId,
+                sourceBranch: sourceBranch,
+                localBranchExists: false,
+                isCurrentBranch: false,
+                dirty: nil,
+                ahead: nil,
+                behind: nil,
+                unpushed: nil
+            )
+        }
+
+        // 2. Is it the current branch?
+        let currentBranch = runGit(
+            ["symbolic-ref", "--short", "HEAD"], at: url
+        ) ?? ""
+        let isCurrent = currentBranch == sourceBranch
+
+        guard isCurrent else {
+            // Branch exists but not checked out. We report only existence —
+            // computing dirty/ahead/behind would require a worktree switch
+            // (destructive) or a more expensive tree-diff that we don't need
+            // for the PR list rendering today.
+            return PRLocalState(
+                prId: prId,
+                sourceBranch: sourceBranch,
+                localBranchExists: true,
+                isCurrentBranch: false,
+                dirty: nil,
+                ahead: nil,
+                behind: nil,
+                unpushed: nil
+            )
+        }
+
+        // 3. Current branch — reuse the same machinery as readStatus.
+        let repo = try SwiftGitX.Repository(at: url, createIfNotExists: false)
+        let entries = try repo.status(options: SwiftGitX.StatusOption.default)
+        let dirtyFileCount = entries.filter { entry in
+            entry.status.contains { status in
+                switch status {
+                case .current, .ignored:
+                    return false
+                default:
+                    return true
+                }
+            }
+        }.count
+        let isDirty = dirtyFileCount > 0
+
+        let defaultBranch = detectDefaultBranch(at: url)
+        let (ahead, behind) = aheadBehind(
+            at: url,
+            defaultBranch: defaultBranch,
+            currentBranch: currentBranch
+        )
+        let unpushed = unpushedCommitCount(at: url)
+
+        return PRLocalState(
+            prId: prId,
+            sourceBranch: sourceBranch,
+            localBranchExists: true,
+            isCurrentBranch: true,
+            dirty: isDirty,
+            ahead: ahead,
+            behind: behind,
+            unpushed: unpushed
         )
     }
 

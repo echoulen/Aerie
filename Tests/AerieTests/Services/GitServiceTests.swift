@@ -339,4 +339,67 @@ final class GitServiceTests: XCTestCase {
         XCTAssertEqual(status.aheadOfDefault, 0)
         XCTAssertEqual(status.behindOfDefault, 0)
     }
+
+    // MARK: - Task 5.4: PRLocalState lookup
+
+    func test_prLocalState_branchExistsButNotCurrent() async throws {
+        let repo = try makeTempRepoWithOrigin()
+        // Create `feat/x` off main without checking it out.
+        try shell(["git", "-C", repo.path, "branch", "feat/x"])
+
+        let svc = LiveGitService()
+        let id = UUID()
+        let state = try await svc.prLocalState(
+            repoAt: repo, prId: id, sourceBranch: "feat/x"
+        )
+
+        XCTAssertEqual(state.prId, id)
+        XCTAssertEqual(state.sourceBranch, "feat/x")
+        XCTAssertTrue(state.localBranchExists)
+        XCTAssertFalse(state.isCurrentBranch)
+        XCTAssertNil(state.dirty)
+        XCTAssertNil(state.ahead)
+        XCTAssertNil(state.behind)
+        XCTAssertNil(state.unpushed)
+    }
+
+    func test_prLocalState_branchIsCurrent_computesStatus() async throws {
+        let repo = try makeTempRepoWithOrigin()
+        // Create `feat/x`, switch to it, add a dirty file + a local commit.
+        try shell(["git", "-C", repo.path, "checkout", "-q", "-b", "feat/x"])
+        try addCommit(in: repo, file: "ax")
+        // Now create a dirty file too.
+        try "dirty".write(
+            to: repo.appendingPathComponent("dirty.txt"),
+            atomically: true, encoding: .utf8
+        )
+
+        let svc = LiveGitService()
+        let state = try await svc.prLocalState(
+            repoAt: repo, prId: UUID(), sourceBranch: "feat/x"
+        )
+
+        XCTAssertTrue(state.localBranchExists)
+        XCTAssertTrue(state.isCurrentBranch)
+        XCTAssertEqual(state.dirty, true)
+        // No upstream for feat/x → unpushed is 0, not nil.
+        XCTAssertEqual(state.unpushed, 0)
+        // Ahead-of-main: 1 commit (ax). Behind: 0.
+        XCTAssertEqual(state.ahead, 1)
+        XCTAssertEqual(state.behind, 0)
+    }
+
+    func test_prLocalState_branchMissing() async throws {
+        let repo = try makeTempRepo()
+        let svc = LiveGitService()
+        let state = try await svc.prLocalState(
+            repoAt: repo, prId: UUID(), sourceBranch: "nope"
+        )
+        XCTAssertFalse(state.localBranchExists)
+        XCTAssertFalse(state.isCurrentBranch)
+        XCTAssertNil(state.dirty)
+        XCTAssertNil(state.ahead)
+        XCTAssertNil(state.behind)
+        XCTAssertNil(state.unpushed)
+    }
 }
