@@ -84,6 +84,24 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(decoded, original)
     }
 
+    func test_mcpActivityRecordRoundTrip() throws {
+        let original = MCPActivityRecord(
+            id: 42,
+            at: Date(timeIntervalSince1970: 1_700_000_000),
+            agentId: "agent-abc",
+            tool: "git.status",
+            target: "/tmp/example",
+            isWrite: false,
+            ok: true,
+            errorMessage: nil,
+            requestJSON: "{\"path\":\"/tmp/example\"}",
+            responseJSON: "{\"dirty\":false}"
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(MCPActivityRecord.self, from: data)
+        XCTAssertEqual(decoded, original)
+    }
+
     func test_prLocalStateRoundTripWithOptionalsNil() throws {
         let original = PRLocalState(
             prId: UUID(),
