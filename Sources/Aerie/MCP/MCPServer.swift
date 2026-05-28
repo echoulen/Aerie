@@ -21,6 +21,13 @@ private let mcpHost = "127.0.0.1"
 /// - ``stop()`` cancels the background task and waits for it to finish.
 actor MCPServer {
     let router: JSONRPCRouter
+    /// Tool registry, used by `dispatchWithLogging` to look up isWrite +
+    /// surface the tool name in the audit log. Optional so tests that
+    /// just exercise the router don't need to wire one up.
+    let registry: MCPToolRegistry?
+    /// Activity logger. When `nil`, the server skips audit logging — the
+    /// router uses the plain `dispatch(_:)` path.
+    let logger: ActivityLogger?
 
     /// Bearer token for clients. Generated per `start()` from `UUID().uuidString`.
     /// Nil before first start.
@@ -32,8 +39,14 @@ actor MCPServer {
     /// Background task running `Application.runService()`. Cancelled by `stop()`.
     private var serverTask: Task<Void, Error>?
 
-    init(router: JSONRPCRouter) {
+    init(
+        router: JSONRPCRouter,
+        registry: MCPToolRegistry? = nil,
+        logger: ActivityLogger? = nil
+    ) {
         self.router = router
+        self.registry = registry
+        self.logger = logger
     }
 
     /// Full MCP endpoint URL, e.g. `http://127.0.0.1:54321/mcp`.
@@ -55,11 +68,19 @@ actor MCPServer {
         // so rotating `self.token` after start won't affect existing
         // requests in flight — which is the intended behaviour.
         let routerActor = self.router
+        let registryActor = self.registry
+        let activityLogger = self.logger
         let auth = MCPBearerAuth(tokenProvider: { [generatedToken] in generatedToken })
 
         let hbRouter = Router()
         hbRouter.post("/mcp") { request, _ -> Response in
-            await Self.handleMCPRequest(request: request, router: routerActor, auth: auth)
+            await Self.handleMCPRequest(
+                request: request,
+                router: routerActor,
+                auth: auth,
+                registry: registryActor,
+                logger: activityLogger
+            )
         }
 
         // Capture the bound port via onServerRunning. The channel's
@@ -154,7 +175,9 @@ actor MCPServer {
     private static func handleMCPRequest(
         request: Request,
         router: JSONRPCRouter,
-        auth: MCPBearerAuth
+        auth: MCPBearerAuth,
+        registry: MCPToolRegistry?,
+        logger: ActivityLogger?
     ) async -> Response {
         // Bearer check up front. We fail closed with HTTP 401 + a JSON-RPC
         // envelope carrying -32001 so clients see a consistent shape.
@@ -188,7 +211,26 @@ actor MCPServer {
             )
         }
 
-        let response = await router.dispatch(rpcRequest)
+        // Dispatch path:
+        // - With registry + logger configured → use the logging path so
+        //   tools/call traffic lands in mcp_activity. The agent id comes
+        //   from the X-MCP-Agent-Id header; spec says "unknown" when missing.
+        // - Without either → plain dispatch.
+        let response: JSONRPCResponse
+        if let registry, let logger {
+            let agentField = HTTPField.Name("X-MCP-Agent-Id")!
+            let agentId = request.headers[agentField] ?? "unknown"
+            let rawJSON = String(data: data, encoding: .utf8) ?? ""
+            response = await router.dispatchWithLogging(
+                rpcRequest,
+                rawRequestJSON: rawJSON,
+                agentId: agentId,
+                registry: registry,
+                logger: logger
+            )
+        } else {
+            response = await router.dispatch(rpcRequest)
+        }
         return Self.jsonResponse(status: .ok, body: response)
     }
 
