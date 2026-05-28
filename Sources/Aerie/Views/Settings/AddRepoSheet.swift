@@ -13,14 +13,6 @@ enum AddRepoSheetState: Equatable {
     case error(URL, String)
 }
 
-/// A "recently-seen" repo candidate surfaced in the empty state.
-/// Populated by `RepoCandidateScanner` (Phase 13.6).
-struct RepoCandidate: Equatable, Identifiable {
-    var id: URL { url }
-    let url: URL
-    let lastTouched: Date?
-}
-
 /// The output of `RepoDetector` (Phase 13.5). Captured here so 13.4
 /// and 13.5 share the same data type without 13.4 reaching forward
 /// into the detector module.
