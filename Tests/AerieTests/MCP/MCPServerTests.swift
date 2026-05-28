@@ -64,6 +64,9 @@ final class MCPServerTests: XCTestCase {
         guard let endpoint = await server.endpoint else {
             XCTFail("endpoint missing"); return
         }
+        guard let token = await server.token else {
+            XCTFail("token missing"); return
+        }
 
         let body = try JSONEncoder().encode(JSONRPCRequest(
             id: .int(1), method: "tools/list", params: nil
@@ -72,6 +75,7 @@ final class MCPServerTests: XCTestCase {
         req.httpMethod = "POST"
         req.httpBody = body
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: req)
         let http = response as! HTTPURLResponse
@@ -92,10 +96,14 @@ final class MCPServerTests: XCTestCase {
         guard let endpoint = await server.endpoint else {
             XCTFail("endpoint missing"); return
         }
+        guard let token = await server.token else {
+            XCTFail("token missing"); return
+        }
         var req = URLRequest(url: endpoint)
         req.httpMethod = "POST"
         req.httpBody = Data("not json".utf8)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: req)
         let http = response as! HTTPURLResponse

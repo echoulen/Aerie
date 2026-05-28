@@ -51,12 +51,15 @@ actor MCPServer {
         self.token = generatedToken
 
         // Snapshot captures for the responder closure (it's @Sendable and
-        // must not capture `self`).
+        // must not capture `self`). The token snapshot is a value-type copy,
+        // so rotating `self.token` after start won't affect existing
+        // requests in flight — which is the intended behaviour.
         let routerActor = self.router
+        let auth = MCPBearerAuth(tokenProvider: { [generatedToken] in generatedToken })
 
         let hbRouter = Router()
         hbRouter.post("/mcp") { request, _ -> Response in
-            await Self.handleMCPRequest(request: request, router: routerActor)
+            await Self.handleMCPRequest(request: request, router: routerActor, auth: auth)
         }
 
         // Capture the bound port via onServerRunning. The channel's
@@ -150,8 +153,18 @@ actor MCPServer {
 
     private static func handleMCPRequest(
         request: Request,
-        router: JSONRPCRouter
+        router: JSONRPCRouter,
+        auth: MCPBearerAuth
     ) async -> Response {
+        // Bearer check up front. We fail closed with HTTP 401 + a JSON-RPC
+        // envelope carrying -32001 so clients see a consistent shape.
+        switch await auth.authenticate(request) {
+        case .allow:
+            break
+        case .deny(let envelope):
+            return Self.jsonResponse(status: .unauthorized, body: envelope)
+        }
+
         // Read the body (cap at 1 MiB — JSON-RPC payloads should be tiny).
         let bytes: ByteBuffer
         do {
