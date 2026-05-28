@@ -63,23 +63,21 @@ actor LiveGitService: GitService {
             currentBranch = ""
         }
 
-        // Ahead/behind against origin/<defaultBranch>. We use subprocess git
-        // because SwiftGitX 0.4.0 does not expose `git_graph_ahead_behind`
-        // and the `pointer` is module-internal. Subprocess git is fast,
-        // reliable, and matches what the user would see in their terminal.
-        //
-        // For Task 5.2, the caller of readStatus doesn't yet know the default
-        // branch (proper detection lands in Task 5.3). We use `main` as a
-        // best-effort fallback here; if `origin/main` doesn't exist we'll
-        // just get zeros, which is the desired graceful-degradation behaviour.
-        let defaultBranch = "main"
+        // Resolve the default branch via origin/HEAD → main → master chain.
+        let defaultBranch = detectDefaultBranch(at: url)
 
+        // Ahead/behind against origin/<defaultBranch>. Subprocess git because
+        // SwiftGitX 0.4.0 doesn't expose git_graph_ahead_behind and its
+        // `Repository.pointer` is module-internal.
         let (ahead, behind) = aheadBehind(
             at: url,
             defaultBranch: defaultBranch,
             currentBranch: currentBranch
         )
         let unpushed = unpushedCommitCount(at: url)
+        let originDefaultSha = originDefaultShortSha(
+            at: url, defaultBranch: defaultBranch
+        )
 
         return LocalGitStatus(
             repoId: repoId,
@@ -89,11 +87,64 @@ actor LiveGitService: GitService {
             aheadOfDefault: ahead,
             behindOfDefault: behind,
             unpushedCommits: unpushed,
-            // TODO(Task 5.3): resolve `refs/remotes/origin/HEAD` and read the
-            // tip SHA of the default branch.
-            originDefaultSha: "",
+            originDefaultSha: originDefaultSha,
             fetchedAt: Date()
         )
+    }
+
+    /// Detect the repo's default branch using the same fallback chain
+    /// the user would use manually:
+    ///   1. `git symbolic-ref refs/remotes/origin/HEAD` — the canonical answer
+    ///      if `origin/HEAD` is set (which it is on a fresh `git clone`).
+    ///   2. `refs/remotes/origin/main` exists?
+    ///   3. `refs/remotes/origin/master` exists?
+    ///   4. Else: `"main"`.
+    ///
+    /// Returns the short branch name (e.g. `"main"`, not `"origin/main"`).
+    private func detectDefaultBranch(at url: URL) -> String {
+        // Step 1: try origin/HEAD
+        if let raw = runGit(
+            ["symbolic-ref", "refs/remotes/origin/HEAD"], at: url
+        ) {
+            // raw is e.g. "refs/remotes/origin/main"
+            let prefix = "refs/remotes/origin/"
+            if raw.hasPrefix(prefix) {
+                let name = String(raw.dropFirst(prefix.count))
+                if !name.isEmpty { return name }
+            }
+        }
+
+        // Step 2: probe origin/main
+        if runGit(
+            ["show-ref", "--verify", "--quiet", "refs/remotes/origin/main"],
+            at: url
+        ) != nil {
+            return "main"
+        }
+
+        // Step 3: probe origin/master
+        if runGit(
+            ["show-ref", "--verify", "--quiet", "refs/remotes/origin/master"],
+            at: url
+        ) != nil {
+            return "master"
+        }
+
+        // Step 4: fall back to "main"
+        return "main"
+    }
+
+    /// Returns the 7-char short SHA of `origin/<defaultBranch>` if it
+    /// exists. Empty string if the remote ref is missing (e.g. local-only
+    /// repo). Mirrors `git rev-parse --short origin/<defaultBranch>`.
+    private func originDefaultShortSha(
+        at url: URL, defaultBranch: String
+    ) -> String {
+        guard let raw = runGit(
+            ["rev-parse", "--short", "origin/\(defaultBranch)"],
+            at: url
+        ) else { return "" }
+        return raw
     }
 
     // MARK: - Subprocess helpers

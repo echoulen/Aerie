@@ -237,4 +237,106 @@ final class GitServiceTests: XCTestCase {
         XCTAssertEqual(status.behindOfDefault, 0)
         XCTAssertEqual(status.unpushedCommits, 0)
     }
+
+    // MARK: - Task 5.3: default branch detection + originDefaultSha
+
+    func test_readStatus_originDefaultSha_populatedFromOriginMain() async throws {
+        // Clone of a bare remote — `origin/HEAD` will point at refs/remotes/origin/main
+        // because we cloned with -b main. originDefaultSha should be the
+        // 7-char short SHA of origin/main.
+        let workTree = try makeTempRepoWithOrigin()
+
+        // After push above, the seed clone IS the work tree. Clone again so
+        // we get a real clone with origin/HEAD set up.
+        let remoteURL = try shell([
+            "git", "-C", workTree.path,
+            "remote", "get-url", "origin",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let cloneDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try shell([
+            "git", "clone", "-q", remoteURL, cloneDir.path,
+        ])
+
+        let expectedShort = try shell([
+            "git", "-C", cloneDir.path,
+            "rev-parse", "--short", "origin/main",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let svc = LiveGitService()
+        let status = try await svc.readStatus(at: cloneDir, repoId: UUID())
+        XCTAssertEqual(status.originDefaultSha, expectedShort)
+        XCTAssertEqual(status.currentBranch, "main")
+    }
+
+    func test_readStatus_defaultBranch_fallsBackToMaster() async throws {
+        // Bare remote on `master` plus a clone. We deliberately remove
+        // origin/HEAD so detection has to walk down the fallback chain to
+        // refs/remotes/origin/master.
+        let remoteDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString + "-remote.git")
+        try shell([
+            "git", "init", "-q", "--bare", "-b", "master", remoteDir.path,
+        ])
+
+        let seedDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(
+            at: seedDir, withIntermediateDirectories: true
+        )
+        try shell(["git", "-C", seedDir.path, "init", "-q", "-b", "master"])
+        try shell([
+            "git", "-C", seedDir.path,
+            "remote", "add", "origin", remoteDir.path,
+        ])
+        try "hi".write(
+            to: seedDir.appendingPathComponent("a.txt"),
+            atomically: true, encoding: .utf8
+        )
+        try shell(["git", "-C", seedDir.path, "add", "."])
+        try shell([
+            "git", "-C", seedDir.path,
+            "-c", "user.email=t@t",
+            "-c", "user.name=T",
+            "commit", "-q", "-m", "init",
+        ])
+        try shell([
+            "git", "-C", seedDir.path,
+            "push", "-q", "-u", "origin", "master",
+        ])
+
+        let cloneDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try shell(["git", "clone", "-q", remoteDir.path, cloneDir.path])
+
+        // Drop origin/HEAD so we hit the master fallback path.
+        try shell([
+            "git", "-C", cloneDir.path,
+            "symbolic-ref", "--delete", "refs/remotes/origin/HEAD",
+        ])
+
+        // origin/master exists and ahead/behind should resolve against it.
+        // We can verify default-branch detection indirectly via the short SHA.
+        let expectedShort = try shell([
+            "git", "-C", cloneDir.path,
+            "rev-parse", "--short", "origin/master",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let svc = LiveGitService()
+        let status = try await svc.readStatus(at: cloneDir, repoId: UUID())
+        XCTAssertEqual(status.originDefaultSha, expectedShort)
+        XCTAssertEqual(status.currentBranch, "master")
+    }
+
+    func test_readStatus_defaultBranch_noOriginFallsBackEmpty() async throws {
+        // Local-only repo, no origin. originDefaultSha should be "" and
+        // ahead/behind should be 0 (no ref to compare against).
+        let repo = try makeTempRepo()
+        let svc = LiveGitService()
+        let status = try await svc.readStatus(at: repo, repoId: UUID())
+        XCTAssertEqual(status.originDefaultSha, "")
+        XCTAssertEqual(status.aheadOfDefault, 0)
+        XCTAssertEqual(status.behindOfDefault, 0)
+    }
 }
