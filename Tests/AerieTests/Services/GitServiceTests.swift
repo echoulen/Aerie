@@ -51,6 +51,62 @@ final class GitServiceTests: XCTestCase {
         return url
     }
 
+    /// Build a temp repo backed by a bare "origin" remote so we can simulate
+    /// ahead/behind/unpushed scenarios end-to-end. The clone tracks origin/main.
+    /// Returns the clone's working tree URL.
+    private func makeTempRepoWithOrigin() throws -> URL {
+        let remoteDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString + "-remote.git")
+        try shell([
+            "git", "init", "-q", "--bare", "-b", "main", remoteDir.path,
+        ])
+
+        let workTree = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(
+            at: workTree, withIntermediateDirectories: true
+        )
+        try shell(["git", "-C", workTree.path, "init", "-q", "-b", "main"])
+        try shell([
+            "git", "-C", workTree.path,
+            "remote", "add", "origin", remoteDir.path,
+        ])
+        try "hi".write(
+            to: workTree.appendingPathComponent("a.txt"),
+            atomically: true, encoding: .utf8
+        )
+        try shell(["git", "-C", workTree.path, "add", "."])
+        try shell([
+            "git", "-C", workTree.path,
+            "-c", "user.email=t@t",
+            "-c", "user.name=T",
+            "commit", "-q", "-m", "init",
+        ])
+        try shell([
+            "git", "-C", workTree.path,
+            "push", "-q", "-u", "origin", "main",
+        ])
+        return workTree
+    }
+
+    /// Add a commit on the current branch in `repo` containing a file
+    /// `<name>.txt`. Useful for advancing branches in ahead/behind tests.
+    private func addCommit(
+        in repo: URL, file name: String, body: String = "x"
+    ) throws {
+        try body.write(
+            to: repo.appendingPathComponent("\(name).txt"),
+            atomically: true, encoding: .utf8
+        )
+        try shell(["git", "-C", repo.path, "add", "."])
+        try shell([
+            "git", "-C", repo.path,
+            "-c", "user.email=t@t",
+            "-c", "user.name=T",
+            "commit", "-q", "-m", name,
+        ])
+    }
+
     // MARK: - Tests
 
     func test_readStatus_returnsCleanForFreshCommit() async throws {
@@ -96,5 +152,89 @@ final class GitServiceTests: XCTestCase {
         let svc = LiveGitService()
         let status = try await svc.readStatus(at: repo, repoId: id)
         XCTAssertEqual(status.repoId, id)
+    }
+
+    // MARK: - Task 5.2: ahead / behind / unpushed
+
+    func test_readStatus_aheadBehindUnpushed_againstOrigin() async throws {
+        // Two clones from the same bare remote let us put `origin/main`
+        // two commits ahead of the clone we measure, and our clone two
+        // commits ahead of origin (one unpushed).
+        let remoteDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString + "-remote.git")
+        try shell([
+            "git", "init", "-q", "--bare", "-b", "main", remoteDir.path,
+        ])
+
+        // Seed the remote via a helper clone.
+        let seedDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(
+            at: seedDir, withIntermediateDirectories: true
+        )
+        try shell(["git", "-C", seedDir.path, "init", "-q", "-b", "main"])
+        try shell([
+            "git", "-C", seedDir.path,
+            "remote", "add", "origin", remoteDir.path,
+        ])
+        try "hi".write(
+            to: seedDir.appendingPathComponent("a.txt"),
+            atomically: true, encoding: .utf8
+        )
+        try shell(["git", "-C", seedDir.path, "add", "."])
+        try shell([
+            "git", "-C", seedDir.path,
+            "-c", "user.email=t@t",
+            "-c", "user.name=T",
+            "commit", "-q", "-m", "init",
+        ])
+        try shell([
+            "git", "-C", seedDir.path,
+            "push", "-q", "-u", "origin", "main",
+        ])
+
+        // Clone (our target) — currently in sync with origin.
+        let cloneDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try shell([
+            "git", "clone", "-q", remoteDir.path, cloneDir.path,
+        ])
+        try shell([
+            "git", "-C", cloneDir.path,
+            "config", "user.email", "t@t",
+        ])
+        try shell([
+            "git", "-C", cloneDir.path,
+            "config", "user.name", "T",
+        ])
+
+        // Advance origin by 1 commit (via the seed clone push).
+        try addCommit(in: seedDir, file: "seed1")
+        try shell(["git", "-C", seedDir.path, "push", "-q"])
+
+        // Fetch on the clone so origin/main is updated locally, but DON'T pull.
+        try shell(["git", "-C", cloneDir.path, "fetch", "-q"])
+
+        // Add 2 local commits on the clone — these are ahead and unpushed.
+        try addCommit(in: cloneDir, file: "local1")
+        try addCommit(in: cloneDir, file: "local2")
+
+        let svc = LiveGitService()
+        let status = try await svc.readStatus(at: cloneDir, repoId: UUID())
+
+        XCTAssertEqual(status.currentBranch, "main")
+        XCTAssertEqual(status.aheadOfDefault, 2)
+        XCTAssertEqual(status.behindOfDefault, 1)
+        XCTAssertEqual(status.unpushedCommits, 2)
+    }
+
+    func test_readStatus_noUpstream_unpushedReturnsZero() async throws {
+        // Local-only repo: no remote, no upstream. Should be 0, not throw.
+        let repo = try makeTempRepo()
+        let svc = LiveGitService()
+        let status = try await svc.readStatus(at: repo, repoId: UUID())
+        XCTAssertEqual(status.aheadOfDefault, 0)
+        XCTAssertEqual(status.behindOfDefault, 0)
+        XCTAssertEqual(status.unpushedCommits, 0)
     }
 }
