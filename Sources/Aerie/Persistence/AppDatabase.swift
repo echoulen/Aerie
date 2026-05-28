@@ -6,6 +6,7 @@ actor AppDatabase {
 
     nonisolated var repos: RepoDAO { RepoDAO(dbQueue: dbQueue) }
     nonisolated var accounts: AccountDAO { AccountDAO(dbQueue: dbQueue) }
+    nonisolated var prCache: PRCacheDAO { PRCacheDAO(dbQueue: dbQueue) }
 
     static func defaultURL() -> URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
