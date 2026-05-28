@@ -1,6 +1,15 @@
 import Foundation
 import SwiftGitX
 
+/// Summary of work discarded by a `hardResetToOrigin` call. Captures
+/// the state of the working tree just before the reset so we can show
+/// the user what they lost (or what they would lose, if surfaced in a
+/// confirmation dialog).
+struct HardResetSummary: Sendable, Equatable {
+    let discardedDirtyFiles: Int
+    let discardedCommits: Int
+}
+
 /// Service that reads (and later, mutates) state from a local Git repository
 /// via SwiftGitX (libgit2).
 ///
@@ -25,6 +34,13 @@ protocol GitService: Actor {
     func prLocalState(
         repoAt url: URL, prId: UUID, sourceBranch: String
     ) async throws -> PRLocalState
+
+    /// Destructively reset the working tree to `origin/<defaultBranch>`:
+    /// fetches origin, switches to the default branch, then `reset --hard`.
+    /// Returns a summary of what was discarded (captured before the reset).
+    func hardResetToOrigin(
+        repoAt url: URL, defaultBranch: String
+    ) async throws -> HardResetSummary
 }
 
 actor LiveGitService: GitService {
@@ -184,6 +200,100 @@ actor LiveGitService: GitService {
             behind: behind,
             unpushed: unpushed
         )
+    }
+
+    // MARK: - Hard reset to origin
+
+    func hardResetToOrigin(
+        repoAt url: URL, defaultBranch: String
+    ) async throws -> HardResetSummary {
+        // Capture pre-reset summary BEFORE we mutate anything — once we
+        // switch branches and reset --hard, the dirty count and the
+        // ahead-of-main count are no longer recoverable.
+        let dirtyCount = preResetDirtyFileCount(at: url)
+
+        // Discarded commits = commits on HEAD that aren't reachable from
+        // origin/<defaultBranch>. This catches both:
+        //   * "on a feature branch with N commits" → N
+        //   * "on main but N commits ahead of origin/main" → N
+        let currentBranch = runGit(
+            ["symbolic-ref", "--short", "HEAD"], at: url
+        ) ?? ""
+        let (ahead, _) = aheadBehind(
+            at: url,
+            defaultBranch: defaultBranch,
+            currentBranch: currentBranch
+        )
+
+        // Now the actual reset via SwiftGitX.
+        let repo = try SwiftGitX.Repository(at: url, createIfNotExists: false)
+
+        // Fetch origin so origin/<defaultBranch> is up-to-date. We resolve
+        // the origin remote explicitly since `fetch(remote:)` will fall
+        // back to the current-branch upstream if `nil` is passed, which we
+        // don't always have.
+        let origin = try repo.remote.get(named: "origin")
+        try await repo.fetch(remote: origin)
+
+        // Switch to the local default branch (creating it if needed by
+        // tracking the remote).
+        let defaultLocal: SwiftGitX.Branch
+        if let local = repo.branch[defaultBranch, type: .local] {
+            defaultLocal = local
+            try repo.switch(to: defaultLocal)
+        } else {
+            // No local default branch yet — `switch` against the remote
+            // ref will create one with upstream tracking.
+            let remoteBranch = try repo.branch.get(
+                named: "origin/\(defaultBranch)", type: .remote
+            )
+            try repo.switch(to: remoteBranch)
+        }
+
+        // Resolve the remote tip and reset --hard.
+        let remoteRef = try repo.branch.get(
+            named: "origin/\(defaultBranch)", type: .remote
+        )
+        guard let remoteTip = remoteRef.target as? SwiftGitX.Commit else {
+            throw NSError(
+                domain: "GitService", code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "origin/\(defaultBranch) tip is not a commit"
+                ]
+            )
+        }
+        try repo.reset(to: remoteTip, mode: .hard)
+
+        return HardResetSummary(
+            discardedDirtyFiles: dirtyCount,
+            discardedCommits: ahead
+        )
+    }
+
+    /// Count of dirty files (anything that isn't `.current` or `.ignored`)
+    /// at `url`. Used by hardResetToOrigin to record the pre-reset state.
+    private func preResetDirtyFileCount(at url: URL) -> Int {
+        do {
+            let repo = try SwiftGitX.Repository(
+                at: url, createIfNotExists: false
+            )
+            let entries = try repo.status(
+                options: SwiftGitX.StatusOption.default
+            )
+            return entries.filter { entry in
+                entry.status.contains { status in
+                    switch status {
+                    case .current, .ignored:
+                        return false
+                    default:
+                        return true
+                    }
+                }
+            }.count
+        } catch {
+            return 0
+        }
     }
 
     /// Detect the repo's default branch using the same fallback chain

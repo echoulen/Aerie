@@ -402,4 +402,101 @@ final class GitServiceTests: XCTestCase {
         XCTAssertNil(state.behind)
         XCTAssertNil(state.unpushed)
     }
+
+    // MARK: - Task 5.5: hardResetToOrigin
+
+    func test_hardResetToOrigin_returnsToMainAndCleansWorkingTree() async throws {
+        // Build a clone diverged from origin/main: on its own branch with
+        // one local commit and a dirty file.
+        let remoteDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString + "-remote.git")
+        try shell([
+            "git", "init", "-q", "--bare", "-b", "main", remoteDir.path,
+        ])
+
+        // Seed origin/main with a real commit so origin has a tip to reset to.
+        let seedDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(
+            at: seedDir, withIntermediateDirectories: true
+        )
+        try shell(["git", "-C", seedDir.path, "init", "-q", "-b", "main"])
+        try shell([
+            "git", "-C", seedDir.path,
+            "remote", "add", "origin", remoteDir.path,
+        ])
+        try "hi".write(
+            to: seedDir.appendingPathComponent("a.txt"),
+            atomically: true, encoding: .utf8
+        )
+        try shell(["git", "-C", seedDir.path, "add", "."])
+        try shell([
+            "git", "-C", seedDir.path,
+            "-c", "user.email=t@t",
+            "-c", "user.name=T",
+            "commit", "-q", "-m", "init",
+        ])
+        try shell([
+            "git", "-C", seedDir.path,
+            "push", "-q", "-u", "origin", "main",
+        ])
+
+        // Clone, branch off, commit a local change, dirty a file.
+        let cloneDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try shell(["git", "clone", "-q", remoteDir.path, cloneDir.path])
+        try shell([
+            "git", "-C", cloneDir.path,
+            "config", "user.email", "t@t",
+        ])
+        try shell([
+            "git", "-C", cloneDir.path,
+            "config", "user.name", "T",
+        ])
+        try shell([
+            "git", "-C", cloneDir.path,
+            "checkout", "-q", "-b", "feat/lost",
+        ])
+        try addCommit(in: cloneDir, file: "lostfile")
+        // Dirty the working tree.
+        try "dirty".write(
+            to: cloneDir.appendingPathComponent("a.txt"),
+            atomically: true, encoding: .utf8
+        )
+
+        // Sanity: we're on feat/lost, dirty, 1 commit ahead of main.
+        let preBranch = try shell([
+            "git", "-C", cloneDir.path, "symbolic-ref", "--short", "HEAD",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(preBranch, "feat/lost")
+
+        let svc = LiveGitService()
+        let summary = try await svc.hardResetToOrigin(
+            repoAt: cloneDir, defaultBranch: "main"
+        )
+
+        // 1 dirty file (a.txt), 1 ahead-of-main commit (lostfile).
+        XCTAssertEqual(summary.discardedDirtyFiles, 1)
+        XCTAssertEqual(summary.discardedCommits, 1)
+
+        // Now we should be on main, clean.
+        let postBranch = try shell([
+            "git", "-C", cloneDir.path, "symbolic-ref", "--short", "HEAD",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(postBranch, "main")
+
+        let postStatus = try shell([
+            "git", "-C", cloneDir.path, "status", "--porcelain",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(postStatus, "")
+
+        // HEAD should match origin/main.
+        let headSha = try shell([
+            "git", "-C", cloneDir.path, "rev-parse", "HEAD",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let originSha = try shell([
+            "git", "-C", cloneDir.path, "rev-parse", "origin/main",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(headSha, originSha)
+    }
 }
