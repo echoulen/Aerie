@@ -46,5 +46,8 @@ struct SegmentedToggle: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // ⌘1 → PRs, ⌘2 → Repos. The shortcut is active whenever this button's
+        // host view is in the responder chain (i.e. the main window is key).
+        .keyboardShortcut(tab == .prs ? "1" : "2", modifiers: .command)
     }
 }
