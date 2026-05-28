@@ -246,6 +246,73 @@ final class MultiAccountAPITests: XCTestCase {
         XCTAssertNil(observedUnknown)
     }
 
+    // MARK: lastUsed
+
+    func test_lastUsed_recordsTimestampOnSuccess() async throws {
+        let primary = UUID()
+        let secondary = UUID()
+        let primaryToken = "primary_tok"
+        let secondaryToken = "secondary_tok"
+        let repoId = UUID()
+
+        let stub = StubGitHubAPIClient()
+        await stub.enqueue(.prs([]), forToken: primaryToken)
+
+        let fixed = Date(timeIntervalSince1970: 1_700_000_000)
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: primaryToken, secondary: secondaryToken] },
+            accountsInOrder: { [primary, secondary] },
+            now: { fixed }
+        )
+
+        // Before any call → nil for every account.
+        let beforePrimary = await api.lastUsed(forAccount: primary)
+        XCTAssertNil(beforePrimary)
+        let beforeSecondary = await api.lastUsed(forAccount: secondary)
+        XCTAssertNil(beforeSecondary)
+
+        _ = try await api.listOpenPRs(owner: "acme", repo: "widgets", repoId: repoId)
+
+        // Primary was used → records the injected `now`.
+        let afterPrimary = await api.lastUsed(forAccount: primary)
+        XCTAssertEqual(afterPrimary, fixed)
+        // Secondary was never tried → still nil.
+        let afterSecondary = await api.lastUsed(forAccount: secondary)
+        XCTAssertNil(afterSecondary)
+    }
+
+    func test_lastUsed_recordsTimestampForFallbackAccount() async throws {
+        let primary = UUID()
+        let secondary = UUID()
+        let primaryToken = "bad_tok"
+        let secondaryToken = "good_tok"
+        let repoId = UUID()
+
+        let stub = StubGitHubAPIClient()
+        await stub.enqueue(
+            .apiError(GitHubAPIError(status: 401, message: "Bad credentials")),
+            forToken: primaryToken
+        )
+        await stub.enqueue(.prs([]), forToken: secondaryToken)
+
+        let fixed = Date(timeIntervalSince1970: 1_700_005_555)
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: primaryToken, secondary: secondaryToken] },
+            accountsInOrder: { [primary, secondary] },
+            now: { fixed }
+        )
+
+        _ = try await api.listOpenPRs(owner: "acme", repo: "widgets", repoId: repoId)
+
+        // Primary failed → no record. Secondary succeeded → record.
+        let primaryRecord = await api.lastUsed(forAccount: primary)
+        XCTAssertNil(primaryRecord)
+        let secondaryRecord = await api.lastUsed(forAccount: secondary)
+        XCTAssertEqual(secondaryRecord, fixed)
+    }
+
     // MARK: helpers
 
     private func makePR(repoId: UUID, number: Int) -> PullRequest {
