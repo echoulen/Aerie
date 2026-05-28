@@ -8,6 +8,27 @@ struct AerieApp: App {
                 .frame(minWidth: 1240, minHeight: 880)
         }
         .windowStyle(.hiddenTitleBar)
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                SettingsCommand()
+            }
+        }
+
+        Window("Aerie · Settings", id: "settings") {
+            SettingsWindow()
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+    }
+}
+
+private struct SettingsCommand: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Button("Settings…") {
+            openWindow(id: "settings")
+        }
+        .keyboardShortcut(",", modifiers: .command)
     }
 }
 
