@@ -27,6 +27,13 @@ actor PollingScheduler {
     private var fetchedAt: [UUID: Date] = [:]
     private var loopTask: Task<Void, Never>?
 
+    /// Most recent rate-limit snapshot (the integration layer reports the
+    /// worst-case account here). When `remaining < rateLimitThreshold` and we
+    /// haven't reached `resetEpoch` yet, both cadences are doubled.
+    private(set) var rateLimitThrottle: RateLimitSnapshot?
+
+    private static let rateLimitThreshold = 500
+
     // MARK: Init
 
     init(
@@ -49,6 +56,13 @@ actor PollingScheduler {
     }
 
     func setHeartbeat(_ interval: TimeInterval) { heartbeat = interval }
+
+    /// Called by the integration layer (Phase 8+) whenever a fresh rate-limit
+    /// snapshot becomes available for the worst-case account (lowest remaining).
+    /// Pass `nil` to clear any current throttle hint.
+    func reportRateLimit(_ snapshot: RateLimitSnapshot?) {
+        rateLimitThrottle = snapshot
+    }
 
     // MARK: Loop control
 
@@ -93,12 +107,28 @@ actor PollingScheduler {
     // MARK: Due-set + dispatch
 
     private func dueRepos(repoIds: [UUID], now: Date) -> [UUID] {
-        repoIds.filter { id in
+        let (active, background) = effectiveCadences(now: now)
+        return repoIds.filter { id in
             let last = fetchedAt[id] ?? .distantPast
             let elapsed = now.timeIntervalSince(last)
-            let cadence = (id == activeRepoId) ? activeCadence : backgroundCadence
+            let cadence = (id == activeRepoId) ? active : background
             return elapsed >= cadence
         }
+    }
+
+    /// Applies the rate-limit throttle if a current snapshot says we are below
+    /// the threshold and the reset epoch has not yet passed.
+    private func effectiveCadences(now: Date) -> (active: TimeInterval, background: TimeInterval) {
+        let throttled: Bool
+        if let snap = rateLimitThrottle,
+           snap.remaining < Self.rateLimitThreshold,
+           now.timeIntervalSince1970 < snap.resetEpoch {
+            throttled = true
+        } else {
+            throttled = false
+        }
+        let factor: TimeInterval = throttled ? 2 : 1
+        return (activeCadence * factor, backgroundCadence * factor)
     }
 
     private func refreshAll(_ ids: [UUID], now: Date) async {

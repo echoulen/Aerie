@@ -90,6 +90,84 @@ final class PollingSchedulerTests: XCTestCase {
         XCTAssertEqual(third.count, 1)
     }
 
+    // MARK: Task 7.3 — rate-limit throttle
+
+    func test_rateLimitThrottle_doublesCadences() async throws {
+        let recorder = RefreshRecorder()
+        let scheduler = PollingScheduler(clock: VirtualClock()) { id in
+            await recorder.record(id)
+        }
+        let id = UUID()
+        await scheduler.setActive(id)
+
+        // Seed at t=1_700_000_000.
+        let base = TimeInterval(1_700_000_000)
+        await scheduler.tickOnce(repoIds: [id], now: Date(timeIntervalSince1970: base))
+        let snap1 = await recorder.snapshot()
+        XCTAssertEqual(snap1.count, 1)
+
+        // Without throttle: active cadence is 30s, so +30 from seed is due.
+        await scheduler.tickOnce(repoIds: [id], now: Date(timeIntervalSince1970: base + 30))
+        let snap2 = await recorder.snapshot()
+        XCTAssertEqual(snap2.count, 2)
+
+        // Apply throttle (remaining < 500, reset in future).
+        await scheduler.reportRateLimit(RateLimitSnapshot(
+            remaining: 100,
+            resetEpoch: base + 3600,
+            limit: 5000
+        ))
+
+        // Cadence is now doubled to 60s. At +30 from last fetch, NOT due.
+        await scheduler.tickOnce(repoIds: [id], now: Date(timeIntervalSince1970: base + 60))
+        let snap3 = await recorder.snapshot()
+        XCTAssertEqual(snap3.count, 2, "throttled cadence not yet elapsed")
+
+        // At +60 from last fetch, due.
+        await scheduler.tickOnce(repoIds: [id], now: Date(timeIntervalSince1970: base + 90))
+        let snap4 = await recorder.snapshot()
+        XCTAssertEqual(snap4.count, 3)
+
+        // After reset epoch passes, throttle clears even if snapshot still present.
+        await scheduler.tickOnce(repoIds: [id], now: Date(timeIntervalSince1970: base + 3700))
+        let afterReset = await recorder.snapshot()
+        XCTAssertGreaterThanOrEqual(afterReset.count, 4)
+    }
+
+    func test_rateLimitThrottle_clearsWhenRemainingRecovers() async throws {
+        let recorder = RefreshRecorder()
+        let scheduler = PollingScheduler(clock: VirtualClock()) { id in
+            await recorder.record(id)
+        }
+        let id = UUID()
+        await scheduler.setActive(id)
+
+        let base = TimeInterval(1_700_000_000)
+        await scheduler.tickOnce(repoIds: [id], now: Date(timeIntervalSince1970: base))
+
+        // Throttle on.
+        await scheduler.reportRateLimit(RateLimitSnapshot(
+            remaining: 100,
+            resetEpoch: base + 3600,
+            limit: 5000
+        ))
+        // At +30, throttled cadence (60s) means NOT due.
+        await scheduler.tickOnce(repoIds: [id], now: Date(timeIntervalSince1970: base + 30))
+        let snap1 = await recorder.snapshot()
+        XCTAssertEqual(snap1.count, 1)
+
+        // Fresh snapshot says remaining recovered.
+        await scheduler.reportRateLimit(RateLimitSnapshot(
+            remaining: 4000,
+            resetEpoch: base + 3600,
+            limit: 5000
+        ))
+        // Cadence is back to 30s — at +30 from last fetch, due.
+        await scheduler.tickOnce(repoIds: [id], now: Date(timeIntervalSince1970: base + 30))
+        let snap2 = await recorder.snapshot()
+        XCTAssertEqual(snap2.count, 2)
+    }
+
     // MARK: Task 7.2 — bounded concurrency
 
     func test_refreshAll_capsConcurrencyToFive() async throws {
