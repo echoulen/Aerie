@@ -1,0 +1,58 @@
+import SwiftUI
+import AppKit
+
+/// Settings → About screen. Shows the Aerie brand, version + build SHA, and
+/// a link to the GitHub repository. Versions are sourced from the bundled
+/// `Info.plist`; the build SHA is read from a custom `GitCommitSHA` key that
+/// is set by the release pipeline.
+struct AboutScreen: View {
+    /// Production callers omit these; tests inject deterministic values.
+    var version: String = AboutScreen.defaultVersion
+    var buildSHA: String = AboutScreen.defaultBuildSHA
+    var githubURL: URL = URL(string: "https://github.com/echoulen/Aerie")!
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Spacer()
+            BrandMark(size: 96)
+                .padding(.bottom, 8)
+            Text("Aerie")
+                .font(AerieFont.display())
+                .foregroundStyle(AerieColor.text1)
+            VStack(spacing: 4) {
+                Text("version \(version)")
+                    .font(AerieFont.small())
+                    .foregroundStyle(AerieColor.text2)
+                Text(buildSHA)
+                    .font(AerieFont.code(11))
+                    .foregroundStyle(AerieColor.text3)
+            }
+            Button {
+                NSWorkspace.shared.open(githubURL)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.up.right.square")
+                    Text("github.com/echoulen/Aerie")
+                }
+                .font(AerieFont.small().weight(.medium))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .foregroundStyle(AerieColor.amber)
+                .background(Capsule().fill(AerieColor.amberSoft))
+                .overlay(Capsule().strokeBorder(AerieColor.amberLine, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(AerieMetric.pagePadding)
+    }
+
+    private static var defaultVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+    }
+
+    private static var defaultBuildSHA: String {
+        Bundle.main.infoDictionary?["GitCommitSHA"] as? String ?? "dev"
+    }
+}
