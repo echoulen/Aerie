@@ -53,7 +53,7 @@ each agent maintaining its own.
 | Layer | Choice | Notes |
 |---|---|---|
 | App shell | macOS native (SwiftUI) | "Best GUI experience" requirement |
-| Local git | `SwiftGit2` (libgit2 bindings) | Read state + run hard reset |
+| Local git | `SwiftGitX` (modern Swift wrapper over libgit2) | Read state + run hard reset. Picked over `SwiftGit2` because SwiftGitX is actively maintained (latest 0.4.0, 2025-12), Swift 6 ready (zero data-race errors), and exposes an async/await + throwing API. |
 | GitHub API | `URLSession` + `Codable` | GraphQL primary, REST for `merge` |
 | Persistence | `GRDB` (SQLite) | Repo config + response cache |
 | Auth source | `gh` CLI (`gh auth status`) | Multi-account, tokens held in-memory |
@@ -105,7 +105,7 @@ the same logic as F2.
 
 | Action | Target | Implementation |
 |---|---|---|
-| **Hard reset to default branch** | one repo | Sequence: `git fetch origin` → `git checkout <defaultBranch>` → `git reset --hard origin/<defaultBranch>`. If working tree is dirty, the confirmation dialog explicitly warns "this will discard N uncommitted changes". Aborts (does not partially apply) on any error. Implemented via SwiftGit2. |
+| **Hard reset to default branch** | one repo | Sequence: `git fetch origin` → `git checkout <defaultBranch>` → `git reset --hard origin/<defaultBranch>`. If working tree is dirty, the confirmation dialog explicitly warns "this will discard N uncommitted changes". Aborts (does not partially apply) on any error. Implemented via SwiftGitX (`repository.fetch(remote:)` → `repository.switch(to:)` → `repository.reset(to: commit, mode: .hard)`). |
 | **Merge PR** | one PR | GitHub REST `PUT /repos/{owner}/{repo}/pulls/{number}/merge` using the repo's primary account token. Assumes PR is mergeable; surfaces GitHub's error if not. Merge method: `squash` (matches the user's standard workflow). Confirmation dialog required. |
 
 | **Open in browser** | repo / PR | `NSWorkspace.shared.open(url)` to the entity's GitHub HTML URL. Repo-level shortcuts: open the repo page, the Pull Requests tab, the Code tab. (The Issues tab is also a valid jump target even though Aerie itself does not list issues.) |
@@ -192,7 +192,7 @@ ViewModels  (one per screen)         MCPRouter
                  ▼                  ▼
 Services  (protocol-defined for testing)
     ├── GitHubAPI       (URLSession + Codable, GraphQL + REST)
-    ├── GitService      (SwiftGit2 wrapper, actor-isolated)
+    ├── GitService      (SwiftGitX wrapper, actor-isolated)
     ├── AuthService     (gh CLI subprocess)
     └── PollingScheduler (actor, owns background Task)
                  │
@@ -387,11 +387,11 @@ hour rolls over and surfaces a yellow rate-limit badge in the UI.
 
 Per refresh of one repo, two parallel lanes execute (scoped to that repo's
 primary account, with fallback):
-1. `local_git_status` — local only; SwiftGit2 reads `.git/`. Never fails
+1. `local_git_status` — local only; SwiftGitX reads `.git/`. Never fails
    the lane; the repo's last status is preserved on read error.
 2. `prs + per-PR local checkout state` — one GraphQL query gathers all
    open PRs for the repo; for each PR, `PRLocalState` is computed locally
-   via SwiftGit2 (does the source branch exist? is it current? if so,
+   via SwiftGitX (does the source branch exist? is it current? if so,
    its dirty / ahead / behind / unpushed counts).
 
 Both lanes are awaited together; the repo's `fetched_at` is updated only
@@ -410,7 +410,7 @@ as a per-repo badge).
 | Local repo path missing | Repo row shows red badge | Action button: "Locate folder…" or "Remove repo" |
 | `fetch origin` failure during hard reset | Toast with full git error, log entry | No state change — operation aborted |
 | `merge PR` failure (GitHub returns 4xx with reason) | Toast with GitHub's message | No retry; user fixes upstream |
-| SwiftGit2 panic / unexpected error | Caught, toast + log; service marked degraded | App keeps running |
+| SwiftGitX `SwiftGitXError` / unexpected libgit2 error | Caught at the GitService boundary, toast + log; service marked degraded | App keeps running |
 
 Destructive actions (hard reset, merge) always go through an explicit
 confirmation dialog showing the target.
