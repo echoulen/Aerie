@@ -238,6 +238,99 @@ final class GitHubAPIClientTests: XCTestCase {
         }
     }
 
+    // MARK: mergePR
+
+    func test_mergePR_sendsPUTWithSquashAndReturnsResult() async throws {
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: nil
+            )!
+            let body = #"{"sha":"abc123","merged":true,"message":"Pull Request successfully merged"}"#
+            return (response, Data(body.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let result = try await client.mergePR(
+            owner: "acme",
+            repo: "widgets",
+            number: 42,
+            method: .squash,
+            token: "ghp_merge"
+        )
+
+        XCTAssertEqual(result, MergeResult(sha: "abc123", merged: true))
+
+        let req = try XCTUnwrap(StubURLProtocol.lastRequest)
+        XCTAssertEqual(
+            req.url?.absoluteString,
+            "https://api.github.com/repos/acme/widgets/pulls/42/merge"
+        )
+        XCTAssertEqual(req.httpMethod, "PUT")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer ghp_merge")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Accept"), "application/vnd.github+json")
+
+        let body = try XCTUnwrap(StubURLProtocol.lastBody)
+        let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        XCTAssertEqual(json?["merge_method"] as? String, "squash")
+    }
+
+    func test_mergePR_throwsOnNotMergeable() async throws {
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 405,
+                httpVersion: "HTTP/1.1",
+                headerFields: nil
+            )!
+            let body = #"{"message":"Pull Request is not mergeable"}"#
+            return (response, Data(body.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        do {
+            _ = try await client.mergePR(
+                owner: "acme",
+                repo: "widgets",
+                number: 42,
+                method: .merge,
+                token: "ghp_test"
+            )
+            XCTFail("expected throw")
+        } catch let error as GitHubAPIError {
+            XCTAssertEqual(error.status, 405)
+            XCTAssertEqual(error.message, "Pull Request is not mergeable")
+        }
+    }
+
+    func test_mergePR_passesMergeMethodVerbatim() async throws {
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: nil
+            )!
+            let body = #"{"sha":"deadbeef","merged":true}"#
+            return (response, Data(body.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        _ = try await client.mergePR(
+            owner: "acme",
+            repo: "widgets",
+            number: 7,
+            method: .rebase,
+            token: "ghp_test"
+        )
+
+        let body = try XCTUnwrap(StubURLProtocol.lastBody)
+        let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        XCTAssertEqual(json?["merge_method"] as? String, "rebase")
+    }
+
     func test_listOpenPRs_handlesEmpty() async throws {
         let responseJSON = """
         { "data": { "repository": { "pullRequests": { "nodes": [] } } } }
