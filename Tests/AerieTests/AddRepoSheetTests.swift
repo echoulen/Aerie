@@ -34,4 +34,26 @@ final class AddRepoSheetTests: XCTestCase {
         ])
         assertSnapshot(of: host(vm), as: .image(size: CGSize(width: 720, height: 600)))
     }
+
+    func test_addRepoSheet_detected() {
+        let vm = AddRepoSheetViewModel()
+        let suggested = UUID(uuidString: "12345678-0000-0000-0000-000000000000")!
+        let detected = DetectedRepo(
+            url: URL(fileURLWithPath: "/opt/repos/aerie"),
+            githubOwner: "carlos-li",
+            githubRepo: "aerie",
+            host: "github.com",
+            defaultBranch: "main",
+            currentBranch: "feat/phase13",
+            isDirty: true,
+            suggestedAccountId: suggested
+        )
+        // Inject the detected state directly by routing through the VM API.
+        // `runDetection` writes the state, but for a deterministic snapshot
+        // we set it via the chooseFolder/runDetection path with a stub
+        // detector. Simpler: call into a private path through chooseFolder
+        // is not feasible — fall back to seeding state via a helper.
+        vm.injectStateForTesting(.detected(detected))
+        assertSnapshot(of: host(vm), as: .image(size: CGSize(width: 720, height: 600)))
+    }
 }

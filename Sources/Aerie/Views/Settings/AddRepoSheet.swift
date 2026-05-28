@@ -38,26 +38,59 @@ struct DetectedRepo: Equatable {
 
 /// View model for the Add-Repository sheet.
 ///
-/// Phase 13.4 implements only the empty + detecting + error chrome.
-/// Phase 13.5 will replace the `.detected` placeholder body and wire
-/// `chooseFolder` through `RepoDetector`. Phase 13.6 will populate
-/// `candidates` from `RepoCandidateScanner`.
+/// Phase 13.5 wires `chooseFolder` through `RepoDetector` and surfaces
+/// the resulting `.detected` (or `.error`) state. Phase 13.6 will
+/// populate `candidates` from `RepoCandidateScanner`.
 @Observable
 final class AddRepoSheetViewModel {
     private(set) var state: AddRepoSheetState = .empty
     private(set) var candidates: [RepoCandidate] = []
 
+    /// Accounts in the system. Used by detection to suggest a primary
+    /// account by host. The integration layer refreshes this when the
+    /// sheet opens; tests inject directly.
+    var accounts: [GitHubAccount] = []
+
+    private let detector: RepoDetector
+
+    init(detector: RepoDetector = RepoDetector(), accounts: [GitHubAccount] = []) {
+        self.detector = detector
+        self.accounts = accounts
+    }
+
     func reset() { state = .empty }
 
+    /// Move to `.detecting` immediately so the UI flips, then run the
+    /// detector. The intermediate state is preserved on cancellation
+    /// (we don't reset to `.empty`) so users see what folder is
+    /// pending.
     func chooseFolder(_ url: URL) {
         state = .detecting(url)
-        // Phase 13.5 will kick off the actual detection here.
+        Task { await self.runDetection(at: url) }
+    }
+
+    func runDetection(at url: URL) async {
+        do {
+            let detected = try await detector.detect(at: url, accounts: accounts)
+            self.state = .detected(detected)
+        } catch let err as RepoDetector.DetectionError {
+            self.state = .error(url, err.message)
+        } catch {
+            self.state = .error(url, error.localizedDescription)
+        }
     }
 
     /// Phase 13.6 wires this from the scanner; exposed now so tests
     /// can seed the recently-seen list.
     func setCandidates(_ values: [RepoCandidate]) {
         self.candidates = values
+    }
+
+    /// Test-only seam for snapshotting the `.detected` and `.error`
+    /// states without standing up a real folder. Don't call from
+    /// production code — use `chooseFolder` instead.
+    func injectStateForTesting(_ state: AddRepoSheetState) {
+        self.state = state
     }
 }
 
@@ -138,8 +171,8 @@ struct AddRepoSheet: View {
             emptyState
         case .detecting(let url):
             detectingState(url)
-        case .detected:
-            detectedStatePlaceholder
+        case .detected(let detected):
+            detectedView(detected)
         case .error(let url, let msg):
             errorState(url, msg)
         }
@@ -233,10 +266,65 @@ struct AddRepoSheet: View {
         }
     }
 
-    private var detectedStatePlaceholder: some View {
-        // Phase 13.5 replaces this with the real detected UI.
-        Text("Detected — UI in 13.5")
-            .foregroundStyle(AerieColor.text3)
+    /// Detected-state body: folder card + key/value summary + a hint
+    /// about polling cadence. Account picker is deliberately simple
+    /// here — Phase 16's integration pass can promote it to a real
+    /// dropdown once detection is wired into the integration layer.
+    private func detectedView(_ d: DetectedRepo) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Folder card
+            HStack(spacing: 12) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(AerieColor.amber)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(d.url.lastPathComponent)
+                        .font(AerieFont.body().weight(.medium))
+                        .foregroundStyle(AerieColor.text1)
+                    Text(d.url.path)
+                        .font(AerieFont.code(11))
+                        .foregroundStyle(AerieColor.text3)
+                }
+                Spacer()
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(AerieColor.glass1)
+            )
+
+            // Summary rows
+            kvRow("GitHub", "\(d.githubOwner)/\(d.githubRepo)")
+            kvRow("Host", d.host)
+            kvRow("Default branch", d.defaultBranch)
+            kvRow("Current branch", d.currentBranch.isEmpty ? "(none)" : d.currentBranch)
+            kvRow("Dirty", d.isDirty ? "yes" : "no")
+            if let suggested = d.suggestedAccountId {
+                let short = suggested.uuidString.prefix(8)
+                kvRow("Account", "suggested by host (id: \(short))")
+            } else {
+                kvRow("Account", "no match")
+            }
+
+            Text("Polling starts within 30s after adding.")
+                .font(AerieFont.eyebrow())
+                .foregroundStyle(AerieColor.text3)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func kvRow(_ key: String, _ value: String) -> some View {
+        HStack {
+            Text(key)
+                .font(AerieFont.small())
+                .foregroundStyle(AerieColor.text3)
+                .frame(width: 120, alignment: .leading)
+            Text(value)
+                .font(AerieFont.body())
+                .foregroundStyle(AerieColor.text1)
+            Spacer()
+        }
     }
 
     private func errorState(_ url: URL, _ msg: String) -> some View {
