@@ -87,6 +87,54 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(decoded.id, .int(1))
     }
 
+    func test_rotateToken_invalidatesOldToken() async throws {
+        let router = JSONRPCRouter()
+        await router.register("tools/list") { _ in .object(["tools": .array([])]) }
+        let server = MCPServer(router: router)
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        let originalToken = await server.token
+        XCTAssertNotNil(originalToken)
+        let newToken = await server.rotateToken()
+        XCTAssertNotEqual(originalToken, newToken)
+        let liveToken = await server.token
+        XCTAssertEqual(liveToken, newToken)
+
+        guard let endpoint = await server.endpoint, let oldToken = originalToken else {
+            XCTFail("endpoint/token missing"); return
+        }
+
+        // Hit the endpoint with the OLD token — must come back as -32001.
+        let body = try JSONEncoder().encode(JSONRPCRequest(
+            id: .int(1), method: "tools/list", params: nil
+        ))
+        var req = URLRequest(url: endpoint)
+        req.httpMethod = "POST"
+        req.httpBody = body
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(oldToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        let http = response as! HTTPURLResponse
+        let status = http.statusCode
+        XCTAssertEqual(status, 401)
+        let decoded = try JSONDecoder().decode(JSONRPCResponse.self, from: data)
+        XCTAssertEqual(decoded.error?.code, -32001)
+
+        // Sanity: the NEW token works.
+        var req2 = URLRequest(url: endpoint)
+        req2.httpMethod = "POST"
+        req2.httpBody = body
+        req2.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req2.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+        let (data2, response2) = try await URLSession.shared.data(for: req2)
+        let http2 = response2 as! HTTPURLResponse
+        XCTAssertEqual(http2.statusCode, 200)
+        let decoded2 = try JSONDecoder().decode(JSONRPCResponse.self, from: data2)
+        XCTAssertNil(decoded2.error)
+    }
+
     func test_serverRoundtrip_malformedBody_returns400AndParseError() async throws {
         let router = JSONRPCRouter()
         let server = MCPServer(router: router)
