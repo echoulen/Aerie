@@ -10,6 +10,7 @@ actor AppDatabase {
     nonisolated var prLocalStateCache: PRLocalStateCacheDAO { PRLocalStateCacheDAO(dbQueue: dbQueue) }
     nonisolated var gitStatusCache: GitStatusCacheDAO { GitStatusCacheDAO(dbQueue: dbQueue) }
     nonisolated var mcpActivity: MCPActivityDAO { MCPActivityDAO(dbQueue: dbQueue) }
+    nonisolated var settings: SettingsDAO { SettingsDAO(dbQueue: dbQueue) }
 
     static func defaultURL() -> URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
