@@ -212,6 +212,40 @@ final class MultiAccountAPITests: XCTestCase {
         XCTAssertEqual(count, 1, "should only have called the primary, no fallback for network errors")
     }
 
+    // MARK: rate-limit
+
+    func test_multiAccount_rateLimitForAccount_returnsSnapshot() async throws {
+        let primary = UUID()
+        let secondary = UUID()
+        let primaryToken = "primary_tok"
+        let secondaryToken = "secondary_tok"
+        let repoId = UUID()
+
+        let stub = StubGitHubAPIClient()
+        let snap = RateLimitSnapshot(remaining: 1234, resetEpoch: 1_700_000_000, limit: 5000)
+        await stub.setRateLimit(snap, forToken: primaryToken)
+        await stub.enqueue(.prs([]), forToken: primaryToken)
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: primaryToken, secondary: secondaryToken] },
+            accountsInOrder: { [primary, secondary] }
+        )
+
+        // Make a call so we hit the primary token (and verify result).
+        _ = try await api.listOpenPRs(owner: "acme", repo: "widgets", repoId: repoId)
+
+        let observedPrimary = await api.rateLimit(forAccount: primary)
+        XCTAssertEqual(observedPrimary, snap)
+
+        let observedSecondary = await api.rateLimit(forAccount: secondary)
+        XCTAssertNil(observedSecondary, "no call yet on secondary's token")
+
+        // Unknown account → nil.
+        let observedUnknown = await api.rateLimit(forAccount: UUID())
+        XCTAssertNil(observedUnknown)
+    }
+
     // MARK: helpers
 
     private func makePR(repoId: UUID, number: Int) -> PullRequest {

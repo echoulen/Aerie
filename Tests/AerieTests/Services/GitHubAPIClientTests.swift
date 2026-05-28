@@ -331,6 +331,46 @@ final class GitHubAPIClientTests: XCTestCase {
         XCTAssertEqual(json?["merge_method"] as? String, "rebase")
     }
 
+    // MARK: rate-limit header tracking
+
+    func test_listOpenPRs_recordsRateLimitHeaders() async throws {
+        let responseJSON = """
+        { "data": { "repository": { "pullRequests": { "nodes": [] } } } }
+        """
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: [
+                    "x-ratelimit-remaining": "4321",
+                    "x-ratelimit-reset": "1735000000",
+                    "x-ratelimit-limit": "5000",
+                ]
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        _ = try await client.listOpenPRs(
+            owner: "acme",
+            repo: "widgets",
+            repoId: UUID(),
+            token: "ghp_rl"
+        )
+
+        let snap = client.lastRateLimit(token: "ghp_rl")
+        XCTAssertEqual(
+            snap,
+            RateLimitSnapshot(remaining: 4321, resetEpoch: 1_735_000_000, limit: 5000)
+        )
+    }
+
+    func test_lastRateLimit_returnsNilForUntouchedToken() {
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        XCTAssertNil(client.lastRateLimit(token: "never_used"))
+    }
+
     func test_listOpenPRs_handlesEmpty() async throws {
         let responseJSON = """
         { "data": { "repository": { "pullRequests": { "nodes": [] } } } }
