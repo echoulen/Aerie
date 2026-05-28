@@ -1,0 +1,414 @@
+import Foundation
+import SwiftGitX
+
+/// Summary of work discarded by a `hardResetToOrigin` call. Captures
+/// the state of the working tree just before the reset so we can show
+/// the user what they lost (or what they would lose, if surfaced in a
+/// confirmation dialog).
+struct HardResetSummary: Sendable, Equatable {
+    let discardedDirtyFiles: Int
+    let discardedCommits: Int
+}
+
+/// Service that reads (and later, mutates) state from a local Git repository
+/// via SwiftGitX (libgit2).
+///
+/// `readStatus` is the validation surface for Phase 5 — it must work end-to-end
+/// before downstream tasks (5.2 fetch/ahead-behind, 5.3 default-branch detection,
+/// 5.4 switch, 5.5 reset) layer on top.
+///
+/// The signature takes an explicit `repoId` because the git layer is a
+/// stateless transformer: the persistence layer is the source of truth for repo
+/// identity, so we don't want this service inventing UUIDs.
+protocol GitService: Actor {
+    func readStatus(at url: URL, repoId: UUID) async throws -> LocalGitStatus
+
+    /// Resolves the local checkout state of a PR's source branch.
+    /// Mirrors `readStatus`'s pattern of taking an external identity
+    /// (`prId`) so the git layer stays stateless.
+    ///
+    /// When the branch exists but is not currently checked out, only
+    /// existence is reported — dirty/ahead/behind/unpushed are nil because
+    /// computing them would require either a worktree switch (destructive)
+    /// or a fast-path that doesn't apply to most PR review flows.
+    func prLocalState(
+        repoAt url: URL, prId: UUID, sourceBranch: String
+    ) async throws -> PRLocalState
+
+    /// Destructively reset the working tree to `origin/<defaultBranch>`:
+    /// fetches origin, switches to the default branch, then `reset --hard`.
+    /// Returns a summary of what was discarded (captured before the reset).
+    func hardResetToOrigin(
+        repoAt url: URL, defaultBranch: String
+    ) async throws -> HardResetSummary
+}
+
+actor LiveGitService: GitService {
+    init() {}
+
+    func readStatus(at url: URL, repoId: UUID) async throws -> LocalGitStatus {
+        // Open the existing repository (do not create one if it doesn't exist).
+        // Fully qualify to avoid colliding with our local `Aerie.Repository`
+        // domain model.
+        let repo = try SwiftGitX.Repository(at: url, createIfNotExists: false)
+
+        // Collect status entries — `.default` already implies
+        // `[.includeUntracked, .recurseUntrackedDirectories]`, which matches
+        // the user-visible "git status" notion of "dirty".
+        let entries = try repo.status(options: SwiftGitX.StatusOption.default)
+
+        // Count anything that isn't strictly `.current` or `.ignored` as
+        // contributing to dirtiness. A single file can carry multiple flags
+        // (e.g. indexNew + workingTreeModified) — it should still count once.
+        let dirtyEntries = entries.filter { entry in
+            entry.status.contains { status in
+                switch status {
+                case .current, .ignored:
+                    return false
+                default:
+                    return true
+                }
+            }
+        }
+        let dirtyFileCount = dirtyEntries.count
+        let isDirty = dirtyFileCount > 0
+
+        // Resolve the current branch name. HEAD can be:
+        //   * a Branch (normal case — `.name` is e.g. "main")
+        //   * a Tag (HEAD detached on a tag)
+        //   * a Branch with name "HEAD" (detached on a commit)
+        // For a fresh repo with an initial commit on `main` the first case fires.
+        let currentBranch: String
+        do {
+            let head = try repo.HEAD
+            if let branch = head as? SwiftGitX.Branch, branch.name != "HEAD" {
+                currentBranch = branch.name
+            } else {
+                currentBranch = ""
+            }
+        } catch {
+            // Unborn HEAD (no commits) — leave empty.
+            currentBranch = ""
+        }
+
+        // Resolve the default branch via origin/HEAD → main → master chain.
+        let defaultBranch = detectDefaultBranch(at: url)
+
+        // Ahead/behind against origin/<defaultBranch>. Subprocess git because
+        // SwiftGitX 0.4.0 doesn't expose git_graph_ahead_behind and its
+        // `Repository.pointer` is module-internal.
+        let (ahead, behind) = aheadBehind(
+            at: url,
+            defaultBranch: defaultBranch,
+            currentBranch: currentBranch
+        )
+        let unpushed = unpushedCommitCount(at: url)
+        let originDefaultSha = originDefaultShortSha(
+            at: url, defaultBranch: defaultBranch
+        )
+
+        return LocalGitStatus(
+            repoId: repoId,
+            currentBranch: currentBranch,
+            isDirty: isDirty,
+            dirtyFileCount: dirtyFileCount,
+            aheadOfDefault: ahead,
+            behindOfDefault: behind,
+            unpushedCommits: unpushed,
+            originDefaultSha: originDefaultSha,
+            fetchedAt: Date()
+        )
+    }
+
+    // MARK: - PRLocalState
+
+    func prLocalState(
+        repoAt url: URL, prId: UUID, sourceBranch: String
+    ) async throws -> PRLocalState {
+        // 1. Does the local branch exist?
+        let exists = runGit(
+            ["show-ref", "--verify", "--quiet", "refs/heads/\(sourceBranch)"],
+            at: url
+        ) != nil
+
+        guard exists else {
+            return PRLocalState(
+                prId: prId,
+                sourceBranch: sourceBranch,
+                localBranchExists: false,
+                isCurrentBranch: false,
+                dirty: nil,
+                ahead: nil,
+                behind: nil,
+                unpushed: nil
+            )
+        }
+
+        // 2. Is it the current branch?
+        let currentBranch = runGit(
+            ["symbolic-ref", "--short", "HEAD"], at: url
+        ) ?? ""
+        let isCurrent = currentBranch == sourceBranch
+
+        guard isCurrent else {
+            // Branch exists but not checked out. We report only existence —
+            // computing dirty/ahead/behind would require a worktree switch
+            // (destructive) or a more expensive tree-diff that we don't need
+            // for the PR list rendering today.
+            return PRLocalState(
+                prId: prId,
+                sourceBranch: sourceBranch,
+                localBranchExists: true,
+                isCurrentBranch: false,
+                dirty: nil,
+                ahead: nil,
+                behind: nil,
+                unpushed: nil
+            )
+        }
+
+        // 3. Current branch — reuse the same machinery as readStatus.
+        let repo = try SwiftGitX.Repository(at: url, createIfNotExists: false)
+        let entries = try repo.status(options: SwiftGitX.StatusOption.default)
+        let dirtyFileCount = entries.filter { entry in
+            entry.status.contains { status in
+                switch status {
+                case .current, .ignored:
+                    return false
+                default:
+                    return true
+                }
+            }
+        }.count
+        let isDirty = dirtyFileCount > 0
+
+        let defaultBranch = detectDefaultBranch(at: url)
+        let (ahead, behind) = aheadBehind(
+            at: url,
+            defaultBranch: defaultBranch,
+            currentBranch: currentBranch
+        )
+        let unpushed = unpushedCommitCount(at: url)
+
+        return PRLocalState(
+            prId: prId,
+            sourceBranch: sourceBranch,
+            localBranchExists: true,
+            isCurrentBranch: true,
+            dirty: isDirty,
+            ahead: ahead,
+            behind: behind,
+            unpushed: unpushed
+        )
+    }
+
+    // MARK: - Hard reset to origin
+
+    func hardResetToOrigin(
+        repoAt url: URL, defaultBranch: String
+    ) async throws -> HardResetSummary {
+        // Capture pre-reset summary BEFORE we mutate anything — once we
+        // switch branches and reset --hard, the dirty count and the
+        // ahead-of-main count are no longer recoverable.
+        let dirtyCount = preResetDirtyFileCount(at: url)
+
+        // Discarded commits = commits on HEAD that aren't reachable from
+        // origin/<defaultBranch>. This catches both:
+        //   * "on a feature branch with N commits" → N
+        //   * "on main but N commits ahead of origin/main" → N
+        let currentBranch = runGit(
+            ["symbolic-ref", "--short", "HEAD"], at: url
+        ) ?? ""
+        let (ahead, _) = aheadBehind(
+            at: url,
+            defaultBranch: defaultBranch,
+            currentBranch: currentBranch
+        )
+
+        // Now the actual reset via SwiftGitX.
+        let repo = try SwiftGitX.Repository(at: url, createIfNotExists: false)
+
+        // Fetch origin so origin/<defaultBranch> is up-to-date. We resolve
+        // the origin remote explicitly since `fetch(remote:)` will fall
+        // back to the current-branch upstream if `nil` is passed, which we
+        // don't always have.
+        let origin = try repo.remote.get(named: "origin")
+        try await repo.fetch(remote: origin)
+
+        // Switch to the local default branch (creating it if needed by
+        // tracking the remote).
+        let defaultLocal: SwiftGitX.Branch
+        if let local = repo.branch[defaultBranch, type: .local] {
+            defaultLocal = local
+            try repo.switch(to: defaultLocal)
+        } else {
+            // No local default branch yet — `switch` against the remote
+            // ref will create one with upstream tracking.
+            let remoteBranch = try repo.branch.get(
+                named: "origin/\(defaultBranch)", type: .remote
+            )
+            try repo.switch(to: remoteBranch)
+        }
+
+        // Resolve the remote tip and reset --hard.
+        let remoteRef = try repo.branch.get(
+            named: "origin/\(defaultBranch)", type: .remote
+        )
+        guard let remoteTip = remoteRef.target as? SwiftGitX.Commit else {
+            throw NSError(
+                domain: "GitService", code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "origin/\(defaultBranch) tip is not a commit"
+                ]
+            )
+        }
+        try repo.reset(to: remoteTip, mode: .hard)
+
+        return HardResetSummary(
+            discardedDirtyFiles: dirtyCount,
+            discardedCommits: ahead
+        )
+    }
+
+    /// Count of dirty files (anything that isn't `.current` or `.ignored`)
+    /// at `url`. Used by hardResetToOrigin to record the pre-reset state.
+    private func preResetDirtyFileCount(at url: URL) -> Int {
+        do {
+            let repo = try SwiftGitX.Repository(
+                at: url, createIfNotExists: false
+            )
+            let entries = try repo.status(
+                options: SwiftGitX.StatusOption.default
+            )
+            return entries.filter { entry in
+                entry.status.contains { status in
+                    switch status {
+                    case .current, .ignored:
+                        return false
+                    default:
+                        return true
+                    }
+                }
+            }.count
+        } catch {
+            return 0
+        }
+    }
+
+    /// Detect the repo's default branch using the same fallback chain
+    /// the user would use manually:
+    ///   1. `git symbolic-ref refs/remotes/origin/HEAD` — the canonical answer
+    ///      if `origin/HEAD` is set (which it is on a fresh `git clone`).
+    ///   2. `refs/remotes/origin/main` exists?
+    ///   3. `refs/remotes/origin/master` exists?
+    ///   4. Else: `"main"`.
+    ///
+    /// Returns the short branch name (e.g. `"main"`, not `"origin/main"`).
+    private func detectDefaultBranch(at url: URL) -> String {
+        // Step 1: try origin/HEAD
+        if let raw = runGit(
+            ["symbolic-ref", "refs/remotes/origin/HEAD"], at: url
+        ) {
+            // raw is e.g. "refs/remotes/origin/main"
+            let prefix = "refs/remotes/origin/"
+            if raw.hasPrefix(prefix) {
+                let name = String(raw.dropFirst(prefix.count))
+                if !name.isEmpty { return name }
+            }
+        }
+
+        // Step 2: probe origin/main
+        if runGit(
+            ["show-ref", "--verify", "--quiet", "refs/remotes/origin/main"],
+            at: url
+        ) != nil {
+            return "main"
+        }
+
+        // Step 3: probe origin/master
+        if runGit(
+            ["show-ref", "--verify", "--quiet", "refs/remotes/origin/master"],
+            at: url
+        ) != nil {
+            return "master"
+        }
+
+        // Step 4: fall back to "main"
+        return "main"
+    }
+
+    /// Returns the 7-char short SHA of `origin/<defaultBranch>` if it
+    /// exists. Empty string if the remote ref is missing (e.g. local-only
+    /// repo). Mirrors `git rev-parse --short origin/<defaultBranch>`.
+    private func originDefaultShortSha(
+        at url: URL, defaultBranch: String
+    ) -> String {
+        guard let raw = runGit(
+            ["rev-parse", "--short", "origin/\(defaultBranch)"],
+            at: url
+        ) else { return "" }
+        return raw
+    }
+
+    // MARK: - Subprocess helpers
+
+    /// Run `git` with the given arguments against `cwd`. Returns trimmed
+    /// stdout on success, nil on any error (missing ref, no remote, etc.).
+    /// This is intentionally lossy: most callers in this file treat absence
+    /// as "zero" rather than propagating the error.
+    private func runGit(_ args: [String], at cwd: URL) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = ["git", "-C", cwd.path] + args
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        p.standardOutput = outPipe
+        p.standardError = errPipe
+        do {
+            try p.run()
+        } catch {
+            return nil
+        }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Count commits between `origin/<defaultBranch>` and the current branch.
+    /// Returns `(ahead, behind)`. Defaults to `(0, 0)` if either ref is
+    /// missing — e.g. a local-only repo with no `origin` remote.
+    private func aheadBehind(
+        at url: URL,
+        defaultBranch: String,
+        currentBranch: String
+    ) -> (ahead: Int, behind: Int) {
+        guard !currentBranch.isEmpty else { return (0, 0) }
+        // `--left-right --count <left>...<right>` prints "<left>\t<right>".
+        // Left = behind (commits in origin/<defaultBranch> missing from HEAD),
+        // Right = ahead (commits in HEAD missing from origin/<defaultBranch>).
+        let spec = "origin/\(defaultBranch)...\(currentBranch)"
+        guard let raw = runGit(
+            ["rev-list", "--left-right", "--count", spec],
+            at: url
+        ) else { return (0, 0) }
+        let parts = raw.split(whereSeparator: { $0.isWhitespace })
+        guard parts.count == 2,
+              let behind = Int(parts[0]),
+              let ahead = Int(parts[1])
+        else { return (0, 0) }
+        return (ahead, behind)
+    }
+
+    /// Count of commits on `HEAD` that aren't yet pushed to its upstream.
+    /// Returns `0` when there is no upstream (the common local-only case).
+    private func unpushedCommitCount(at url: URL) -> Int {
+        guard let raw = runGit(
+            ["rev-list", "--count", "@{upstream}..HEAD"],
+            at: url
+        ) else { return 0 }
+        return Int(raw) ?? 0
+    }
+}
