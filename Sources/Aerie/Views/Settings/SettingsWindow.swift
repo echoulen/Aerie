@@ -9,7 +9,6 @@ struct SettingsWindow: View {
         )
     }
 
-    /// Phase 11.2 will replace this with a real sidebar; for now, a placeholder.
     var body: some View {
         ZStack {
             Backdrop()
@@ -21,17 +20,7 @@ struct SettingsWindow: View {
                     trail: { EmptyView() }
                 )
                 HStack(spacing: 0) {
-                    // Sidebar slot — filled in Task 11.2
-                    Rectangle()
-                        .fill(AerieColor.glass1)
-                        .frame(width: 220)
-                        .overlay(
-                            Rectangle()
-                                .fill(AerieColor.glassLine)
-                                .frame(width: 1)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                        )
-                    // Body slot — filled by route-specific screens in later phases
+                    SettingsSidebar(selection: route, mcpRunning: false)
                     ZStack {
                         Color.clear
                         Text(route.wrappedValue.displayName)
