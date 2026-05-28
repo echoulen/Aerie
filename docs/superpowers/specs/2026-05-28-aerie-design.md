@@ -1,23 +1,24 @@
 # Aerie — Design Doc
 
-> macOS dashboard for overseeing many git repos at once — local state, PRs, issues, quick actions.
+> macOS dashboard for overseeing many git repos at once — local git state, PRs, quick actions.
 
 **Project**: Aerie
 **Date**: 2026-05-28
 **Author**: carlos
 **Status**: draft
 
-> **For downstream Claude Design**: This spec defines the functionality, data
-> model, and architecture only. UI layout, screens, visual hierarchy, theming,
-> and interaction patterns are deferred to a follow-up design pass by Claude
-> Design. See [§9 UI Handoff Notes](#9-ui-handoff-notes) for the contract.
+> **Design status**: Claude Design has produced the **PRs view**, **Repos view**,
+> **Settings (Accounts + Repositories)**, **Add-repo sheet**, and the four
+> primary **confirmation dialogs** (reset, merge, sign-out, remove). Five
+> screens are still being designed in a follow-up pass — see [§9 UI Handoff
+> Notes](#9-ui-handoff-notes) for the contract and what is still open.
 
 ## Goal
 
 A macOS-only desktop app that gives the user a single dashboard for managing
-~50 git repos at once — surfacing local git state, open PRs, open issues, and
-basic recent history per repo, plus three targeted actions (hard reset to
-`origin/main`, merge PR, open in browser).
+~50 git repos at once — surfacing local git state and open PRs (with the
+state of each PR's local branch, if any), plus three targeted actions
+(hard reset to `origin/main`, merge PR, open in browser).
 
 Replaces the current workflow of jumping between `gh pr list` runs, terminals
 in each repo directory, and the GitHub web UI.
@@ -41,6 +42,9 @@ each agent maintaining its own.
   be revisited later.)
 - Webhooks / push notifications.
 - Mobile / web access.
+- GitHub Issues — no listing, no tracking. Browser is the way to view issues.
+- Commit history view — no per-repo "recent N commits" panel. `gh` / `git log`
+  cover that need; Aerie's value is at the repo-summary grain.
 
 ## Stack
 
@@ -81,51 +85,57 @@ be edited in Settings.
 
 ### F3. GitHub Pull Requests
 
-- List **all** open PRs in the repo, not filtered to the user.
+- For each configured repo, list **all** open PRs (not filtered to the user).
 - Per PR: number, title, author login, CI status, review status, labels.
+- Per PR, also resolve the **local checkout state** of the PR's source
+  branch (see below) — this lets the UI surface a single combined PR row
+  with both GitHub and local status.
 - Clicking a PR opens its GitHub HTML URL in the default browser.
+- The UI typically aggregates these per-repo lists into one flat view.
 
-### F4. GitHub Issues
+**PR local checkout state**: for each open PR, check whether its source
+branch (`head.ref`) exists as a local branch in the matching repo. If so,
+report whether that local branch is the currently checked-out branch,
+plus (when checked out) dirty / ahead / behind / unpushed counts using
+the same logic as F2.
 
-- List **all** open issues in the repo.
-- Per issue: number, title, author login, labels, assignees.
-- Clicking an issue opens its GitHub HTML URL in the default browser.
-
-### F5. Branch / commit history
-
-- Show **current branch only** and the most recent **20 commits** on it.
-- Per commit: short SHA, message subject line, author name, relative date.
-- No multi-branch view. No stale-branch tracker.
-
-### F6. Actions
+### F4. Actions
 
 | Action | Target | Implementation |
 |---|---|---|
 | **Hard reset to default branch** | one repo | Sequence: `git fetch origin` → `git checkout <defaultBranch>` → `git reset --hard origin/<defaultBranch>`. If working tree is dirty, the confirmation dialog explicitly warns "this will discard N uncommitted changes". Aborts (does not partially apply) on any error. Implemented via SwiftGit2. |
 | **Merge PR** | one PR | GitHub REST `PUT /repos/{owner}/{repo}/pulls/{number}/merge` using the repo's primary account token. Assumes PR is mergeable; surfaces GitHub's error if not. Merge method: `squash` (matches the user's standard workflow). Confirmation dialog required. |
 
+| **Open in browser** | repo / PR | `NSWorkspace.shared.open(url)` to the entity's GitHub HTML URL. Repo-level shortcuts: open the repo page, the Pull Requests tab, the Code tab. (The Issues tab is also a valid jump target even though Aerie itself does not list issues.) |
+
 **Confirmation note**: the confirmation dialog applies only to the **GUI**
 path. The MCP path (§10) invokes the same underlying service without a
 dialog, by design — agents are expected to execute autonomously and
 each MCP write surfaces a GUI toast for audit instead.
-| **Open in browser** | repo / PR / issue | `NSWorkspace.shared.open(url)` to the entity's GitHub HTML URL. Repo-level shortcuts: open the repo page, the Issues tab, the Pull Requests tab, the Code tab. |
 
-### F7. Smart polling
+### F5. Polling
 
 - App fetches all data on launch.
-- Background tick every **30 seconds** decides what to refresh:
-  - The **active repo** → refresh every **30 s**.
-  - All other configured repos → refresh every **5 min**.
-
-"Active repo" definition: the repo whose detail view is currently mounted.
-If the dashboard is showing the global overview (no repo selected), there
-is no active repo and all repos use the 5 min cadence.
-- Manual refresh button always available (per repo + global).
-- When app loses foreground (`NSApplication.didResignActive`): pause polling.
-- When app regains foreground (`didBecomeActive`): immediate one-shot refresh, then resume.
+- Single global cadence: every configured repo is refreshed every **5 minutes**.
+  Cadence is user-configurable (1–30 min) in Settings. Default chosen so that
+  50 repos × 12 fetches/hour = 600 GitHub API calls/hour — well under the
+  5000/hour quota per token, with headroom for multi-account fallback.
+- A heartbeat tick (default every 30 s) drives the scheduler; on each tick
+  the scheduler computes which repos are due and refreshes them in a
+  bounded-concurrency `TaskGroup` (limit 5).
+- The titlebar shows a "live" indicator with countdown to the next tick.
+- Manual refresh: per-repo button + a global "refresh all" button.
+- When app loses foreground (`NSApplication.didResignActive`): pause the
+  scheduler entirely.
+- When app regains foreground (`didBecomeActive`): one-shot refresh of every
+  repo, then resume the normal cadence.
 - App closed = zero activity. No background daemon.
 
-### F8. Multi-account GitHub auth
+The active-vs-background distinction from earlier drafts is dropped — without
+a per-repo detail view, there is no "currently focused" repo, and a single
+cadence keeps the scheduler easier to reason about.
+
+### F6. Multi-account GitHub auth
 
 - On launch, run `gh auth status` and parse the output to learn:
   - Which hostnames are logged in (`github.com`, potentially GHE).
@@ -139,7 +149,7 @@ is no active repo and all repos use the 5 min cadence.
 - If `gh` is not installed or has no logged-in accounts: app shows a blocking
   setup screen prompting the user to run `gh auth login`.
 
-### F9. Settings
+### F7. Settings
 
 - Manage repo list (add / remove / hide / reorder / rename / change primary account).
 - Polling interval overrides (advanced; default values exposed but rarely touched).
@@ -226,24 +236,20 @@ struct PullRequest {
     let updatedAt: Date
 }
 
-struct Issue {
-    let id: UUID
-    let repoId: UUID
-    let number: Int
-    let title: String
-    let authorLogin: String
-    let labels: [String]
-    let assigneeLogins: [String]
-    let htmlUrl: URL
-    let updatedAt: Date
-}
-
-struct Commit {
-    let sha: String               // short SHA
-    let repoId: UUID
-    let message: String           // subject line only
-    let authorName: String
-    let date: Date
+/// The local checkout state of a specific PR's source branch — computed
+/// per (Repository, PullRequest.head.ref) at fetch time, cached alongside
+/// the PR. Lets the PRs view render combined GitHub + local status.
+struct PRLocalState {
+    let prId: UUID
+    let sourceBranch: String       // e.g. "feat/virtual-clock"
+    let localBranchExists: Bool    // does this branch exist locally?
+    let isCurrentBranch: Bool      // is it the currently checked-out branch?
+    // Following are only meaningful when isCurrentBranch == true.
+    // When the branch exists locally but isn't checked out, only existence is known.
+    let dirty: Bool?
+    let ahead: Int?
+    let behind: Int?
+    let unpushed: Int?
 }
 ```
 
@@ -279,27 +285,17 @@ CREATE TABLE pr_cache (
     PRIMARY KEY (repo_id, number)
 );
 
-CREATE TABLE issue_cache (
+CREATE TABLE pr_local_state_cache (
+    pr_id TEXT PRIMARY KEY,         -- matches pr_cache.payload's id
     repo_id TEXT NOT NULL REFERENCES repos(id),
-    number INTEGER NOT NULL,
-    payload_json TEXT NOT NULL,
-    fetched_at REAL NOT NULL,
-    PRIMARY KEY (repo_id, number)
+    payload_json TEXT NOT NULL,     -- serialized PRLocalState
+    fetched_at REAL NOT NULL
 );
 
 CREATE TABLE git_status_cache (
     repo_id TEXT PRIMARY KEY REFERENCES repos(id),
     payload_json TEXT NOT NULL,
     fetched_at REAL NOT NULL
-);
-
-CREATE TABLE commits_cache (
-    repo_id TEXT NOT NULL REFERENCES repos(id),
-    sha TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    fetched_at REAL NOT NULL,
-    sort_order INTEGER NOT NULL,    -- 0 = most recent
-    PRIMARY KEY (repo_id, sha)
 );
 
 CREATE TABLE settings (
@@ -318,22 +314,29 @@ the trade-off favors flexibility.
 `PollingScheduler` is an actor that owns a single recurring `Task`:
 
 ```
-every 30s:
-    let active = currentlyFocusedRepoId
-    let dueRepos = repos where:
-        repo.id == active && now - fetched_at >= 30s
-        OR
-        repo.id != active && now - fetched_at >= 5min
+every <heartbeat>s (default 30):
+    let dueRepos = repos where now - fetched_at >= <cadence>   // default 5 min
     refreshConcurrently(dueRepos, limit: 5)
 ```
 
 Concurrency limit (5) keeps GitHub rate limit usage bounded — at the worst
-case (50 repos all overdue at the same minute), 50 requests in <30s.
-GitHub's quota is 5000/hr authenticated, so headroom is ample.
+case (50 repos all overdue at the same minute), the scheduler issues 50
+requests across 10 batches, ~5 per second. GitHub's quota is 5000/hr per
+authenticated token, so headroom is ample.
 
-When `>= 4500/hr` is observed in response headers, the scheduler downgrades
-the active-repo interval to 2 minutes and shows a yellow rate-limit badge
-in the UI until the next hour rolls over.
+When the response header reports `≥ 4500/hr` used on any account, the
+scheduler doubles the cadence (e.g. 5 min → 10 min) until the next hour
+rolls over and surfaces a yellow rate-limit badge in the UI.
+
+Per refresh of one repo, three independent fetches happen in parallel
+(scoped to that repo's primary account, with fallback):
+1. `local_git_status` (no network — SwiftGit2 reads `.git/`)
+2. `prs + their_local_state` (one GraphQL query covers PRs;
+   `PRLocalState` per PR comes from SwiftGit2)
+3. (no other network calls — issues and commit history were dropped from v1)
+
+The three lanes are awaited together; the repo's `fetched_at` is updated
+only when all three complete (or any failure is recorded with reason).
 
 ## Error handling
 
@@ -382,31 +385,55 @@ confirmation dialog showing the target.
 
 This section is a contract for the follow-up UI design pass.
 
-### What this spec deliberately leaves open
+### Decided in design pass 1
 
-- Layout (master-detail vs grid vs three-pane vs PR-centric vs hybrid).
-- Visual hierarchy, color, typography, iconography, density.
-- Animation / transition style.
-- Empty states, loading states, skeletons.
-- Confirmation dialog copy and visual treatment.
-- How "primary account" is surfaced per repo (badge? avatar? text?).
-- Settings screen layout.
-- First-run onboarding flow.
+- Two top-level views: **Pull Requests** and **Repos**, switched by a
+  segmented control in the titlebar (also `⌘1` / `⌘2`).
+- No per-repo detail screen — everything fits on the card.
+- Main window: 1240 × 880. Settings window: 1040 × 760.
+- Aesthetic: dark glass material with sodium amber as the only accent color.
+- Typography: Inter (sans), JetBrains Mono (mono).
+- Settings is a separate window with its own sidebar.
+- Add-repo is a sheet that slides from the settings titlebar, with
+  drag-and-drop, Browse button, and "Recently seen" suggestions
+  (suggestions only — Aerie still does not auto-add repos).
+- Confirmation dialogs use a dimmed-parent glass card with a key/value
+  list of what's about to happen; danger ops use a red accent ring.
+- Titlebar shows a live polling heartbeat (`live · 14s`).
+
+### Still open — pending design pass 2
+
+These are the five screens going back to Claude Design (see the user's
+handoff list):
+
+- MCP integration consent dialog (first-run prompt).
+- MCP activity toast (raised on every agent write).
+- Settings → MCP section (server status, Claude Code integration toggle,
+  recent activity table).
+- First-run `gh` setup screen (gh missing vs. signed-out states).
+- Settings → Advanced (polling cadence slider + rate-limit status).
 
 ### What the UI must support
 
 Screens / views that need to exist:
 
-1. **Main dashboard** — render the configured repos with their current state
-   (F1, F2, F3, F4 at a glance level — exact information density up to design).
-2. **Repo detail** — full state for one repo: local git status (F2), PR list
-   (F3), Issue list (F4), recent commits (F5).
-3. **Add-repo flow** — folder picker + primary account selection (F1, F8).
-4. **Settings** — repo list management (rename, hide, reorder, change account),
-   polling settings (F9), MCP integration toggle + recent MCP activity list (§10).
-5. **First-run / `gh` setup screen** — blocking screen when `gh` is missing or
-   unauthenticated (F8).
-6. **Confirmation dialogs** — for hard reset and merge PR (F6).
+1. **PRs view** — flat list across all configured repos of every open PR;
+   each row carries both GitHub status (CI, review, labels) and the local
+   checkout state of the PR's source branch (F2, F3).
+2. **Repos view** — flat list of cards, one per configured repo, showing
+   current branch + dirty / ahead / behind / unpushed counts (F1, F2).
+   No separate detail screen — everything fits on the card.
+3. **Add-repo flow** — folder picker (or recently-seen suggestions) + the
+   detected origin/owner/repo/default-branch fields + primary account
+   selection (F1, F6).
+4. **Settings** — sidebar with Accounts (manage gh accounts, mark primary),
+   Repositories (rename, hide, reorder, change account, remove), MCP
+   (server status, Claude Code integration toggle, recent activity), and
+   Advanced (polling cadence) (F7, §10).
+5. **First-run / `gh` setup screen** — blocking screen when `gh` is missing
+   or unauthenticated (F6).
+6. **Confirmation dialogs** — for hard reset, merge PR, sign-out account,
+   remove repo (F4).
 7. **MCP integration consent dialog** — one-time first-run prompt asking
    whether Aerie may add itself to `~/.claude/.mcp.json` (§10).
 8. **MCP activity toast** — non-blocking surface shown when an agent calls
@@ -415,10 +442,9 @@ Screens / views that need to exist:
 
 ### Available actions the UI must expose
 
-- Hard reset to `origin/main` (one repo at a time)
+- Hard reset to `origin/<defaultBranch>` (one repo at a time)
 - Merge PR (one PR at a time)
-- Open in browser: repo home, Issues, Pull Requests, Code, individual PR,
-  individual Issue
+- Open in browser: repo home, Pull Requests tab, Code tab, individual PR
 - Manual refresh: global, and per-repo
 - Add repo / remove repo / hide repo / rename repo / change repo's primary account
 - Reorder repos
@@ -430,16 +456,17 @@ Anything in the [Data model](#data-model) section, plus per-entity
 
 ### State surfaces the UI may want to indicate
 
-- Per-repo: dirty/clean, ahead/behind counts, open PR count, open issue count,
+- Per-repo: dirty/clean, ahead/behind counts, open PR count,
   GitHub access status (ok / no-access / offline), data freshness.
-- Per-PR: CI status, review status, label set.
-- Per-issue: assignee count, label set.
+- Per-PR: CI status, review status, label set, local checkout state of
+  the PR's source branch (not checked out / checked out & clean / checked
+  out & dirty / checked out with ahead/behind/unpushed).
 - Global: rate-limit warning, offline banner, in-flight refresh, `gh` health,
   **MCP server status** (running / port + token, recent agent activity count).
 
 ### Constraints to preserve
 
-- Polling cadence (F7) — UI should reflect refresh activity but not block on
+- Polling cadence (F5) — UI should reflect refresh activity but not block on
   individual fetches.
 - "Open in browser is the only jump" — no editor / terminal launch.
 - Confirmation required for destructive ops **in the GUI path** (MCP path
@@ -460,7 +487,7 @@ account fallback.
 - Aerie launch: bind an HTTP listener to `127.0.0.1:<random_port>`, write
   the discovery file.
 - Aerie quit: stop the listener, delete the discovery file.
-- GUI closed = MCP unavailable. Aligns with F7 ("app closed = no activity").
+- GUI closed = MCP unavailable. Aligns with F5 ("app closed = no activity").
 
 ### Transport
 
@@ -518,11 +545,9 @@ All tools accept a `repo` parameter that resolves against any of:
 |---|---|---|
 | `aerie_list_repos` | — | `[{ name, owner, repo, hidden, defaultBranch, accountLogin }]` |
 | `aerie_get_local_status` | `repo` | `LocalGitStatus` + `fetched_at` |
-| `aerie_list_prs` | `repo`, `state?` (default `open`) | `[PullRequest]` |
+| `aerie_list_prs` | `repo?`, `state?` (default `open`) | `[PullRequest]` — omit `repo` to get PRs across all configured repos |
 | `aerie_get_pr` | `repo`, `number` | `PullRequest` |
-| `aerie_list_issues` | `repo`, `state?` (default `open`) | `[Issue]` |
-| `aerie_get_issue` | `repo`, `number` | `Issue` |
-| `aerie_recent_commits` | `repo`, `limit?` (max 20) | `[Commit]` |
+| `aerie_get_pr_local_state` | `repo`, `number` | `PRLocalState` (is the PR's source branch checked out, and if so its dirty/ahead/behind/unpushed counts) |
 
 Read tools never trigger an API fetch. They serve whatever the GUI is
 currently showing. This matches the user's explicit choice: "return cache
@@ -604,13 +629,16 @@ in the Settings view.
 
 ## Open questions
 
-- Should we surface a per-PR "is this mine?" hint (author == any logged-in
-  account) to make scanning easier without adding filters? — Deferred to UI
-  design pass.
-- App icon. — Deferred.
-- App display name / codename. — Deferred.
+- Per-PR "is this mine?" hint — the design adds a `yours` pill when
+  `pr.mine === true`. Spec: author login matches any of the configured
+  accounts' login. Trivial to compute. Closed.
+- App icon — deferred.
 - Should the MCP server also expose `aerie_refresh_repo(repo)` to let an
   agent force a fresh fetch when cache is stale? Currently out of scope
   (cache-only by design). — Revisit after first usage.
 - Should write tools support a `dry_run` parameter (return what *would*
   happen without doing it)? — Defer until requested.
+- The Reset confirmation dialog in the design shows the target commit
+  SHA (`origin/main @ a91f3c2`). To populate this, Aerie needs the
+  resolved commit at fetch time; cheap to add to `LocalGitStatus` once
+  needed. — Capture during implementation.
