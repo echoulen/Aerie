@@ -64,13 +64,16 @@ actor MCPServer {
         self.token = generatedToken
 
         // Snapshot captures for the responder closure (it's @Sendable and
-        // must not capture `self`). The token snapshot is a value-type copy,
-        // so rotating `self.token` after start won't affect existing
-        // requests in flight — which is the intended behaviour.
+        // must not capture `self`). Router/registry/logger are value-ish or
+        // actor references — fine to copy. The bearer token, however, must
+        // be queried *live* so `rotateToken()` actually invalidates the old
+        // value. We capture a weak handle to self for that.
         let routerActor = self.router
         let registryActor = self.registry
         let activityLogger = self.logger
-        let auth = MCPBearerAuth(tokenProvider: { [generatedToken] in generatedToken })
+        let auth = MCPBearerAuth(tokenProvider: { [weak self] in
+            await self?.token
+        })
 
         let hbRouter = Router()
         hbRouter.post("/mcp") { request, _ -> Response in
@@ -155,6 +158,19 @@ actor MCPServer {
             }
         }
         self.port = observedPort
+    }
+
+    /// Generate a fresh bearer token and replace the current one. Returns the
+    /// new token. Subsequent requests must carry the new value or the bearer
+    /// middleware will respond with -32001.
+    ///
+    /// Callers (the integration layer in `AerieApp`) are responsible for
+    /// re-writing the discovery file and `~/.claude/.mcp.json` with the new
+    /// token; this function only mutates server state.
+    func rotateToken() -> String {
+        let newToken = UUID().uuidString
+        self.token = newToken
+        return newToken
     }
 
     /// Stop the server. Idempotent — calling on a stopped server is a no-op.
