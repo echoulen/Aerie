@@ -72,7 +72,26 @@ run: app
 	open $(APP_BUNDLE)
 
 install: app
-	pkill -x $(APP_NAME) 2>/dev/null || true
+	@# Stop any running instance (installed app or dev build with the same
+	@# process name) before we swap the bundle. Steps:
+	@#   1. Apple Events Quit  — lets AppKit save state cleanly.
+	@#   2. 5 s grace          — polled, not a fixed sleep.
+	@#   3. SIGKILL            — required because AerieAppDelegate's
+	@#                           applicationShouldTerminate can swallow
+	@#                           SIGTERM, leaving a "ghost" process that
+	@#                           still maps the old binary in memory.
+	@#   4. Wait for reaping   — without this, `cp -R` races the dying
+	@#                           process and `open` later just activates
+	@#                           the ghost instead of launching the fresh
+	@#                           bundle.
+	@echo "Stopping any running $(APP_NAME)…"
+	@osascript -e 'tell application "$(APP_NAME)" to quit' >/dev/null 2>&1 || true
+	@for i in 1 2 3 4 5; do \
+		pgrep -x $(APP_NAME) >/dev/null 2>&1 || break; \
+		sleep 1; \
+	done
+	@pkill -9 -x $(APP_NAME) 2>/dev/null || true
+	@while pgrep -x $(APP_NAME) >/dev/null 2>&1; do sleep 0.2; done
 	rm -rf /Applications/$(APP_BUNDLE)
 	cp -R $(APP_BUNDLE) /Applications/$(APP_BUNDLE)
 	rm -rf $(DIST_DIR)
