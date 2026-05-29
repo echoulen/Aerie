@@ -20,6 +20,14 @@ final class SettingsSidebarTests: XCTestCase {
                        as: .image(size: CGSize(width: 220, height: 760)))
     }
 
+    func test_sidebarSnapshot_appearanceSelected() {
+        let view = SettingsSidebar(selection: .constant(.appearance), mcpRunning: false)
+            .frame(width: 220, height: 760)
+            .background(AerieColor.backdrop1)
+        assertSnapshot(of: NSHostingView(rootView: view),
+                       as: .image(size: CGSize(width: 220, height: 760)))
+    }
+
     func test_sidebarSnapshot_aboutAtBottom() {
         let view = SettingsSidebar(selection: .constant(.about), mcpRunning: false)
             .frame(width: 220, height: 760)
