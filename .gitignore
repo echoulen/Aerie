@@ -51,3 +51,8 @@ fastlane/test_output
 *.env
 .env.local
 secrets.json
+
+# Makefile build artifacts
+Aerie.app/
+dist/
+Resources/AppIcon.icns
