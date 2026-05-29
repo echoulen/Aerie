@@ -81,6 +81,7 @@ struct SettingsSidebar: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(isSelected ? AerieColor.glass3 : Color.clear)
@@ -89,6 +90,11 @@ struct SettingsSidebar: View {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .strokeBorder(isSelected ? AerieColor.glassLine : Color.clear, lineWidth: 1)
             )
+            // Make the whole row tappable, not just the icon/text glyphs.
+            // Plain `Button` style only hits opaque content, so MCP — whose
+            // text is shorter than the row — was hard to click anywhere
+            // outside the word itself.
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
     }
