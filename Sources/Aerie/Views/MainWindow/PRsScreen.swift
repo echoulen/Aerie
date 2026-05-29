@@ -26,17 +26,33 @@ struct PRsScreen: View {
     var body: some View {
         switch viewModel.state {
         case .loading:
-            loadingView
+            nonReadyLayout { loadingView }
         case .empty:
-            emptyView
+            nonReadyLayout { emptyView }
         case .error(let msg):
-            errorView(message: msg)
+            nonReadyLayout { errorView(message: msg) }
         case .ready(let rows):
             readyView(rows)
         }
     }
 
     // MARK: - States
+
+    // The page header (title + meta + right-aligned tab toggle) renders in
+    // every state so the `SegmentedToggle` stays reachable when there are no
+    // PRs yet. For non-ready states the counts collapse to 0 — the body below
+    // already communicates the actual state in words.
+    @ViewBuilder
+    private func nonReadyLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header(open: 0, repos: 0, mine: 0)
+                .padding(.horizontal, AerieMetric.pagePadding)
+                .padding(.top, 12)
+                .padding(.bottom, 18)
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
 
     private var loadingView: some View {
         VStack(spacing: 12) {
