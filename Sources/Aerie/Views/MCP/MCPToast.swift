@@ -14,17 +14,17 @@ struct MCPToast: View {
             toneIcon
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.title)
-                    .font(AerieFont.body().weight(.medium))
+                    .aerieFont(AerieFont.body().weight(.medium))
                     .foregroundStyle(AerieColor.text1)
                 if let subtitle = item.subtitle {
                     Text(subtitle)
-                        .font(AerieFont.small())
+                        .aerieFont(AerieFont.small())
                         .foregroundStyle(AerieColor.text3)
                 }
                 if item.requestJSON != nil {
                     Button("View request", action: onViewRequest)
                         .buttonStyle(.plain)
-                        .font(AerieFont.eyebrow())
+                        .aerieFont(AerieFont.eyebrow())
                         .foregroundStyle(AerieColor.amber)
                 }
             }

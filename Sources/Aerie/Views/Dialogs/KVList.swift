@@ -11,11 +11,11 @@ struct KVList: View {
             ForEach(Array(pairs.enumerated()), id: \.offset) { _, pair in
                 HStack(alignment: .firstTextBaseline) {
                     Text(pair.0)
-                        .font(AerieFont.small())
+                        .aerieFont(AerieFont.small())
                         .foregroundStyle(AerieColor.text3)
                         .frame(width: 130, alignment: .leading)
                     Text(pair.1)
-                        .font(AerieFont.code(12))
+                        .aerieFont(AerieFont.code(12))
                         .foregroundStyle(AerieColor.text1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

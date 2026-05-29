@@ -61,28 +61,28 @@ struct PRCard: View {
             // Meta row
             HStack(spacing: 10) {
                 Text(repoLabel)
-                    .font(AerieFont.code(11))
+                    .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text2)
                 dot
                 Text("#\(row.pr.number)")
-                    .font(AerieFont.code(11))
+                    .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text4)
                 dot
                 Text(row.pr.authorLogin)
-                    .font(AerieFont.code(11))
+                    .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text4)
                 if row.pr.isMine {
                     yoursPill
                 }
                 Spacer(minLength: 0)
                 Text(updatedAgo)
-                    .font(AerieFont.code(11))
+                    .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text4)
             }
 
             // Title
             Text(row.pr.title)
-                .font(.custom(AerieFont.sans, size: 19).weight(.medium))
+                .aerieFont(AerieFont.custom(.sans, size: 19).weight(.medium))
                 .foregroundStyle(AerieColor.text1)
                 .lineLimit(2)
                 .padding(.top, 10)
@@ -94,7 +94,7 @@ struct PRCard: View {
                 ReviewChip(state: row.pr.reviewState)
                 if isReadyToShip {
                     Text("READY TO SHIP")
-                        .font(AerieFont.eyebrow())
+                        .aerieFont(AerieFont.eyebrow())
                         .foregroundStyle(AerieColor.amber)
                         .tracking(1.2)
                 }
@@ -111,7 +111,7 @@ struct PRCard: View {
 
                 HStack(spacing: 22) {
                     Text("LOCAL")
-                        .font(AerieFont.eyebrow())
+                        .aerieFont(AerieFont.eyebrow())
                         .foregroundStyle(AerieColor.text4)
                         .tracking(1.6)
 
@@ -140,25 +140,25 @@ struct PRCard: View {
                     .fill(AerieColor.warn)
                     .frame(width: 6, height: 6)
                 Text("dirty")
-                    .font(AerieFont.code(12))
+                    .aerieFont(AerieFont.code(12))
                     .foregroundStyle(AerieColor.warn)
             }
         } else {
             Text("clean")
-                .font(AerieFont.code(12))
+                .aerieFont(AerieFont.code(12))
                 .foregroundStyle(AerieColor.text4)
         }
     }
 
     private var dot: some View {
         Text("·")
-            .font(AerieFont.code(11))
+            .aerieFont(AerieFont.code(11))
             .foregroundStyle(AerieColor.text4)
     }
 
     private var yoursPill: some View {
         Text("YOURS")
-            .font(AerieFont.eyebrow())
+            .aerieFont(AerieFont.eyebrow())
             .foregroundStyle(AerieColor.amber)
             .tracking(1.2)
             .padding(.horizontal, 8)
@@ -182,7 +182,7 @@ struct PRCard: View {
                     Image(systemName: "play.fill")
                         .font(.system(size: 10, weight: .semibold))
                     Text("Merge")
-                        .font(.custom(AerieFont.sans, size: 13).weight(.medium))
+                        .aerieFont(AerieFont.custom(.sans, size: 13).weight(.medium))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
@@ -204,7 +204,7 @@ struct PRCard: View {
                     Text("Open")
                     Text("↗")
                 }
-                .font(.custom(AerieFont.sans, size: 12))
+                .aerieFont(AerieFont.custom(.sans, size: 12))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
                 .foregroundStyle(AerieColor.text2)

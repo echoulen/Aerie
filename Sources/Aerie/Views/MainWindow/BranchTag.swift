@@ -15,7 +15,7 @@ struct BranchTag: View {
                 .frame(width: 11, height: 11)
                 .foregroundStyle(foreground.opacity(0.7))
             Text(name)
-                .font(AerieFont.code(11.5))
+                .aerieFont(AerieFont.code(11.5))
                 .foregroundStyle(foreground)
         }
         .padding(.horizontal, 10)
@@ -59,7 +59,7 @@ struct BranchGlyph: View {
             var trunk = Path()
             trunk.move(to: p(4, 4.4))
             trunk.addLine(to: p(4, 11.6))
-            ctx.stroke(trunk, with: .color(.primary), style: stroke)
+            ctx.stroke(trunk, with: .foreground, style: stroke)
 
             // Branch off
             var arc = Path()
@@ -69,7 +69,7 @@ struct BranchGlyph: View {
                 control1: p(7, 8),
                 control2: p(11, 7)
             )
-            ctx.stroke(arc, with: .color(.primary), style: stroke)
+            ctx.stroke(arc, with: .foreground, style: stroke)
 
             // Node dots
             for (cx, cy) in [(4.0, 3.0), (4.0, 13.0), (12.0, 6.0)] {
@@ -80,7 +80,7 @@ struct BranchGlyph: View {
                     width: r * 2,
                     height: r * 2
                 )
-                ctx.fill(Path(ellipseIn: rect), with: .color(.primary))
+                ctx.fill(Path(ellipseIn: rect), with: .foreground)
             }
         }
     }

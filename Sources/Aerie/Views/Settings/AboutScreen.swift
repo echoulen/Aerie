@@ -17,14 +17,14 @@ struct AboutScreen: View {
             appIcon
                 .padding(.bottom, 8)
             Text("Aerie")
-                .font(AerieFont.display())
+                .aerieFont(AerieFont.display())
                 .foregroundStyle(AerieColor.text1)
             VStack(spacing: 4) {
                 Text("version \(version)")
-                    .font(AerieFont.small())
+                    .aerieFont(AerieFont.small())
                     .foregroundStyle(AerieColor.text2)
                 Text(buildSHA)
-                    .font(AerieFont.code(11))
+                    .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text3)
             }
             Button {
@@ -34,7 +34,7 @@ struct AboutScreen: View {
                     Image(systemName: "arrow.up.right.square")
                     Text("github.com/echoulen/Aerie")
                 }
-                .font(AerieFont.small().weight(.medium))
+                .aerieFont(AerieFont.small().weight(.medium))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .foregroundStyle(AerieColor.amber)

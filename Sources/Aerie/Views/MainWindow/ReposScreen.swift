@@ -58,7 +58,7 @@ struct ReposScreen: View {
                 .controlSize(.regular)
                 .tint(AerieColor.amber)
             Text("Loading repositories…")
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text3)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -67,10 +67,10 @@ struct ReposScreen: View {
     private var emptyView: some View {
         VStack(spacing: 10) {
             Text("No repositories tracked")
-                .font(AerieFont.sectionTitle())
+                .aerieFont(AerieFont.sectionTitle())
                 .foregroundStyle(AerieColor.text1)
             Text("Add a repository in Settings to start watching it here.")
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text3)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -79,10 +79,10 @@ struct ReposScreen: View {
     private func errorView(message: String) -> some View {
         VStack(spacing: 10) {
             Text("Couldn't load repositories")
-                .font(AerieFont.sectionTitle())
+                .aerieFont(AerieFont.sectionTitle())
                 .foregroundStyle(AerieColor.text1)
             Text(message)
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.err)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 480)

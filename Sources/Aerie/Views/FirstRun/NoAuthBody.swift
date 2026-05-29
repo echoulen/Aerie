@@ -13,7 +13,7 @@ struct NoAuthBody: View {
             onPrimary: onRecheck
         ) {
             Text("On GitHub Enterprise? Swap --hostname github.com for your GHE host.")
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text3)
         }
     }

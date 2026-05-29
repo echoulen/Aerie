@@ -13,7 +13,7 @@ struct SettingsSidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("SETTINGS")
-                .font(AerieFont.eyebrow())
+                .aerieFont(AerieFont.eyebrow())
                 .tracking(2.0)
                 .foregroundStyle(AerieColor.text4)
                 .padding(.horizontal, 14)
@@ -75,7 +75,7 @@ struct SettingsSidebar: View {
                 )
                 .frame(width: 18)
                 Text(route.displayName)
-                    .font(AerieFont.body())
+                    .aerieFont(AerieFont.body())
                     .foregroundStyle(isSelected ? AerieColor.text1 : AerieColor.text2)
                 Spacer(minLength: 8)
                 trailingAccessory(route)
@@ -111,7 +111,7 @@ struct SettingsSidebar: View {
                 .shadow(color: mcpRunning ? AerieColor.ok.opacity(0.6) : .clear, radius: 3)
         } else if let n = count(for: route) {
             Text("\(n)")
-                .font(AerieFont.code(11))
+                .aerieFont(AerieFont.code(11))
                 .foregroundStyle(AerieColor.text4)
         }
     }

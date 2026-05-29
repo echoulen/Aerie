@@ -27,17 +27,17 @@ struct DialogSignOut: View {
         ) {
             if affectedRepos.isEmpty {
                 Text("Aerie will run gh auth logout for this account, removing its token from the gh keyring. Sign back in any time with gh auth login.")
-                    .font(AerieFont.small())
+                    .aerieFont(AerieFont.small())
                     .foregroundStyle(AerieColor.text2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Affected repos")
-                        .font(AerieFont.eyebrow())
+                        .aerieFont(AerieFont.eyebrow())
                         .foregroundStyle(AerieColor.text3)
                     ForEach(affectedRepos) { repo in
                         Text("\(repo.githubOwner)/\(repo.githubRepo)")
-                            .font(AerieFont.code(11))
+                            .aerieFont(AerieFont.code(11))
                             .foregroundStyle(AerieColor.text2)
                     }
                 }

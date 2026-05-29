@@ -60,7 +60,7 @@ struct PRsScreen: View {
                 .controlSize(.regular)
                 .tint(AerieColor.amber)
             Text("Loading pull requests…")
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text3)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -69,10 +69,10 @@ struct PRsScreen: View {
     private var emptyView: some View {
         VStack(spacing: 10) {
             Text("No open pull requests")
-                .font(AerieFont.sectionTitle())
+                .aerieFont(AerieFont.sectionTitle())
                 .foregroundStyle(AerieColor.text1)
             Text("Add a repository or wait for the next polling tick.")
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text3)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -81,10 +81,10 @@ struct PRsScreen: View {
     private func errorView(message: String) -> some View {
         VStack(spacing: 10) {
             Text("Couldn't load pull requests")
-                .font(AerieFont.sectionTitle())
+                .aerieFont(AerieFont.sectionTitle())
                 .foregroundStyle(AerieColor.text1)
             Text(message)
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.err)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 480)

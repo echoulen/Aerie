@@ -20,7 +20,7 @@ struct LiveIndicator: View {
                     radius: 3
                 )
             Text(label)
-                .font(AerieFont.eyebrow())
+                .aerieFont(AerieFont.eyebrow())
                 .foregroundStyle(AerieColor.text3)
                 .monospacedDigit()
         }

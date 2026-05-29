@@ -9,7 +9,7 @@ final class AppFrameTests: XCTestCase {
         let view = AppFrame(viewModel: vm) {
             // Placeholder content — the real PRs/Repos views land in later phases.
             Text("Content area")
-                .font(AerieFont.body())
+                .aerieFont(AerieFont.body())
                 .foregroundStyle(AerieColor.text3)
         }
         .frame(width: AerieMetric.mainWindowW, height: AerieMetric.mainWindowH)

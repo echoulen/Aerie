@@ -73,20 +73,43 @@ final class RepositoriesViewModel {
         }
     }
 
-    /// Move the row at index `from` to position `to` (in the
-    /// pre-removal coordinate space used by SwiftUI's `move(fromOffsets:toOffset:)`).
-    /// Updates `sort_order` for ALL rows so the persisted order matches
-    /// the new visual order.
-    func reorder(from: Int, to: Int) async {
-        guard from != to, from < repos.count, to <= repos.count else { return }
+    /// The repo list after moving the row at index `from` to position `to`
+    /// (in the pre-removal coordinate space used by SwiftUI's
+    /// `move(fromOffsets:toOffset:)`). Returns `nil` for a no-op / out-of-range
+    /// move so callers can bail without touching the DB.
+    private func movedOrder(from: Int, to: Int) -> [Repository]? {
+        guard from != to, from < repos.count, to <= repos.count else { return nil }
         var reordered = repos
         let moved = reordered.remove(at: from)
         let dest = to > from ? to - 1 : to
         reordered.insert(moved, at: dest)
+        return reordered
+    }
+
+    /// Persists `sort_order` for `reordered` so the stored order matches the
+    /// new visual order. Each row is rewritten to its array index.
+    private func persistOrder(_ reordered: [Repository]) async {
         for (i, r) in reordered.enumerated() {
             try? await db.repos.setSortOrder(id: r.id, i)
         }
+    }
+
+    /// Move the row at index `from` to position `to`. Updates `sort_order`
+    /// for ALL rows so the persisted order matches the new visual order.
+    func reorder(from: Int, to: Int) async {
+        guard let reordered = movedOrder(from: from, to: to) else { return }
         repos = reordered
+        await persistOrder(reordered)
+    }
+
+    /// Optimistic, synchronous reorder for drag-and-drop: settles the
+    /// in-memory order in the SAME frame the user releases the grip (so the
+    /// row doesn't flash back to its old slot), then persists `sort_order`
+    /// in the background. Mirrors `reorder(from:to:)`'s move semantics.
+    func applyReorder(from: Int, to: Int) {
+        guard let reordered = movedOrder(from: from, to: to) else { return }
+        repos = reordered
+        Task { [reordered] in await persistOrder(reordered) }
     }
 
     /// Deletes the repo from the DB and refreshes.

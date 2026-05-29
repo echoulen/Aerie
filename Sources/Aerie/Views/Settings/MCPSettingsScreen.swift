@@ -56,12 +56,12 @@ struct MCPSettingsScreen: View {
                 .fill(viewModel.status.running ? AerieColor.ok : AerieColor.text4)
                 .frame(width: 8, height: 8)
             Text(viewModel.status.running ? "Server running" : "Server stopped")
-                .font(AerieFont.body())
+                .aerieFont(AerieFont.body())
                 .foregroundStyle(AerieColor.text1)
             Spacer()
             if let uptime = viewModel.uptimeLabel {
                 Text("uptime \(uptime) · pid \(viewModel.status.pid)")
-                    .font(AerieFont.code(11))
+                    .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text3)
             }
         }
@@ -74,7 +74,7 @@ struct MCPSettingsScreen: View {
                 Task { await viewModel.rotateNow() }
             }
             .buttonStyle(.plain)
-            .font(AerieFont.small())
+            .aerieFont(AerieFont.small())
             .foregroundStyle(AerieColor.amber)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -91,10 +91,10 @@ struct MCPSettingsScreen: View {
                 HStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Auto-register in ~/.claude/.mcp.json")
-                            .font(AerieFont.body())
+                            .aerieFont(AerieFont.body())
                             .foregroundStyle(AerieColor.text1)
                         Text("Every Claude Code session on this machine can discover Aerie automatically.")
-                            .font(AerieFont.small())
+                            .aerieFont(AerieFont.small())
                             .foregroundStyle(AerieColor.text3)
                     }
                     Spacer()
@@ -121,7 +121,7 @@ struct MCPSettingsScreen: View {
         sectionCard(title: "Recent activity") {
             if viewModel.recentActivity.isEmpty {
                 Text("No MCP calls yet.")
-                    .font(AerieFont.small())
+                    .aerieFont(AerieFont.small())
                     .foregroundStyle(AerieColor.text3)
             } else {
                 VStack(spacing: 0) {
@@ -149,17 +149,17 @@ struct MCPSettingsScreen: View {
                     .frame(width: 20)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(record.tool)
-                        .font(AerieFont.code(12))
+                        .aerieFont(AerieFont.code(12))
                         .foregroundStyle(AerieColor.text1)
                     if let target = record.target {
                         Text(target)
-                            .font(AerieFont.small())
+                            .aerieFont(AerieFont.small())
                             .foregroundStyle(AerieColor.text3)
                     }
                 }
                 Spacer()
                 Text(relativeTime(record.at))
-                    .font(AerieFont.code(11))
+                    .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text4)
             }
             .padding(.vertical, 10)
@@ -191,11 +191,11 @@ struct MCPSettingsScreen: View {
     ) -> some View {
         HStack(spacing: 14) {
             Text(label)
-                .font(AerieFont.eyebrow())
+                .aerieFont(AerieFont.eyebrow())
                 .foregroundStyle(AerieColor.text4)
                 .frame(width: 110, alignment: .leading)
             Text(value)
-                .font(AerieFont.code(12))
+                .aerieFont(AerieFont.code(12))
                 .foregroundStyle(AerieColor.text1)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -212,7 +212,7 @@ struct MCPSettingsScreen: View {
     private func ghostButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(title, action: action)
             .buttonStyle(.plain)
-            .font(AerieFont.small())
+            .aerieFont(AerieFont.small())
             .foregroundStyle(AerieColor.text2)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
@@ -227,7 +227,7 @@ struct MCPSettingsScreen: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(AerieFont.sectionTitle())
+                .aerieFont(AerieFont.sectionTitle())
                 .foregroundStyle(AerieColor.text1)
             content()
                 .padding(AerieMetric.cardPaddingV)

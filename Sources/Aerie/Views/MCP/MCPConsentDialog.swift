@@ -58,13 +58,13 @@ struct MCPConsentDialog: View {
     private var description: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("If you allow this, Aerie will:")
-                .font(AerieFont.body())
+                .aerieFont(AerieFont.body())
                 .foregroundStyle(AerieColor.text2)
             Text("• Add a local entry to ~/.claude/.mcp.json")
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text2)
             Text("• Keep the server bound to 127.0.0.1 with a rotating bearer token")
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text2)
         }
     }
@@ -89,7 +89,7 @@ struct MCPConsentDialog: View {
         return VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 Text(line.0)
-                    .font(AerieFont.code(11))
+                    .aerieFont(AerieFont.code(11))
                     .foregroundStyle(line.1 ? AerieColor.ok : AerieColor.text2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -118,7 +118,7 @@ struct MCPConsentDialog: View {
                 .foregroundStyle(AerieColor.ok)
                 .font(.system(size: 11))
             Text(text)
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text3)
         }
     }

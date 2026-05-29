@@ -32,10 +32,10 @@ struct DeltaView: View {
     private func cluster(symbol: String, value: Int, color: Color) -> some View {
         HStack(spacing: 4) {
             Text(symbol)
-                .font(AerieFont.code(12))
+                .aerieFont(AerieFont.code(12))
                 .foregroundStyle(color)
             Text("\(value)")
-                .font(AerieFont.code(12).monospacedDigit())
+                .aerieFont(AerieFont.code(12).monospacedDigit())
                 .foregroundStyle(color)
         }
     }

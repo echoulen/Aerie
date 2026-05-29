@@ -1,14 +1,15 @@
 import Foundation
 import Observation
+import CoreGraphics
 
 /// View model for Settings → Appearance.
 ///
 /// Backs the interface-zoom control (design `appearance.jsx`): a five-stop
 /// "display size" stepper that scales the whole UI the way ⌘+ zooms a
 /// browser. This VM owns the *selection* — the active stop — and persists it
-/// via `SettingsDAO` under `appearance.zoom_pct`. Actually applying the scale
-/// app-wide is intentionally out of scope here; the screen, keyboard
-/// shortcuts (⌘+ / ⌘− / ⌘0) and reset all drive this single source of truth.
+/// via `SettingsDAO` under `appearance.zoom_pct`. A single shared instance is
+/// the source of truth: the Settings screen + keyboard shortcuts (⌘+/⌘−/⌘0)
+/// mutate it, and `AerieApp` reads `scale` to zoom the main window live.
 @Observable
 final class AppearanceViewModel {
     /// One stop on the display-size stepper. `pct` is the interface zoom
@@ -36,6 +37,12 @@ final class AppearanceViewModel {
 
     /// The zoom percentage of the currently-selected stop.
     var zoomPct: Int { Self.stops[activeIndex].pct }
+
+    /// The geometric scale factor for the active stop (e.g. 1.25 at 125%).
+    /// `AerieApp.InterfaceZoom` applies this to the main window via
+    /// `scaleEffect`, which is how the interface actually zooms — macOS SwiftUI
+    /// won't scale fonts through Dynamic Type, so a geometric scale is used.
+    var scale: CGFloat { CGFloat(zoomPct) / 100.0 }
 
     private let db: AppDatabase
 

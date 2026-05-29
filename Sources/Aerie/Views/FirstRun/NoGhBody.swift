@@ -19,7 +19,7 @@ struct FirstRunPanel<ExtraBody: View>: View {
                 .font(.system(size: 32, weight: .medium))
                 .foregroundStyle(AerieColor.text1)
             Text(prose)
-                .font(AerieFont.body())
+                .aerieFont(AerieFont.body())
                 .foregroundStyle(AerieColor.text2)
                 .lineSpacing(3)
             commandBlock
@@ -34,7 +34,7 @@ struct FirstRunPanel<ExtraBody: View>: View {
     private var commandBlock: some View {
         HStack {
             Text(command)
-                .font(AerieFont.code())
+                .aerieFont(AerieFont.code())
                 .foregroundStyle(AerieColor.text2)
                 .padding(.horizontal, 14).padding(.vertical, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -49,7 +49,7 @@ struct FirstRunPanel<ExtraBody: View>: View {
                 NSPasteboard.general.setString(command, forType: .string)
             } label: {
                 Text("Copy")
-                    .font(AerieFont.small().weight(.medium))
+                    .aerieFont(AerieFont.small().weight(.medium))
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .foregroundStyle(AerieColor.text2)
                     .background(Capsule().fill(AerieColor.glass2))
@@ -63,7 +63,7 @@ struct FirstRunPanel<ExtraBody: View>: View {
         HStack(spacing: 12) {
             Button(action: onPrimary) {
                 Text(primaryButtonTitle)
-                    .font(AerieFont.small().weight(.medium))
+                    .aerieFont(AerieFont.small().weight(.medium))
                     .padding(.horizontal, 18).padding(.vertical, 10)
                     .foregroundStyle(AerieColor.amber)
                     .background(Capsule().fill(AerieColor.amberSoft))
@@ -72,7 +72,7 @@ struct FirstRunPanel<ExtraBody: View>: View {
             .buttonStyle(.plain)
             Button(action: onQuit) {
                 Text("Quit Aerie")
-                    .font(AerieFont.small())
+                    .aerieFont(AerieFont.small())
                     .padding(.horizontal, 14).padding(.vertical, 10)
                     .foregroundStyle(AerieColor.text3)
             }
@@ -88,7 +88,7 @@ struct FirstRunPanel<ExtraBody: View>: View {
                 .frame(width: 6, height: 6)
                 .shadow(color: AerieColor.amberGlow, radius: 3)
             Text("checking every 5s")
-                .font(AerieFont.eyebrow())
+                .aerieFont(AerieFont.eyebrow())
                 .foregroundStyle(AerieColor.text3)
         }
     }

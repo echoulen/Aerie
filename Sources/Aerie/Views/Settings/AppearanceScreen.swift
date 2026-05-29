@@ -17,9 +17,12 @@ import SwiftUI
 ///   │  ┌ card: a sample PR row scaled by the chosen zoom ┐  │
 ///   └──────────────────────────────────────────────────────┘
 ///
-/// The stepper is interactive (tap a stop to select) and ⌘+/⌘−/⌘0 drive the
-/// same selection; both persist through `AppearanceViewModel`. Applying the
-/// scale app-wide is out of scope — the screen drives the stored preference.
+/// The stepper is interactive — click a stop or drag to scrub through them —
+/// and ⌘+/⌘−/⌘0 drive the same selection; all persist through
+/// `AppearanceViewModel`. The chosen scale is applied app-wide as a *font*
+/// scale: `AerieApp` publishes it as `\.interfaceFontScale`, and every text
+/// uses `.aerieFont(_:)`, so fonts grow/shrink crisply (no rasterised blur,
+/// unlike a root `scaleEffect`). The PREVIEW card mirrors the selected size.
 struct AppearanceScreen: View {
     @Bindable var viewModel: AppearanceViewModel
 
@@ -60,10 +63,10 @@ struct AppearanceScreen: View {
             sectionEyebrow("APPEARANCE")
             HStack(alignment: .firstTextBaseline) {
                 Text("Display size")
-                    .font(AerieFont.sectionTitle())
+                    .aerieFont(AerieFont.sectionTitle())
                     .foregroundStyle(AerieColor.text1)
                 Text("zoom the whole interface")
-                    .font(AerieFont.code(13))
+                    .aerieFont(AerieFont.code(13))
                     .foregroundStyle(AerieColor.text3)
                 Spacer(minLength: 16)
                 resetButton
@@ -76,7 +79,7 @@ struct AppearanceScreen: View {
             Task { await viewModel.reset() }
         }
         .buttonStyle(.plain)
-        .font(AerieFont.small())
+        .aerieFont(AerieFont.small())
         .foregroundStyle(AerieColor.text3)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -91,17 +94,17 @@ struct AppearanceScreen: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Interface zoom")
-                        .font(.custom(AerieFont.sans, size: 14.5).weight(.medium))
+                        .aerieFont(AerieFont.custom(.sans, size: 14.5).weight(.medium))
                         .foregroundStyle(AerieColor.text1)
                     Text("Text, spacing and icons all scale together — the same way ⌘+ zooms a browser.")
-                        .font(.custom(AerieFont.sans, size: 12.5))
+                        .aerieFont(AerieFont.custom(.sans, size: 12.5))
                         .foregroundStyle(AerieColor.text3)
                         .lineSpacing(3)
                         .frame(maxWidth: 360, alignment: .leading)
                 }
                 Spacer(minLength: 16)
                 Text("\(viewModel.zoomPct)%")
-                    .font(.custom(AerieFont.mono, size: 30).weight(.medium))
+                    .aerieFont(AerieFont.custom(.mono, size: 30).weight(.medium))
                     .tracking(-0.3)
                     .foregroundStyle(AerieColor.text1)
             }
@@ -130,14 +133,14 @@ struct AppearanceScreen: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 18) {
                 Text("A")
-                    .font(.custom(AerieFont.sans, size: 13).weight(.semibold))
+                    .aerieFont(AerieFont.custom(.sans, size: 13).weight(.semibold))
                     .foregroundStyle(AerieColor.text3)
 
                 stepperTrack
                     .frame(height: 18)
 
                 Text("A")
-                    .font(.custom(AerieFont.sans, size: 22).weight(.semibold))
+                    .aerieFont(AerieFont.custom(.sans, size: 22).weight(.semibold))
                     .foregroundStyle(AerieColor.text1)
             }
 
@@ -147,10 +150,10 @@ struct AppearanceScreen: View {
                     let isActive = idx == active
                     VStack(spacing: 2) {
                         Text("\(stop.pct)%")
-                            .font(AerieFont.code(11).weight(isActive ? .semibold : .regular))
+                            .aerieFont(AerieFont.code(11).weight(isActive ? .semibold : .regular))
                             .foregroundStyle(isActive ? AerieColor.amber : AerieColor.text4)
                         Text(stop.label)
-                            .font(.custom(AerieFont.sans, size: 10))
+                            .aerieFont(AerieFont.custom(.sans, size: 10))
                             .tracking(0.2)
                             .foregroundStyle(isActive ? AerieColor.text2 : AerieColor.text4)
                     }
@@ -183,21 +186,29 @@ struct AppearanceScreen: View {
                     .frame(width: max(0, w * fillFraction), height: 6)
                     .shadow(color: AerieColor.amber.opacity(0.4), radius: 5)
 
-                // Ticks + tap bands
+                // Ticks
                 ForEach(0..<n, id: \.self) { i in
-                    let x = w * CGFloat(i) / CGFloat(n - 1)
                     tick(i)
-                        .position(x: x, y: h / 2)
-                    // Invisible band so each stop is easy to click.
-                    Rectangle()
-                        .fill(Color.clear)
-                        .contentShape(Rectangle())
-                        .frame(width: w / CGFloat(n - 1), height: 18)
-                        .position(x: x, y: h / 2)
-                        .onTapGesture { Task { await viewModel.select(i) } }
+                        .position(x: w * CGFloat(i) / CGFloat(n - 1), y: h / 2)
                 }
             }
             .frame(width: w, height: h)
+            // The whole track is the hit area. `minimumDistance: 0` claims the
+            // gesture on mouse-down, beating the window's
+            // `isMovableByWindowBackground` drag (the same trick `CadenceSlider`
+            // uses) — so you can click a stop *or* drag to scrub through them,
+            // instead of the drag being eaten as a window move.
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let frac = max(0, min(1, value.location.x / max(1, w)))
+                        let idx = Int((frac * CGFloat(n - 1)).rounded())
+                        if idx != active {
+                            Task { await viewModel.select(idx) }
+                        }
+                    }
+            )
         }
     }
 
@@ -226,7 +237,7 @@ struct AppearanceScreen: View {
             HStack(spacing: 4) {
                 ForEach(Array(keys.enumerated()), id: \.offset) { _, k in
                     Text(k)
-                        .font(.custom(AerieFont.mono, size: 12))
+                        .aerieFont(AerieFont.custom(.mono, size: 12))
                         .foregroundStyle(AerieColor.text2)
                         .frame(minWidth: 20)
                         .frame(height: 20)
@@ -242,7 +253,7 @@ struct AppearanceScreen: View {
                 }
             }
             Text(label)
-                .font(.custom(AerieFont.sans, size: 12.5))
+                .aerieFont(AerieFont.custom(.sans, size: 12.5))
                 .foregroundStyle(AerieColor.text3)
         }
     }
@@ -339,7 +350,7 @@ struct AppearanceScreen: View {
 
     private func sectionEyebrow(_ text: String) -> some View {
         Text(text)
-            .font(AerieFont.eyebrow())
+            .aerieFont(AerieFont.eyebrow())
             .tracking(2.0)
             .foregroundStyle(AerieColor.text4)
     }

@@ -12,10 +12,18 @@ struct AerieApp: App {
         GhBootstrapper(auth: AppServices.shared.auth, interval: 5.0)
     }()
 
+    /// Single shared interface-zoom state. Both windows read its
+    /// `dynamicTypeSize`, and the Settings → Appearance screen mutates the same
+    /// instance, so adjusting the control rescales the whole app live.
+    @State private var appearance = AppearanceViewModel(db: AppServices.shared.db)
+
     var body: some Scene {
         WindowGroup("Aerie") {
-            AppRoot(bootstrapper: bootstrapper, onAuthOK: startMCPServer)
-                .frame(minWidth: 1240, minHeight: 880)
+            InterfaceZoom(appearance: appearance) {
+                AppRoot(bootstrapper: bootstrapper, onAuthOK: startMCPServer)
+                    .frame(minWidth: 1240, minHeight: 880)
+            }
+            .task { await appearance.refresh() }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -25,7 +33,9 @@ struct AerieApp: App {
         }
 
         Window("Aerie · Settings", id: "settings") {
-            SettingsWindow()
+            InterfaceZoom(appearance: appearance) {
+                SettingsWindow(appearance: appearance)
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
@@ -72,6 +82,21 @@ private struct SettingsCommand: View {
             openWindow(id: "settings")
         }
         .keyboardShortcut(",", modifiers: .command)
+    }
+}
+
+/// Publishes the shared interface font scale into the environment as
+/// `\.interfaceFontScale`. Text uses `.aerieFont(_:)` (which reads that value),
+/// so changing the Appearance control rescales every font app-wide — crisply
+/// (real font sizes, no rasterisation) and with no state loss. Reading
+/// `appearance.scale` here sets up `@Observable` tracking so the value updates
+/// the instant the selection changes.
+private struct InterfaceZoom<Content: View>: View {
+    let appearance: AppearanceViewModel
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content.environment(\.interfaceFontScale, appearance.scale)
     }
 }
 

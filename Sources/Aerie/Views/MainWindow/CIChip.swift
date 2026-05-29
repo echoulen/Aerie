@@ -14,7 +14,7 @@ struct CIChip: View {
                 .fill(dotColor)
                 .frame(width: 6, height: 6)
             Text(label)
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(textColor)
         }
         .padding(.horizontal, 10)
