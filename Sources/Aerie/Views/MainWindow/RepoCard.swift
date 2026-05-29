@@ -2,20 +2,21 @@ import SwiftUI
 
 /// A single repository row, rendered as a glass card.
 ///
-/// Visual contract: `docs/superpowers/design/v2/screens.jsx` lines 313-366.
-/// Layout:
-///   ┌───────────────────────────────────────────────────────────────┐
-///   │ <repo name>                                       ┌─────────┐ │
-///   │ <owner/repo>                                      │  Open ↗ │ │
-///   │ <collapsed local path>                            └─────────┘ │
-///   │                                                  ┌──────────┐ │
-///   │ <BranchTag> <dirty/clean> <DeltaView>            │Hard reset│ │
-///   │                                                  └──────────┘ │
-///   └───────────────────────────────────────────────────────────────┘
-///
-/// "Hard reset" is rendered amber UNLESS the working copy is on the default
-/// branch AND clean (no dirty files, no divergence, no unpushed). In that
-/// case the button is muted because there's nothing to reset to.
+/// Visual contract: `docs/superpowers/design/v2/app.jsx` `RepoCard(...)`.
+/// Three columns share one piece of glass:
+///   ┌──────────────────────────────────────────────────────────────────┐
+///   │ <owner> · [off default]                                            │
+///   │ <name>                     ● <status sentence>   Open ↗  [Reset…] │
+///   │ ⎇ <branch>                                                         │
+///   └──────────────────────────────────────────────────────────────────┘
+/// - Identity: owner + (when off the default branch) an "off default" pill,
+///   the repo name (20pt medium), and the checked-out branch as a plain
+///   glyph + mono name (no bordered tag).
+/// - Status: a single tone-coloured dot + one calm sentence — "Working tree
+///   dirty", "Clean · in sync with origin", or an "N ahead · M behind …"
+///   summary — replacing the old inline dirty/clean + delta chips.
+/// - Actions: a ghost "Open ↗" and a red `.btn.danger` "Reset to origin/<b>".
+///   Per the v2 design the reset action is always offered (no muted state).
 struct RepoCard: View {
     let row: RepoRow
     var onOpen: () -> Void
@@ -24,22 +25,8 @@ struct RepoCard: View {
     // MARK: - Derived presentation bits
 
     private var repoTitle: String { row.repo.name }
-
-    private var repoSubtitle: String {
-        "\(row.repo.githubOwner)/\(row.repo.githubRepo)"
-    }
-
-    /// `$HOME/foo/bar` → `~/foo/bar`. Falls back to the raw path when the
-    /// repo doesn't live under the user's home directory.
-    private var collapsedPath: String {
-        let raw = row.repo.localPath.path
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if raw == home { return "~" }
-        if raw.hasPrefix(home + "/") {
-            return "~" + raw.dropFirst(home.count)
-        }
-        return raw
-    }
+    private var owner: String { row.repo.githubOwner }
+    private var defaultBranch: String { row.repo.defaultBranch }
 
     private var branchName: String {
         row.status?.currentBranch ?? row.repo.defaultBranch
@@ -50,168 +37,176 @@ struct RepoCard: View {
         return s.currentBranch == row.repo.defaultBranch
     }
 
-    /// "Clean" means: working copy is not dirty, no divergence vs origin
-    /// default, and no unpushed commits. When `status == nil` we treat the
-    /// repo as clean (we have no evidence to the contrary).
-    private var isClean: Bool {
-        guard let s = row.status else { return true }
-        return s.isDirty == false
-            && s.aheadOfDefault == 0
-            && s.behindOfDefault == 0
-            && s.unpushedCommits == 0
+    private enum StatusTone { case ok, warn, amber }
+
+    /// Mirrors `app.jsx`: clean → ok, dirty → warn, otherwise an
+    /// ahead/behind/unpushed summary → amber. `nil` status reads as clean
+    /// (we have no evidence to the contrary).
+    private var statusTone: StatusTone {
+        guard let s = row.status else { return .ok }
+        if s.isDirty { return .warn }
+        if s.aheadOfDefault > 0 || s.behindOfDefault > 0 || s.unpushedCommits > 0 { return .amber }
+        return .ok
     }
 
-    /// "Amber unless on clean default" — per Phase-10 plan.
-    private var canHardReset: Bool {
-        !(isOnDefault && isClean)
+    private var statusText: String {
+        guard let s = row.status else { return "Clean · in sync with origin" }
+        if s.isDirty { return "Working tree dirty" }
+        var bits: [String] = []
+        if s.aheadOfDefault > 0  { bits.append("\(s.aheadOfDefault) ahead") }
+        if s.behindOfDefault > 0 { bits.append("\(s.behindOfDefault) behind") }
+        if s.unpushedCommits > 0 { bits.append("\(s.unpushedCommits) unpushed") }
+        return bits.isEmpty ? "Clean · in sync with origin" : bits.joined(separator: " · ")
     }
+
+    private var statusColor: Color {
+        switch statusTone {
+        case .ok:    return AerieColor.ok
+        case .warn:  return AerieColor.warn
+        case .amber: return AerieColor.amber
+        }
+    }
+
+    // MARK: - Body
 
     var body: some View {
-        HStack(alignment: .center, spacing: 24) {
-            leftColumn
+        HStack(alignment: .center, spacing: 28) {
+            identityColumn
+                .frame(maxWidth: .infinity, alignment: .leading)
+            statusColumn
+                .frame(maxWidth: .infinity, alignment: .leading)
             actions
-                .frame(width: 140)
         }
         .padding(.vertical, 22)
-        .padding(.horizontal, 28)
+        .padding(.horizontal, 26)
         .glass(.card)
     }
 
-    // MARK: - Left column
+    // MARK: - Identity column
 
-    private var leftColumn: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Title row: display name + owner/repo slug
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(repoTitle)
-                    .font(.custom(AerieFont.sans, size: 17).weight(.medium))
-                    .foregroundStyle(AerieColor.text1)
-                Text(repoSubtitle)
-                    .font(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
-            }
-
-            // Collapsed local path on its own line
-            Text(collapsedPath)
-                .font(AerieFont.code(11))
-                .foregroundStyle(AerieColor.text3)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .padding(.top, 4)
-
-            // State row
-            HStack(spacing: 20) {
-                BranchTag(name: branchName, isCurrent: isOnDefault == false)
-                dirtyOrClean
-                if let status = row.status {
-                    DeltaView(
-                        ahead: status.aheadOfDefault,
-                        behind: status.behindOfDefault,
-                        unpushed: status.unpushedCommits
-                    )
+    private var identityColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(owner)
+                    .font(.custom(AerieFont.sans, size: 12))
+                    .foregroundStyle(AerieColor.text3)
+                if !isOnDefault {
+                    Text("·")
+                        .font(.custom(AerieFont.sans, size: 12))
+                        .foregroundStyle(AerieColor.text4)
+                    offDefaultPill
                 }
-                Spacer(minLength: 0)
             }
-            .padding(.top, 14)
+
+            Text(repoTitle)
+                .font(.custom(AerieFont.sans, size: 20).weight(.medium))
+                .tracking(-0.16)                 // -0.008em @ 20pt
+                .foregroundStyle(AerieColor.text1)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            HStack(spacing: 8) {
+                BranchGlyph()
+                    .frame(width: 13, height: 13)
+                    .foregroundStyle(AerieColor.text3)
+                Text(branchName)
+                    .font(AerieFont.code(13))
+                    .foregroundStyle(AerieColor.text2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(.top, 2)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private var dirtyOrClean: some View {
-        if let status = row.status, status.isDirty {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(AerieColor.warn)
-                    .frame(width: 6, height: 6)
-                Text("uncommitted changes")
-                    .font(AerieFont.code(12))
-                    .foregroundStyle(AerieColor.warn)
-            }
-        } else if row.status != nil {
-            Text("clean")
-                .font(AerieFont.code(12))
-                .foregroundStyle(AerieColor.text4)
-        }
-        // status == nil → render nothing for the dirty/clean slot.
+    private var offDefaultPill: some View {
+        Text("off default")
+            .font(.custom(AerieFont.sans, size: 10))
+            .foregroundStyle(AerieColor.text3)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 1)
+            .background(Capsule(style: .continuous).fill(AerieColor.glass2))
+            .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
     }
 
-    // MARK: - Right column actions
+    // MARK: - Status column
+
+    private var statusColumn: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 7, height: 7)
+                .shadow(color: statusColor.opacity(0.6), radius: 4)
+            Text(statusText)
+                .font(.custom(AerieFont.sans, size: 13.5))
+                .foregroundStyle(AerieColor.text2)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+
+    // MARK: - Actions
 
     private var actions: some View {
-        VStack(spacing: 10) {
-            Button(action: onOpen) {
-                HStack(spacing: 8) {
-                    Text("Open")
-                    Text("↗")
-                }
-                .font(.custom(AerieFont.sans, size: 12))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .foregroundStyle(AerieColor.text2)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(AerieColor.glass2)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-
-            Button(action: onHardReset) {
-                HStack(spacing: 8) {
-                    ResetGlyph()
-                        .frame(width: 12, height: 12)
-                    Text("Hard reset")
-                        .font(.custom(AerieFont.sans, size: 12.5).weight(.medium))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 11)
-                .foregroundStyle(canHardReset ? AerieColor.amber : AerieColor.text3)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(canHardReset ? AerieColor.amberSoft : AerieColor.glass2)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(canHardReset ? AerieColor.amberLine : AerieColor.glassLine, lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(!canHardReset)
+        HStack(spacing: 8) {
+            GhostButton(title: "Open ↗", action: onOpen)
+            DangerButton(title: "Reset to origin/\(defaultBranch)", action: onHardReset)
         }
     }
 }
 
-/// Curved reset arrow used inside the Hard reset button. Mirrors the SVG in
-/// `screens.jsx` `ResetGlyph()`.
-private struct ResetGlyph: View {
-    var body: some View {
-        Canvas { ctx, size in
-            let s = size.width
-            let stroke = StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round)
-            func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-                CGPoint(x: x / 16 * s, y: y / 16 * s)
-            }
-            // Arc: M3 8 a5 5 0 018.7-3.4 L13 6
-            var arc = Path()
-            arc.move(to: p(3, 8))
-            arc.addCurve(
-                to: p(11.7, 4.6),
-                control1: p(3, 5.2),
-                control2: p(8.9, 4.6)
-            )
-            arc.addLine(to: p(13, 6))
-            ctx.stroke(arc, with: .color(.primary), style: stroke)
+// MARK: - Buttons
 
-            // Tip: M 13 3 v 3 h -3
-            var tip = Path()
-            tip.move(to: p(13, 3))
-            tip.addLine(to: p(13, 6))
-            tip.addLine(to: p(10, 6))
-            ctx.stroke(tip, with: .color(.primary), style: stroke)
+/// `.btn.ghost.sm` — transparent until hover, where it gains a `glass2` fill
+/// and brightens to `text1`. 12pt sans, 5×10 padding, 9pt radius.
+private struct GhostButton: View {
+    let title: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.custom(AerieFont.sans, size: 12))
+                .foregroundStyle(hovering ? AerieColor.text1 : AerieColor.text3)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(hovering ? AerieColor.glass2 : Color.clear)
+                )
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// `.btn.danger` — lighter-red text on an `err`-tinted fill with a matching
+/// hairline; the fill deepens on hover. 13pt medium sans, 8×14 padding.
+private struct DangerButton: View {
+    let title: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.custom(AerieFont.sans, size: 13).weight(.medium))
+                .foregroundStyle(AerieColor.dangerText)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(hovering ? AerieColor.dangerFillHover : AerieColor.dangerFill)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(AerieColor.dangerLine, lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }

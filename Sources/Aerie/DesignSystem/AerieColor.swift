@@ -38,4 +38,12 @@ enum AerieColor {
     static let ok   = Color(red: 0.52, green: 0.85, blue: 0.65)  // oklch(0.82 0.130 158)
     static let warn = Color(red: 0.94, green: 0.78, blue: 0.30)  // oklch(0.86 0.140 88)
     static let err  = Color(red: 0.96, green: 0.42, blue: 0.40)  // oklch(0.74 0.165 26)
+
+    // Danger button (`.btn.danger`) — lighter red text on an `err`-tinted
+    // fill with an `err`-tinted hairline. Matches styles.css:
+    //   color oklch(0.85 0.14 26); border err/0.40; bg err/0.10; hover err/0.18
+    static let dangerText      = Color(red: 1.0, green: 0.60, blue: 0.56)
+    static let dangerLine      = err.opacity(0.40)
+    static let dangerFill      = err.opacity(0.10)
+    static let dangerFillHover = err.opacity(0.18)
 }

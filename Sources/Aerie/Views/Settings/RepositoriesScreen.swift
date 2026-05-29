@@ -27,13 +27,17 @@ struct RepositoriesScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                header
-                listCard
+            VStack(alignment: .leading, spacing: 0) {
+                pageHeader
+                if !viewModel.repos.isEmpty {
+                    columnLegend.padding(.top, 20)
+                    listCard.padding(.top, 6)
+                }
                 if let error = viewModel.error {
                     Text(error)
                         .font(AerieFont.small())
                         .foregroundStyle(AerieColor.err)
+                        .padding(.top, 18)
                 }
             }
             .padding(AerieMetric.pagePadding)
@@ -41,20 +45,61 @@ struct RepositoriesScreen: View {
         }
     }
 
-    // MARK: - Pieces
+    // MARK: - Page header
 
-    private var header: some View {
-        HStack {
-            Text("Repositories")
-                .font(AerieFont.sectionTitle())
-                .foregroundStyle(AerieColor.text1)
-            Spacer()
-            Button("Refresh all", action: onRefreshAll)
-                .buttonStyle(GhostButtonStyle())
-            Button("+ Add repository", action: onAddRepo)
-                .buttonStyle(AmberButtonStyle())
+    private var pageHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionEyebrow("REPOSITORIES")
+            HStack(alignment: .firstTextBaseline) {
+                Text("Tracked locally")
+                    .font(AerieFont.sectionTitle())
+                    .foregroundStyle(AerieColor.text1)
+                Text("\(viewModel.repos.count) repositor\(viewModel.repos.count == 1 ? "y" : "ies")")
+                    .font(AerieFont.code(13))
+                    .foregroundStyle(AerieColor.text3)
+                Spacer(minLength: 16)
+                Button("↻ Refresh all", action: onRefreshAll)
+                    .buttonStyle(GhostButtonStyle())
+                Button("+ Add repository", action: onAddRepo)
+                    .buttonStyle(AmberButtonStyle())
+            }
         }
     }
+
+    // MARK: - Column legend
+
+    // Faint guide above the list — `settings.jsx` lines 233-245. Same 5-column
+    // grid as the rows, inset 20 pt to sit over the row content (the rows pad
+    // 20 pt inside the card).
+    private var columnLegend: some View {
+        HStack(spacing: 18) {
+            Color.clear.frame(width: 18, height: 1)
+            legendLabel("NAME · PATH")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            legendLabel("GITHUB · CURRENT BRANCH")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            legendLabel("ACCOUNT")
+                .frame(width: 130, alignment: .leading)
+            Color.clear.frame(width: 28, height: 1)
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private func legendLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.custom(AerieFont.mono, size: 9).weight(.medium))
+            .tracking(1.8) // 0.20em × 9 px
+            .foregroundStyle(AerieColor.text4)
+    }
+
+    private func sectionEyebrow(_ text: String) -> some View {
+        Text(text)
+            .font(AerieFont.eyebrow())
+            .tracking(2.0)
+            .foregroundStyle(AerieColor.text4)
+    }
+
+    // MARK: - List
 
     private var listCard: some View {
         VStack(spacing: 0) {
