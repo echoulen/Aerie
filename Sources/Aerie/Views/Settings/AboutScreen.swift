@@ -14,7 +14,7 @@ struct AboutScreen: View {
     var body: some View {
         VStack(spacing: 18) {
             Spacer()
-            BrandMark(size: 96)
+            appIcon
                 .padding(.bottom, 8)
             Text("Aerie")
                 .font(AerieFont.display())
@@ -46,6 +46,23 @@ struct AboutScreen: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(AerieMetric.pagePadding)
+    }
+
+    /// The real macOS app icon — the sodium-amber radar mark on dark glass
+    /// (design `icon.jsx`). Loaded from the bundled PNG so the squircle and
+    /// inner artwork are pixel-perfect rather than re-approximated.
+    @ViewBuilder
+    private var appIcon: some View {
+        let size: CGFloat = 112
+        if let url = Bundle.module.url(forResource: "app-icon", withExtension: "png"),
+           let image = NSImage(contentsOf: url) {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: size, height: size)
+        } else {
+            BrandMark(size: size)
+        }
     }
 
     private static var defaultVersion: String {

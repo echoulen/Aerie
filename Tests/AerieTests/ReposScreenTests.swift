@@ -120,7 +120,7 @@ final class ReposScreenTests: XCTestCase {
 
         let view = ZStack {
             Backdrop()
-            ReposScreen(viewModel: vm)
+            ReposScreen(viewModel: vm, tabSelection: .constant(.repos))
         }
         .frame(width: 1240, height: 760)
 

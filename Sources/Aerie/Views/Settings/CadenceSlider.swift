@@ -54,22 +54,26 @@ struct CadenceSlider: View {
             let knobX = max(knob / 2, min(geo.size.width - knob / 2, fraction * geo.size.width))
 
             ZStack(alignment: .leading) {
-                // Track
+                // Track — dark translucent groove with the glass hairline,
+                // vertically centred in the knob-height row.
                 Capsule()
-                    .fill(AerieColor.glass1)
+                    .fill(Color.black.opacity(0.32))
                     .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
                     .frame(height: trackHeight)
+                    .frame(maxHeight: .infinity, alignment: .center)
                 // Fill
                 Capsule()
                     .fill(AerieColor.amber)
                     .frame(width: max(0, knobX), height: trackHeight)
-                // Knob
+                    .frame(maxHeight: .infinity, alignment: .center)
+                    .shadow(color: AerieColor.amberGlow.opacity(0.5), radius: 5)
+                // Knob — white, centred on the track line.
                 Circle()
                     .fill(.white)
-                    .overlay(Circle().strokeBorder(AerieColor.amberLine, lineWidth: 1))
+                    .overlay(Circle().strokeBorder(Color.black.opacity(0.10), lineWidth: 1))
                     .frame(width: knob, height: knob)
-                    .position(x: knobX, y: trackHeight / 2)
-                    .shadow(color: AerieColor.amberGlow, radius: 4)
+                    .position(x: knobX, y: knob / 2)
+                    .shadow(color: Color.black.opacity(0.4), radius: 2, y: 1)
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in

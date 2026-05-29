@@ -69,14 +69,14 @@ struct SettingsWindow: View {
         ZStack {
             Backdrop()
             VStack(spacing: 0) {
-                Titlebar(
-                    mid: { Text("Aerie · Settings")
-                            .font(AerieFont.body().weight(.medium))
-                            .foregroundStyle(AerieColor.text1) },
-                    trail: { EmptyView() }
-                )
+                Titlebar(title: "Aerie · Settings")
                 HStack(spacing: 0) {
-                    SettingsSidebar(selection: route, mcpRunning: mcpVM.status.running)
+                    SettingsSidebar(
+                        selection: route,
+                        mcpRunning: mcpVM.status.running,
+                        accountsCount: accountsVM.rows.count,
+                        repositoriesCount: reposVM.repos.count
+                    )
                     body(for: route.wrappedValue)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }

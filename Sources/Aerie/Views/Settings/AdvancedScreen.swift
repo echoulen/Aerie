@@ -2,21 +2,17 @@ import SwiftUI
 
 /// Settings → Advanced main content.
 ///
-/// Three sections plus a reset button:
+/// Layout follows the v2 design (`advanced.jsx`):
 ///   ┌──────────────────────────────────────────────────────┐
-///   │ Polling cadence                                      │
-///   │   <CadenceSlider Active>                             │
-///   │   <CadenceSlider Background>                         │
-///   │   ⚠ warning chip (only if values are below threshold)│
-///   │                                                      │
-///   │ Rate limit                                           │
-///   │   <login@host> + <RateMeter>  (per account)          │
-///   │                                                      │
-///   │ Behavior                                             │
-///   │   [ ] Refresh on app focus                           │
-///   │   [ ] Pause polling when app loses focus             │
-///   │                                                      │
+///   │ ADVANCED                                             │  ← eyebrow
+///   │ Polling & rate limits   how often Aerie refreshes    │  ← page title + sub
 ///   │                              [ Reset to defaults ]   │
+///   │ POLLING CADENCE                                      │  ← section eyebrow
+///   │  ┌ card: sliders + quota warning chip ┐              │
+///   │ RATE LIMIT                                           │
+///   │  ┌ card: per-account meters ┐                        │
+///   │ BEHAVIOR                                             │
+///   │  ┌ card: focus toggles (switch right-aligned) ┐      │
 ///   └──────────────────────────────────────────────────────┘
 ///
 /// Setter bindings dispatch into `Task { await viewModel.set... }` so
@@ -27,21 +23,45 @@ struct AdvancedScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                pollingSection
-                rateLimitSection
-                behaviorSection
-                resetButton
+            VStack(alignment: .leading, spacing: 0) {
+                pageHeader
+
+                sectionEyebrow("POLLING CADENCE").padding(.top, 28)
+                pollingCard.padding(.top, 10)
+
+                sectionEyebrow("RATE LIMIT").padding(.top, 28)
+                rateLimitCard.padding(.top, 10)
+
+                sectionEyebrow("BEHAVIOR").padding(.top, 28)
+                behaviorCard.padding(.top, 10)
             }
             .padding(AerieMetric.pagePadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
+    // MARK: - Page header
+
+    private var pageHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionEyebrow("ADVANCED")
+            HStack(alignment: .firstTextBaseline) {
+                Text("Polling & rate limits")
+                    .font(AerieFont.sectionTitle())
+                    .foregroundStyle(AerieColor.text1)
+                Text("how often Aerie refreshes")
+                    .font(AerieFont.code(13))
+                    .foregroundStyle(AerieColor.text3)
+                Spacer(minLength: 16)
+                resetButton
+            }
+        }
+    }
+
     // MARK: - Polling
 
-    private var pollingSection: some View {
-        sectionCard(title: "Polling cadence") {
+    private var pollingCard: some View {
+        card {
             VStack(alignment: .leading, spacing: 18) {
                 CadenceSlider(
                     label: "Active repo",
@@ -82,8 +102,8 @@ struct AdvancedScreen: View {
 
     // MARK: - Rate limit
 
-    private var rateLimitSection: some View {
-        sectionCard(title: "Rate limit") {
+    private var rateLimitCard: some View {
+        card {
             VStack(alignment: .leading, spacing: 14) {
                 if viewModel.rateLimits.isEmpty {
                     Text("No rate limit data yet — polling hasn't started.")
@@ -116,57 +136,92 @@ struct AdvancedScreen: View {
 
     // MARK: - Behavior
 
-    private var behaviorSection: some View {
-        sectionCard(title: "Behavior") {
-            VStack(alignment: .leading, spacing: 12) {
-                Toggle("Refresh on app focus", isOn: Binding(
+    private var behaviorCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            behaviorRow(
+                title: "Refresh on app focus",
+                hint: "So you see fresh data the moment you ⌘-Tab back.",
+                on: Binding(
                     get: { viewModel.refreshOnFocus },
                     set: { v in Task { await viewModel.setRefreshOnFocus(v) } }
-                ))
-                Toggle("Pause polling when app loses focus", isOn: Binding(
+                ),
+                showDivider: true
+            )
+            behaviorRow(
+                title: "Pause polling when app loses focus",
+                hint: "Saves API quota when you're not looking.",
+                on: Binding(
                     get: { viewModel.pauseOnBlur },
                     set: { v in Task { await viewModel.setPauseOnBlur(v) } }
-                ))
+                ),
+                showDivider: false
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glass(.card)
+    }
+
+    private func behaviorRow(
+        title: String,
+        hint: String,
+        on: Binding<Bool>,
+        showDivider: Bool
+    ) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(AerieFont.body())
+                        .foregroundStyle(AerieColor.text1)
+                    Text(hint)
+                        .font(AerieFont.small())
+                        .foregroundStyle(AerieColor.text3)
+                }
+                Spacer(minLength: 16)
+                Toggle("", isOn: on)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(AerieColor.amber)
             }
-            .toggleStyle(.switch)
-            .tint(AerieColor.amber)
-            .foregroundStyle(AerieColor.text1)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            if showDivider {
+                Rectangle()
+                    .fill(AerieColor.glassLine)
+                    .frame(height: 1)
+            }
         }
     }
 
     // MARK: - Reset
 
     private var resetButton: some View {
-        HStack {
-            Spacer()
-            Button("Reset to defaults") {
-                Task { await viewModel.resetToDefaults() }
-            }
-            .buttonStyle(.plain)
-            .font(AerieFont.small())
-            .foregroundStyle(AerieColor.text3)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(AerieColor.glass1))
-            .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        Button("Reset to defaults") {
+            Task { await viewModel.resetToDefaults() }
         }
+        .buttonStyle(.plain)
+        .font(AerieFont.small())
+        .foregroundStyle(AerieColor.text3)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Capsule().fill(AerieColor.glass1))
+        .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
     }
 
-    // MARK: - Section card
+    // MARK: - Building blocks
+
+    private func sectionEyebrow(_ text: String) -> some View {
+        Text(text)
+            .font(AerieFont.eyebrow())
+            .tracking(2.0)
+            .foregroundStyle(AerieColor.text4)
+    }
 
     @ViewBuilder
-    private func sectionCard<Body: View>(
-        title: String,
-        @ViewBuilder content: () -> Body
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(AerieFont.sectionTitle())
-                .foregroundStyle(AerieColor.text1)
-            content()
-                .padding(AerieMetric.cardPaddingV)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glass(.card)
-        }
+    private func card<Body: View>(@ViewBuilder content: () -> Body) -> some View {
+        content()
+            .padding(AerieMetric.cardPaddingV)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glass(.card)
     }
 }

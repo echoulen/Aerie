@@ -10,11 +10,17 @@ struct GlassModifier: ViewModifier {
     func body(content: Content) -> some View {
         let blur: CGFloat = variant == .dialog ? 48 : 40
         let cornerRadius: CGFloat = variant == .window ? AerieMetric.radiusWindow : AerieMetric.radiusCard
+        // Cards & dialogs refract the app's own aurora `Backdrop`, so blend
+        // *within* the window. `behindWindow` would instead sample the desktop
+        // wallpaper, making card backgrounds drift with whatever's behind the
+        // window (the source of the inconsistent green/blue card tints).
+        let blending: NSVisualEffectView.BlendingMode =
+            variant == .window ? .behindWindow : .withinWindow
         return content
             .background(
                 ZStack {
                     AerieColor.glass1
-                    VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                    VisualEffectBlur(material: .hudWindow, blendingMode: blending)
                         .opacity(blur / 50.0)
                 }
             )
