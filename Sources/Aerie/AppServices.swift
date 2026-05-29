@@ -1,15 +1,23 @@
+import Combine
 import Foundation
+
+extension Notification.Name {
+    /// Posted (on the main actor) after a `PRSyncService` sync writes fresh PRs
+    /// into `pr_cache`. The main window observes it to re-project the PRs tab.
+    static let aeriePRCacheDidChange = Notification.Name("aerie.prCacheDidChange")
+}
 
 /// Process-wide singleton that owns the long-lived services and shares them
 /// between the main window scene and the Settings window scene (SwiftUI's
 /// `WindowGroup` + `Window` scenes don't share `@State`, so we hoist the
 /// services here).
 ///
-/// The integration-layer wiring (polling orchestration, MCP consent gating,
-/// `.claude/.mcp.json` upsert) is intentionally minimal — it covers what the
-/// shipped views need to render without crashing. The richer wiring tracked
-/// in the plan's "Known issues" section can hook in here later without
-/// rippling through every view.
+/// PR polling orchestration is wired here: the scheduler's per-repo refresh
+/// closure drives `PRSyncService`, and `startPolling()` follows app focus. The
+/// remaining integration wiring (MCP consent gating, `.claude/.mcp.json`
+/// upsert) is intentionally minimal — it covers what the shipped views need to
+/// render without crashing, and can hook in here later without rippling through
+/// every view.
 @MainActor
 final class AppServices {
     static let shared: AppServices = {
@@ -24,7 +32,13 @@ final class AppServices {
     let auth: LiveAuthService
     let apiClient: LiveGitHubAPIClient
     let multiApi: MultiAccountAPI
+    let prSync: PRSyncService
     let scheduler: PollingScheduler
+    let focusObserver: any AppFocusObserver
+    /// Retains the focus→scheduler subscription created by `startPolling()`.
+    /// Held here (rather than in a view) because the polling lifecycle must
+    /// outlive any single window.
+    private var focusSubscription: AnyCancellable?
     let mcpRouter: JSONRPCRouter
     let mcpRegistry: MCPToolRegistry
     let mcpLogger: ActivityLogger
@@ -61,10 +75,18 @@ final class AppServices {
             accountsInOrder: accountsInOrder
         )
 
-        // Stub refresh — proper polling orchestration is a Known Issue at
-        // the end of the plan. The scheduler still ticks; the closure is
-        // a no-op until the orchestration layer is wired.
-        let scheduler = PollingScheduler(clock: LiveClock()) { _ in }
+        // PR fetch → cache orchestration. The scheduler's per-repo refresh
+        // closure drives `prSync.sync`; on a successful sync `onChange` posts
+        // `.aeriePRCacheDidChange` (on main) so the PRs tab re-projects.
+        let prSync = PRSyncService(db: db, api: multiApi, onChange: {
+            await MainActor.run {
+                NotificationCenter.default.post(name: .aeriePRCacheDidChange, object: nil)
+            }
+        })
+        let scheduler = PollingScheduler(clock: LiveClock()) { repoId in
+            await prSync.sync(repoId: repoId)
+        }
+        let focusObserver = LiveAppFocusObserver()
 
         let router = JSONRPCRouter()
         let registry = MCPToolRegistry()
@@ -75,12 +97,26 @@ final class AppServices {
         self.auth = auth
         self.apiClient = client
         self.multiApi = multiApi
+        self.prSync = prSync
         self.scheduler = scheduler
+        self.focusObserver = focusObserver
         self.mcpRouter = router
         self.mcpRegistry = registry
         self.mcpLogger = logger
         self.mcpServer = server
         self.discovery = DiscoveryFileWriter()
         self.configWriter = ClaudeCodeConfigWriter()
+    }
+
+    /// Starts focus-driven polling: the scheduler runs while the app is active
+    /// and pauses when it resigns. On the first `active` signal it ticks
+    /// immediately (every repo is due), so PRs appear shortly after launch and
+    /// stay fresh on the configured cadence. Idempotent — the main window calls
+    /// it on appear, and repeat calls are no-ops.
+    func startPolling() {
+        guard focusSubscription == nil else { return }
+        focusSubscription = scheduler.attachFocusObserver(focusObserver) { [db] in
+            ((try? await db.repos.all()) ?? []).filter { !$0.hidden }.map(\.id)
+        }
     }
 }

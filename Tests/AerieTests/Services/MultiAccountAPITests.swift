@@ -141,6 +141,37 @@ final class MultiAccountAPITests: XCTestCase {
         XCTAssertEqual(tokensUsed, [primaryToken, secondaryToken])
     }
 
+    func test_listOpenPRs_fallsBackOn404_repoNotVisibleToFirstAccount() async throws {
+        // A private repo the first account can't see returns HTTP 200 +
+        // `repository: null`, which the client surfaces as a 404. The fallback
+        // must advance to an account that *can* see it.
+        let primary = UUID()
+        let secondary = UUID()
+        let primaryToken = "cant_see"
+        let secondaryToken = "can_see"
+        let repoId = UUID()
+        let pr = makePR(repoId: repoId, number: 9)
+
+        let stub = StubGitHubAPIClient()
+        await stub.enqueue(
+            .apiError(GitHubAPIError(status: 404, message: "repository not visible")),
+            forToken: primaryToken
+        )
+        await stub.enqueue(.prs([pr]), forToken: secondaryToken)
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: primaryToken, secondary: secondaryToken] },
+            accountsInOrder: { [primary, secondary] }
+        )
+
+        let result = try await api.listOpenPRs(owner: "acme", repo: "secret", repoId: repoId)
+        XCTAssertEqual(result.value, [pr])
+        XCTAssertEqual(result.successfulAccountId, secondary)
+        let tokensUsed = await stub.tokensUsed
+        XCTAssertEqual(tokensUsed, [primaryToken, secondaryToken])
+    }
+
     func test_listOpenPRs_throwsAfterAllFail() async throws {
         let primary = UUID()
         let secondary = UUID()
@@ -210,6 +241,131 @@ final class MultiAccountAPITests: XCTestCase {
 
         let count = await stub.callCount
         XCTAssertEqual(count, 1, "should only have called the primary, no fallback for network errors")
+    }
+
+    // MARK: listOpenPRs(forAccount:) — single, repo-bound account
+
+    func test_listOpenPRs_forAccount_usesOnlyThatAccountsToken() async throws {
+        // Targeting a specific account must use exactly that account's token,
+        // never the round-robin order (the orchestrator passes the repo's bound
+        // `primaryAccountId`, which is precise and sidesteps the fallback path).
+        let primary = UUID()
+        let secondary = UUID()
+        let primaryToken = "primary_tok"
+        let secondaryToken = "secondary_tok"
+        let repoId = UUID()
+        let pr = makePR(repoId: repoId, number: 5)
+
+        let stub = StubGitHubAPIClient()
+        await stub.enqueue(.prs([pr]), forToken: secondaryToken)
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: primaryToken, secondary: secondaryToken] },
+            accountsInOrder: { [primary, secondary] }
+        )
+
+        let result = try await api.listOpenPRs(
+            owner: "acme",
+            repo: "widgets",
+            repoId: repoId,
+            accountId: secondary
+        )
+
+        XCTAssertEqual(result.value, [pr])
+        XCTAssertEqual(result.successfulAccountId, secondary)
+        let tokensUsed = await stub.tokensUsed
+        XCTAssertEqual(tokensUsed, [secondaryToken], "must not touch the primary token")
+    }
+
+    func test_listOpenPRs_forAccount_doesNotFallBackOnAuthError() async throws {
+        // A single-account fetch never advances to another account — even on a
+        // 401 the error propagates so the caller can surface/log it.
+        let primary = UUID()
+        let secondary = UUID()
+        let primaryToken = "bad_tok"
+        let secondaryToken = "good_tok"
+
+        let stub = StubGitHubAPIClient()
+        await stub.enqueue(
+            .apiError(GitHubAPIError(status: 401, message: "Bad credentials")),
+            forToken: primaryToken
+        )
+        // Secondary would succeed if we (wrongly) fell back.
+        await stub.enqueue(.prs([]), forToken: secondaryToken)
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: primaryToken, secondary: secondaryToken] },
+            accountsInOrder: { [primary, secondary] }
+        )
+
+        do {
+            _ = try await api.listOpenPRs(
+                owner: "acme",
+                repo: "widgets",
+                repoId: UUID(),
+                accountId: primary
+            )
+            XCTFail("expected throw")
+        } catch let error as GitHubAPIError {
+            XCTAssertEqual(error.status, 401)
+        }
+
+        let count = await stub.callCount
+        XCTAssertEqual(count, 1, "single-account fetch must not fall back")
+    }
+
+    func test_listOpenPRs_forAccount_recordsLastUsedForThatAccountOnly() async throws {
+        let primary = UUID()
+        let secondary = UUID()
+        let primaryToken = "primary_tok"
+        let secondaryToken = "secondary_tok"
+        let repoId = UUID()
+
+        let stub = StubGitHubAPIClient()
+        await stub.enqueue(.prs([]), forToken: secondaryToken)
+
+        let fixed = Date(timeIntervalSince1970: 1_700_009_999)
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: primaryToken, secondary: secondaryToken] },
+            accountsInOrder: { [primary, secondary] },
+            now: { fixed }
+        )
+
+        _ = try await api.listOpenPRs(owner: "acme", repo: "widgets", repoId: repoId, accountId: secondary)
+
+        let secondaryRecord = await api.lastUsed(forAccount: secondary)
+        XCTAssertEqual(secondaryRecord, fixed)
+        let primaryRecord = await api.lastUsed(forAccount: primary)
+        XCTAssertNil(primaryRecord, "the untargeted account is never recorded")
+    }
+
+    func test_listOpenPRs_forAccount_throwsWhenAccountHasNoToken() async throws {
+        let known = UUID()
+        let unknown = UUID()
+        let stub = StubGitHubAPIClient()
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [known: "tok"] },
+            accountsInOrder: { [known] }
+        )
+
+        do {
+            _ = try await api.listOpenPRs(
+                owner: "acme",
+                repo: "widgets",
+                repoId: UUID(),
+                accountId: unknown
+            )
+            XCTFail("expected throw")
+        } catch is GitHubAPIError {
+            // expected — no token for the requested account
+        }
+        let count = await stub.callCount
+        XCTAssertEqual(count, 0, "no token → no network call")
     }
 
     // MARK: rate-limit

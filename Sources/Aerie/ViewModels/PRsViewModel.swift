@@ -21,9 +21,10 @@ enum PRsState: Equatable {
 
 /// View model for the PRs tab.
 ///
-/// Reads from the local caches only — fetching from GitHub and computing
-/// local state is the polling layer's job (Phase 7). `refresh()` re-projects
-/// whatever's currently in the cache into a flat, `updatedAt`-sorted row list.
+/// Reads from the local caches only — fetching from GitHub is the polling
+/// layer's job (`PRSyncService`, driven by `PollingScheduler`). `refresh()`
+/// re-projects whatever's currently in the cache into a flat, `updatedAt`-sorted
+/// row list, and is re-invoked whenever a sync posts `.aeriePRCacheDidChange`.
 @Observable
 final class PRsViewModel {
     private(set) var state: PRsState = .loading

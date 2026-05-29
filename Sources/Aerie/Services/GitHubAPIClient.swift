@@ -147,7 +147,14 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let decoded = try decoder.decode(ListPRsResponse.self, from: data)
-        return decoded.data.repository.pullRequests.nodes.map { Self.map($0, repoId: repoId) }
+        // GraphQL returns `200 + repository: null` when this token can't see the
+        // (private) repo. Surface that as a 404 so `MultiAccountAPI` can fall
+        // through to an account that *can* see it, rather than crashing on a
+        // non-optional decode.
+        guard let repository = decoded.data.repository else {
+            throw GitHubAPIError(status: 404, message: "repository not visible")
+        }
+        return repository.pullRequests.nodes.map { Self.map($0, repoId: repoId) }
     }
 
     // MARK: mergePR
@@ -220,7 +227,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
     // MARK: GraphQL DTO + mapping
 
     private struct ListPRsResponse: Decodable {
-        struct DataLayer: Decodable { let repository: Repo }
+        struct DataLayer: Decodable { let repository: Repo? }
         struct Repo: Decodable { let pullRequests: PRsLayer }
         struct PRsLayer: Decodable { let nodes: [Node] }
         struct Node: Decodable {
