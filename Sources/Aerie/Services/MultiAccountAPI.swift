@@ -63,6 +63,29 @@ actor MultiAccountAPI {
         }
     }
 
+    /// Fetches open PRs using exactly `accountId`'s token — **no** round-robin
+    /// fallback. The polling orchestrator already knows each repo's bound
+    /// account (`primaryAccountId`), so this is precise, makes one API call
+    /// instead of cycling, and sidesteps the cross-account fallback path. Still
+    /// records `lastUsed` + rate-limit for the account, so the Accounts screen
+    /// stays accurate. Any failure (including auth errors) propagates to the
+    /// caller rather than advancing to another account.
+    func listOpenPRs(
+        owner: String,
+        repo: String,
+        repoId: UUID,
+        accountId: UUID
+    ) async throws -> MultiAccountAPIResult<[PullRequest]> {
+        try await withAccount(accountId) { token in
+            try await self.client.listOpenPRs(
+                owner: owner,
+                repo: repo,
+                repoId: repoId,
+                token: token
+            )
+        }
+    }
+
     func mergePR(
         owner: String,
         repo: String,
@@ -98,6 +121,31 @@ actor MultiAccountAPI {
 
     // MARK: Fallback loop
 
+    /// HTTP statuses that mean "this token can't see/authorize the resource, so
+    /// trying it again won't help — advance to the next account." Network errors
+    /// (no HTTP status) and other API errors are *not* in this set: cycling
+    /// accounts won't fix a down network or a malformed request.
+    private static func shouldTryNextAccount(_ status: Int) -> Bool {
+        status == 401 || status == 403 || status == 404
+    }
+
+    /// Runs `op` with exactly `accountId`'s token, recording `lastUsed` on
+    /// success. Unlike `tryAcrossAccounts`, it never advances to another
+    /// account — the caller chose this account deliberately, so any failure is
+    /// theirs to handle. Throws if the account has no token.
+    private func withAccount<T: Sendable>(
+        _ accountId: UUID,
+        _ op: @Sendable (String) async throws -> T
+    ) async throws -> MultiAccountAPIResult<T> {
+        let tokens = await tokensByAccount()
+        guard let token = tokens[accountId] else {
+            throw GitHubAPIError(status: 0, message: "no token for account")
+        }
+        let value = try await op(token)
+        lastUsedByAccount[accountId] = now()
+        return MultiAccountAPIResult(value: value, successfulAccountId: accountId)
+    }
+
     private func tryAcrossAccounts<T: Sendable>(
         _ op: @Sendable (String) async throws -> T
     ) async throws -> MultiAccountAPIResult<T> {
@@ -111,8 +159,11 @@ actor MultiAccountAPI {
                 let value = try await op(token)
                 lastUsedByAccount[accountId] = now()
                 return MultiAccountAPIResult(value: value, successfulAccountId: accountId)
-            } catch let err as GitHubAPIError where err.status == 401 || err.status == 403 {
-                // Auth failure — fall through to the next account.
+            } catch let err as GitHubAPIError where Self.shouldTryNextAccount(err.status) {
+                // This token can't see/authorize the resource — fall through to
+                // the next account. 401/403 = bad/insufficient credentials; 404 =
+                // the (private) repo isn't visible to this token (GraphQL returns
+                // 200 + `repository: null`, surfaced by the client as a 404).
                 lastError = err
                 continue
             } catch {

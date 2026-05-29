@@ -211,6 +211,36 @@ final class GitHubAPIClientTests: XCTestCase {
         XCTAssertEqual(variables["repo"] as? String, "widgets")
     }
 
+    func test_listOpenPRs_throwsNotVisibleWhenRepositoryNull() async throws {
+        // GitHub's GraphQL returns HTTP 200 with `repository: null` when the
+        // token can't see a (private) repo. That must surface as a 404
+        // GitHubAPIError — not a decode crash — so the multi-account fallback
+        // can advance to an account that *can* see the repo.
+        let responseJSON = #"{ "data": { "repository": null } }"#
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: nil
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        do {
+            _ = try await client.listOpenPRs(
+                owner: "acme",
+                repo: "private-widgets",
+                repoId: UUID(),
+                token: "ghp_unauthorized"
+            )
+            XCTFail("expected throw")
+        } catch let error as GitHubAPIError {
+            XCTAssertEqual(error.status, 404)
+        }
+    }
+
     func test_listOpenPRs_throwsOnHTTPError() async throws {
         StubURLProtocol.handler = { request in
             let response = HTTPURLResponse(

@@ -183,9 +183,16 @@ struct MainShell: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task {
+            // Kick off focus-driven polling (idempotent), then paint instantly
+            // from whatever's already cached. Fresh PRs arrive via the
+            // `.aeriePRCacheDidChange` notification once the first tick syncs.
+            services.startPolling()
             await prsVM.refresh()
             await reposVM.refresh()
             await accountVM.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .aeriePRCacheDidChange)) { _ in
+            Task { await prsVM.refresh() }
         }
     }
 }
