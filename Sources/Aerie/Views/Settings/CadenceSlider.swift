@@ -31,11 +31,11 @@ struct CadenceSlider: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(label)
-                    .font(AerieFont.body().weight(.medium))
+                    .aerieFont(AerieFont.body().weight(.medium))
                     .foregroundStyle(AerieColor.text1)
                 Spacer()
                 Text(formatted(seconds))
-                    .font(AerieFont.code(12))
+                    .aerieFont(AerieFont.code(12))
                     .foregroundStyle(AerieColor.amber)
             }
             slider

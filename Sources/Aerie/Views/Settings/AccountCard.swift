@@ -35,7 +35,7 @@ struct AccountCard: View {
                 statusRow
                 if !row.scopes.isEmpty {
                     Text(row.scopes.joined(separator: " "))
-                        .font(AerieFont.code(10))
+                        .aerieFont(AerieFont.code(10))
                         .foregroundStyle(AerieColor.text3)
                 }
             }
@@ -55,10 +55,10 @@ struct AccountCard: View {
     private var identityRow: some View {
         HStack(spacing: 10) {
             Text(row.account.login)
-                .font(AerieFont.body().weight(.semibold))
+                .aerieFont(AerieFont.body().weight(.semibold))
                 .foregroundStyle(AerieColor.text1)
             Text("@ \(row.account.host)")
-                .font(AerieFont.body())
+                .aerieFont(AerieFont.body())
                 .foregroundStyle(AerieColor.text3)
             if row.isPrimary { primaryPill }
         }
@@ -68,11 +68,11 @@ struct AccountCard: View {
         HStack(spacing: 14) {
             signedInDot
             Text("\(row.repoCount) repo\(row.repoCount == 1 ? "" : "s")")
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text2)
             if let last = row.lastUsed {
                 Text("· last call \(relativeTime(last))")
-                    .font(AerieFont.small())
+                    .aerieFont(AerieFont.small())
                     .foregroundStyle(AerieColor.text3)
             }
         }
@@ -80,7 +80,7 @@ struct AccountCard: View {
 
     private var primaryPill: some View {
         Text("primary")
-            .font(AerieFont.eyebrow())
+            .aerieFont(AerieFont.eyebrow())
             .foregroundStyle(AerieColor.amber)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
@@ -92,7 +92,7 @@ struct AccountCard: View {
         HStack(spacing: 6) {
             Circle().fill(AerieColor.ok).frame(width: 6, height: 6)
             Text("signed in")
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text2)
         }
     }
@@ -125,7 +125,7 @@ private struct GhostSmallButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(AerieFont.small().weight(.medium))
+                .aerieFont(AerieFont.small().weight(.medium))
                 .foregroundStyle(hover ? AerieColor.text1 : AerieColor.text3)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)

@@ -22,18 +22,18 @@ struct PageHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(eyebrow)
-                .font(AerieFont.eyebrow())
+                .aerieFont(AerieFont.eyebrow())
                 .tracking(2.2)                       // 0.22em @ 10pt
                 .foregroundStyle(AerieColor.text4)
 
             HStack(alignment: .bottom) {
                 HStack(alignment: .firstTextBaseline, spacing: 14) {
                     Text(title)
-                        .font(AerieFont.pageTitle())
+                        .aerieFont(AerieFont.pageTitle())
                         .tracking(-0.3)              // -0.012em @ 26pt
                         .foregroundStyle(AerieColor.text1)
                     Text(count)
-                        .font(AerieFont.code(13))
+                        .aerieFont(AerieFont.code(13))
                         .tracking(0.26)              // 0.02em @ 13pt
                         .foregroundStyle(AerieColor.text3)
                 }

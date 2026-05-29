@@ -71,7 +71,7 @@ final class DialogShellTests: XCTestCase {
             onSecondary: { }
         ) {
             Text("Squash merge will be performed via the configured GitHub account.")
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text2)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

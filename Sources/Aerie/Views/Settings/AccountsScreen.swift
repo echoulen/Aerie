@@ -37,6 +37,8 @@ import AppKit
 /// need the dependency.
 struct AccountsScreen: View {
     @Bindable var viewModel: AccountsViewModel
+    // Read for the concatenated-Text gh banner, which can't use `.aerieFont`.
+    @Environment(\.interfaceFontScale) private var fontScale
     var ghVersion: String = "gh version unknown"
     var now: Date = Date()
     /// Async so the button can keep a visible "rescanning" state until the
@@ -78,7 +80,7 @@ struct AccountsScreen: View {
 
                 if let error = viewModel.error {
                     Text(error)
-                        .font(AerieFont.small())
+                        .aerieFont(AerieFont.small())
                         .foregroundStyle(AerieColor.err)
                         .padding(.top, 18)
                 }
@@ -95,10 +97,10 @@ struct AccountsScreen: View {
             sectionEyebrow("ACCOUNTS")
             HStack(alignment: .firstTextBaseline) {
                 Text("GitHub identities")
-                    .font(AerieFont.sectionTitle())
+                    .aerieFont(AerieFont.sectionTitle())
                     .foregroundStyle(AerieColor.text1)
                 Text("\(viewModel.rows.count) account\(viewModel.rows.count == 1 ? "" : "s") · via gh CLI")
-                    .font(AerieFont.code(13))
+                    .aerieFont(AerieFont.code(13))
                     .foregroundStyle(AerieColor.text3)
                 Spacer(minLength: 16)
                 rescanButton
@@ -126,7 +128,7 @@ struct AccountsScreen: View {
                     // glyph sits at the same baseline weight as "Rescan"
                     // instead of falling back to a tiny near-black symbol.
                     Image(systemName: "arrow.clockwise")
-                        .font(AerieFont.small().weight(.medium))
+                        .aerieFont(AerieFont.small().weight(.medium))
                         .foregroundStyle(AerieColor.text2)
                         .opacity(isRescanning ? 0 : 1)
                     ProgressView()
@@ -135,10 +137,10 @@ struct AccountsScreen: View {
                         .opacity(isRescanning ? 1 : 0)
                 }
                 Text(isRescanning ? "Rescanning…" : "Rescan")
-                    .font(AerieFont.small().weight(.medium))
+                    .aerieFont(AerieFont.small().weight(.medium))
                     .foregroundStyle(AerieColor.text2)
                 Text("⌘R")
-                    .font(AerieFont.code(10.5))
+                    .aerieFont(AerieFont.code(10.5))
                     .foregroundStyle(AerieColor.text4)
             }
             .padding(.horizontal, 12)
@@ -166,19 +168,21 @@ struct AccountsScreen: View {
         HStack(spacing: 14) {
             okDot
             (
+                // Concatenated Text needs `.font()` (returns Text), so resolve
+                // the scale here rather than via the `.aerieFont` view modifier.
                 Text("gh CLI ")
-                    .font(AerieFont.body())
+                    .font(AerieFont.body().resolve(scale: fontScale))
                     .foregroundStyle(AerieColor.text1)
                 + Text(versionDisplay)
-                    .font(AerieFont.code())
+                    .font(AerieFont.code().resolve(scale: fontScale))
                     .foregroundStyle(AerieColor.text3)
                 + Text(" is authenticated to \(hostCount) host\(hostCount == 1 ? "" : "s").")
-                    .font(AerieFont.body())
+                    .font(AerieFont.body().resolve(scale: fontScale))
                     .foregroundStyle(AerieColor.text1)
             )
             Spacer(minLength: 16)
             Text("tokens kept in memory only")
-                .font(AerieFont.code(11))
+                .aerieFont(AerieFont.code(11))
                 .foregroundStyle(AerieColor.text3)
         }
         .padding(.horizontal, 20)
@@ -226,15 +230,15 @@ struct AccountsScreen: View {
     private var addAccountCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Run this in a terminal — Aerie will pick the new account up automatically within a few seconds.")
-                .font(AerieFont.body())
+                .aerieFont(AerieFont.body())
                 .foregroundStyle(AerieColor.text2)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
                 Text("$")
-                    .font(AerieFont.code())
+                    .aerieFont(AerieFont.code())
                     .foregroundStyle(AerieColor.text4)
                 Text(addAccountCommand)
-                    .font(AerieFont.code())
+                    .aerieFont(AerieFont.code())
                     .foregroundStyle(AerieColor.text1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Button("Copy") {
@@ -242,7 +246,7 @@ struct AccountsScreen: View {
                     NSPasteboard.general.setString(addAccountCommand, forType: .string)
                 }
                 .buttonStyle(.plain)
-                .font(AerieFont.small().weight(.medium))
+                .aerieFont(AerieFont.small().weight(.medium))
                 .foregroundStyle(AerieColor.text1)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -270,7 +274,7 @@ struct AccountsScreen: View {
 
     private func sectionEyebrow(_ text: String) -> some View {
         Text(text)
-            .font(AerieFont.eyebrow())
+            .aerieFont(AerieFont.eyebrow())
             .tracking(2.0)
             .foregroundStyle(AerieColor.text4)
     }

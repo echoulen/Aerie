@@ -24,7 +24,10 @@ struct SettingsWindow: View {
     @State private var signOutTarget: AccountRow? = nil
     @State private var signOutAffectedRepos: [Repository] = []
 
-    init() {
+    /// `appearance` is the app-wide shared zoom state, injected by `AerieApp`
+    /// so the Settings control and the main window stay in sync. Defaults to a
+    /// fresh instance when omitted (previews / snapshot tests).
+    init(appearance: AppearanceViewModel? = nil) {
         let svc = AppServices.shared
         let db = svc.db
         let multiApi = svc.multiApi
@@ -41,7 +44,7 @@ struct SettingsWindow: View {
             ghVersion: { await auth.ghVersion() }
         ))
         _reposVM = State(initialValue: RepositoriesViewModel(db: db))
-        _appearanceVM = State(initialValue: AppearanceViewModel(db: db))
+        _appearanceVM = State(initialValue: appearance ?? AppearanceViewModel(db: db))
         _advancedVM = State(initialValue: AdvancedViewModel(
             db: db,
             cadenceApplier: { active, background in

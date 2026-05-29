@@ -31,7 +31,7 @@ struct SegmentedToggle: View {
         let isSelected = selection == tab
         Button(action: { selection = tab }) {
             Text(label)
-                .font(AerieFont.small().weight(.medium))
+                .aerieFont(AerieFont.small().weight(.medium))
                 .foregroundStyle(isSelected ? AerieColor.amber : AerieColor.text2)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 7)

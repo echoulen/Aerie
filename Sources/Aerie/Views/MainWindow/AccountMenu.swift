@@ -54,7 +54,7 @@ final class AccountMenuViewModel {
 
 // ─────────────────────────────────────────────────────────────
 // Menu — placed as a top-trailing overlay on the window so the dropdown
-// can float above the page content (the 44 pt titlebar would otherwise clip
+// can float above the page content (the 32 pt titlebar would otherwise clip
 // it). When closed only the small pill button is hit-testable; when open a
 // transparent full-window catcher dismisses on any outside click, matching
 // the design's `mousedown`-outside behaviour.
@@ -88,13 +88,20 @@ struct AccountMenu: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
                     }
                 }
-                // `.titlebar` is 44 pt with 14 pt side padding; the 30 pt-tall
-                // button centres vertically at (44-30)/2 = 7 pt from the top.
-                .padding(.top, 7)
+                // The titlebar is 32 pt with 14 pt side padding; the 30 pt-tall
+                // button centres vertically at (32-30)/2 = 1 pt from the top, so
+                // the 24 pt avatar's centre lands at 1+3+12 = 16 pt — level with
+                // the traffic lights (measured centre 16 pt from the window top).
+                .padding(.top, 1)
                 .padding(.trailing, 14)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        // Match AppFrame: the overlay must also ignore the top safe-area inset.
+        // Without this the centred brand (inside the inset-ignoring VStack) lines
+        // up with the traffic lights but the avatar pill still sits the native
+        // title-bar height too low.
+        .ignoresSafeArea(.container, edges: .top)
         .animation(.easeOut(duration: 0.12), value: open)
     }
 }
@@ -170,12 +177,12 @@ private struct AccountMenuPanel: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(active.login)
-                        .font(.custom(AerieFont.sans, size: 14).weight(.medium))
+                        .aerieFont(AerieFont.custom(.sans, size: 14).weight(.medium))
                         .foregroundStyle(AerieColor.text1)
                     if active.isPrimary { PrimaryPill() }
                 }
                 Text("@ \(active.host)")
-                    .font(.custom(AerieFont.mono, size: 11))
+                    .aerieFont(AerieFont.custom(.mono, size: 11))
                     .foregroundStyle(AerieColor.text3)
             }
             Spacer(minLength: 0)
@@ -229,12 +236,12 @@ private struct AccountMenuRow<Icon: View>: View {
         HStack(spacing: 11) {
             icon
             Text(label)
-                .font(.custom(AerieFont.sans, size: 13))
+                .aerieFont(AerieFont.custom(.sans, size: 13))
                 .foregroundStyle(AerieColor.text1)
             Spacer(minLength: 0)
             if let hint {
                 Text(hint)
-                    .font(.custom(AerieFont.mono, size: 11))
+                    .aerieFont(AerieFont.custom(.mono, size: 11))
                     .foregroundStyle(AerieColor.text4)
             }
         }
@@ -258,7 +265,7 @@ private struct AccountMenuRow<Icon: View>: View {
 private struct PrimaryPill: View {
     var body: some View {
         Text("primary")
-            .font(.custom(AerieFont.sans, size: 9).weight(.medium))
+            .aerieFont(AerieFont.custom(.sans, size: 9).weight(.medium))
             .tracking(0.18) // letter-spacing 0.02em × 9 px
             .foregroundStyle(AerieColor.amber)
             .padding(.horizontal, 6)

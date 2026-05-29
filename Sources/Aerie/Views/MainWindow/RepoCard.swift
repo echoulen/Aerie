@@ -88,18 +88,18 @@ struct RepoCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Text(owner)
-                    .font(.custom(AerieFont.sans, size: 12))
+                    .aerieFont(AerieFont.custom(.sans, size: 12))
                     .foregroundStyle(AerieColor.text3)
                 if !isOnDefault {
                     Text("·")
-                        .font(.custom(AerieFont.sans, size: 12))
+                        .aerieFont(AerieFont.custom(.sans, size: 12))
                         .foregroundStyle(AerieColor.text4)
                     offDefaultPill
                 }
             }
 
             Text(repoTitle)
-                .font(.custom(AerieFont.sans, size: 20).weight(.medium))
+                .aerieFont(AerieFont.custom(.sans, size: 20).weight(.medium))
                 .tracking(-0.16)                 // -0.008em @ 20pt
                 .foregroundStyle(AerieColor.text1)
                 .lineLimit(1)
@@ -108,9 +108,9 @@ struct RepoCard: View {
             HStack(spacing: 8) {
                 BranchGlyph()
                     .frame(width: 13, height: 13)
-                    .foregroundStyle(AerieColor.text3)
+                    .foregroundStyle(AerieColor.text2)
                 Text(branchName)
-                    .font(AerieFont.code(13))
+                    .aerieFont(AerieFont.code(13))
                     .foregroundStyle(AerieColor.text2)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -121,7 +121,7 @@ struct RepoCard: View {
 
     private var offDefaultPill: some View {
         Text("off default")
-            .font(.custom(AerieFont.sans, size: 10))
+            .aerieFont(AerieFont.custom(.sans, size: 10))
             .foregroundStyle(AerieColor.text3)
             .padding(.horizontal, 7)
             .padding(.vertical, 1)
@@ -138,7 +138,7 @@ struct RepoCard: View {
                 .frame(width: 7, height: 7)
                 .shadow(color: statusColor.opacity(0.6), radius: 4)
             Text(statusText)
-                .font(.custom(AerieFont.sans, size: 13.5))
+                .aerieFont(AerieFont.custom(.sans, size: 13.5))
                 .foregroundStyle(AerieColor.text2)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -167,7 +167,7 @@ private struct GhostButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.custom(AerieFont.sans, size: 12))
+                .aerieFont(AerieFont.custom(.sans, size: 12))
                 .foregroundStyle(hovering ? AerieColor.text1 : AerieColor.text3)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
@@ -192,7 +192,7 @@ private struct DangerButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.custom(AerieFont.sans, size: 13).weight(.medium))
+                .aerieFont(AerieFont.custom(.sans, size: 13).weight(.medium))
                 .foregroundStyle(AerieColor.dangerText)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)

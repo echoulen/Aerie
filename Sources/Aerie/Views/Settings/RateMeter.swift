@@ -15,11 +15,11 @@ struct RateMeter: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text("\(remaining) / \(limit)")
-                    .font(AerieFont.code(11))
+                    .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text2)
                 Spacer()
                 Text("\(percentage)% remaining")
-                    .font(AerieFont.eyebrow())
+                    .aerieFont(AerieFont.eyebrow())
                     .foregroundStyle(color)
             }
             bar

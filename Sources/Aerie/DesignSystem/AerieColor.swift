@@ -34,6 +34,16 @@ enum AerieColor {
     static let amberLine = amber.opacity(0.32)
     static let amberGlow = amber.opacity(0.55)
 
+    // Amber primary CTA (`.btn.amber`) — a vertical amber gradient with dark
+    // ink, a top inset highlight, and an amber glow. Matches styles.css:
+    //   bg linear-gradient(oklch(0.88 0.14 78) → oklch(0.78 0.14 75));
+    //   color oklch(0.20 0.02 75); border oklch(0.78 0.14 75 / 0.50).
+    // (oklch values converted to sRGB.)
+    static let amberFillTop = Color(red: 1.00, green: 0.80, blue: 0.39)
+    static let amberFillBot = Color(red: 0.92, green: 0.66, blue: 0.25)
+    static let amberInk     = Color(red: 0.11, green: 0.08, blue: 0.05)
+    static let amberCtaLine = amberFillBot.opacity(0.50)
+
     // Status — desaturated
     static let ok   = Color(red: 0.52, green: 0.85, blue: 0.65)  // oklch(0.82 0.130 158)
     static let warn = Color(red: 0.94, green: 0.78, blue: 0.30)  // oklch(0.86 0.140 88)

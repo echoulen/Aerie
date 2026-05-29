@@ -10,16 +10,26 @@ import SwiftUI
 ///   │    ~/path            ⌥ <branch>                              │
 ///   └──────────────────────────────────────────────────────────────┘
 ///
-/// The drag-grip glyph is painted here but the `.onDrag/.onDrop` wiring lives
-/// at the list level (`RepositoriesScreen`) — SwiftUI's drag API works on whole
-/// rows, not sub-views. The "current branch" + dirty/behind dots from the design
-/// mock are omitted: the Settings repo model only carries `defaultBranch`, not
-/// live git state, so we render that single branch with the design's glyph.
+/// The `⠿` grip carries a `DragGesture`: it forwards its cumulative vertical
+/// translation to the list (`RepositoriesScreen`), which owns the reorder maths
+/// and persistence. Scoping the gesture to the grip keeps the rest of the row
+/// (account menu, remove button) clickable. The "current branch" + dirty/behind
+/// dots from the design mock are omitted: the Settings repo model only carries
+/// `defaultBranch`, not live git state, so we render that single branch.
 struct RepoSettingsRow: View {
     let repo: Repository
     let accounts: [GitHubAccount]
+    /// True while this row is the one being dragged — keeps the grip lit so the
+    /// user can see what they've grabbed.
+    var isDragging: Bool = false
     var onChangeAccount: (UUID) -> Void
     var onRemove: () -> Void
+    /// Reports the grip's cumulative vertical drag translation (points). The
+    /// list owns the reorder maths; the row just forwards the gesture.
+    var onDragChange: (CGFloat) -> Void = { _ in }
+    var onDragEnd: () -> Void = {}
+
+    @State private var gripHover = false
 
     var body: some View {
         HStack(spacing: 18) {
@@ -39,22 +49,39 @@ struct RepoSettingsRow: View {
 
     // MARK: - Pieces
 
-    // `⠿` braille grip, text-4 — `settings.jsx` line 268.
+    // `⠿` braille grip, text-4 — `settings.jsx` line 268. Drag it to reorder;
+    // the gesture lives only on the grip (taller hit area than the glyph) so the
+    // rest of the row stays clickable. Brightens on hover / while dragging.
     private var grip: some View {
         Text("⠿")
             .font(.system(size: 14))
-            .foregroundStyle(AerieColor.text4)
-            .frame(width: 18, alignment: .center)
+            .foregroundStyle(isDragging || gripHover ? AerieColor.text2 : AerieColor.text4)
+            .frame(width: 18, height: 32, alignment: .center)
+            .contentShape(Rectangle())
+            .onHover { gripHover = $0 }
+            .help("Drag to reorder")
+            // `minimumDistance: 0` claims the gesture on mouse-DOWN, beating the
+            // window's `isMovableByWindowBackground` background-drag — AppKit
+            // grabs the mouseDown for a window-move otherwise, and the gesture
+            // never fires. Same trick the zoom stepper / CadenceSlider use. The
+            // list applies a small movement threshold before treating it as a
+            // real reorder, so a plain click on the grip doesn't start one.
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { onDragChange($0.translation.height) }
+                    .onEnded { _ in onDragEnd() }
+            )
+            .animation(.easeOut(duration: 0.12), value: gripHover)
     }
 
     private var nameAndPath: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(repo.name)
-                .font(.custom(AerieFont.sans, size: 14.5).weight(.medium))
+                .aerieFont(AerieFont.custom(.sans, size: 14.5).weight(.medium))
                 .foregroundStyle(AerieColor.text1)
                 .lineLimit(1)
             Text(collapsedPath(repo.localPath.path))
-                .font(AerieFont.code(11.5))
+                .aerieFont(AerieFont.code(11.5))
                 .foregroundStyle(AerieColor.text3)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -64,7 +91,7 @@ struct RepoSettingsRow: View {
     private var githubAndBranch: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("\(repo.githubOwner)/\(repo.githubRepo)")
-                .font(AerieFont.code(12.5))
+                .aerieFont(AerieFont.code(12.5))
                 .foregroundStyle(AerieColor.text2)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -73,7 +100,7 @@ struct RepoSettingsRow: View {
                     .frame(width: 11, height: 11)
                     .foregroundStyle(AerieColor.text4)
                 Text(repo.defaultBranch)
-                    .font(AerieFont.code(11.5))
+                    .aerieFont(AerieFont.code(11.5))
                     .foregroundStyle(AerieColor.text3)
                     .lineLimit(1)
             }
@@ -109,7 +136,7 @@ struct RepoSettingsRow: View {
             }
         } label: {
             Text(label)
-                .font(AerieFont.code(12))
+                .aerieFont(AerieFont.code(12))
                 .foregroundStyle(color)
                 .lineLimit(1)
                 .truncationMode(.tail)

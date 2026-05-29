@@ -97,6 +97,8 @@ final class AddRepoSheetViewModel {
 /// scrim — this view is just the panel.
 struct AddRepoSheet: View {
     @Bindable var viewModel: AddRepoSheetViewModel
+    // Read for the concatenated-Text intro line, which can't use `.aerieFont`.
+    @Environment(\.interfaceFontScale) private var fontScale
     var onCancel: () -> Void
     var onAdd: (DetectedRepo) -> Void
 
@@ -170,16 +172,16 @@ struct AddRepoSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("ADD REPOSITORY")
-                .font(AerieFont.eyebrow())
+                .aerieFont(AerieFont.eyebrow())
                 .tracking(2.0)
                 .foregroundStyle(AerieColor.text4)
             Text("Point Aerie at a local git repository")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(AerieColor.text1)
             (Text("Aerie reads ")
-                + Text(".git/").font(AerieFont.code(12))
+                + Text(".git/").font(AerieFont.code(12).resolve(scale: fontScale))
                 + Text(" for state and uses the origin URL to find the matching GitHub repo."))
-                .font(AerieFont.body())
+                .aerieFont(AerieFont.body())
                 .foregroundStyle(AerieColor.text3)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -223,7 +225,7 @@ struct AddRepoSheet: View {
                 .foregroundStyle(AerieColor.text1)
                 .padding(.top, 6)
             Text("or")
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text3)
             browseButton
         }
@@ -250,7 +252,7 @@ struct AddRepoSheet: View {
     private var browseButton: some View {
         Button("Browse…", action: browseFolder)
             .buttonStyle(.plain)
-            .font(AerieFont.small().weight(.medium))
+            .aerieFont(AerieFont.small().weight(.medium))
             .foregroundStyle(AerieColor.text1)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -265,7 +267,7 @@ struct AddRepoSheet: View {
     private var recentlySeen: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("RECENTLY SEEN")
-                .font(AerieFont.eyebrow())
+                .aerieFont(AerieFont.eyebrow())
                 .tracking(2.0)
                 .foregroundStyle(AerieColor.text4)
                 .padding(.bottom, 8)
@@ -285,14 +287,14 @@ struct AddRepoSheet: View {
                 .foregroundStyle(AerieColor.text1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(candidate.url.path)
-                .font(AerieFont.code(11.5))
+                .aerieFont(AerieFont.code(11.5))
                 .foregroundStyle(AerieColor.text3)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button("Add") { viewModel.chooseFolder(candidate.url) }
                 .buttonStyle(.plain)
-                .font(AerieFont.small().weight(.medium))
+                .aerieFont(AerieFont.small().weight(.medium))
                 .foregroundStyle(AerieColor.text2)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
@@ -310,7 +312,7 @@ struct AddRepoSheet: View {
             Spacer()
             Button("Cancel", action: onCancel)
                 .buttonStyle(.plain)
-                .font(AerieFont.small().weight(.medium))
+                .aerieFont(AerieFont.small().weight(.medium))
                 .foregroundStyle(AerieColor.text3)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
@@ -318,7 +320,7 @@ struct AddRepoSheet: View {
             if case .detected(let d) = viewModel.state {
                 Button("Add to fleet") { onAdd(d) }
                     .buttonStyle(.plain)
-                    .font(AerieFont.small().weight(.semibold))
+                    .aerieFont(AerieFont.small().weight(.semibold))
                     .foregroundStyle(Color(red: 0.20, green: 0.18, blue: 0.10))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
@@ -358,7 +360,7 @@ struct AddRepoSheet: View {
         VStack(spacing: 12) {
             ProgressView()
             Text("Analyzing \(url.lastPathComponent)…")
-                .font(AerieFont.body())
+                .aerieFont(AerieFont.body())
                 .foregroundStyle(AerieColor.text2)
         }
     }
@@ -370,12 +372,12 @@ struct AddRepoSheet: View {
             // Header
             HStack(alignment: .firstTextBaseline) {
                 Text("ADD REPOSITORY")
-                    .font(AerieFont.eyebrow())
+                    .aerieFont(AerieFont.eyebrow())
                     .tracking(2.0)
                     .foregroundStyle(AerieColor.text4)
                 Spacer()
                 Text("✓ detected")
-                    .font(AerieFont.code(11))
+                    .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.ok)
             }
             Text("Add \(d.url.lastPathComponent) to your fleet")
@@ -390,10 +392,10 @@ struct AddRepoSheet: View {
                     .foregroundStyle(AerieColor.amber)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(d.url.lastPathComponent)
-                        .font(AerieFont.body().weight(.medium))
+                        .aerieFont(AerieFont.body().weight(.medium))
                         .foregroundStyle(AerieColor.text1)
                     Text(d.url.path)
-                        .font(AerieFont.code(11))
+                        .aerieFont(AerieFont.code(11))
                         .foregroundStyle(AerieColor.text3)
                 }
                 Spacer()
@@ -431,7 +433,7 @@ struct AddRepoSheet: View {
             )
 
             Text("polling starts within 30s after adding.")
-                .font(AerieFont.code(11))
+                .aerieFont(AerieFont.code(11))
                 .foregroundStyle(AerieColor.text4)
         }
         .padding(.horizontal, 28)
@@ -443,12 +445,12 @@ struct AddRepoSheet: View {
     private func kvRow(_ key: String, _ value: String, isLast: Bool = false) -> some View {
         HStack(spacing: 14) {
             Text(key)
-                .font(AerieFont.code(11))
+                .aerieFont(AerieFont.code(11))
                 .tracking(0.4)
                 .foregroundStyle(AerieColor.text4)
                 .frame(width: 130, alignment: .leading)
             Text(value)
-                .font(AerieFont.body())
+                .aerieFont(AerieFont.body())
                 .foregroundStyle(AerieColor.text1)
             Spacer()
         }
@@ -468,10 +470,10 @@ struct AddRepoSheet: View {
                 .font(.system(size: 24))
                 .foregroundStyle(AerieColor.err)
             Text("Couldn't read \(url.lastPathComponent)")
-                .font(AerieFont.body().weight(.medium))
+                .aerieFont(AerieFont.body().weight(.medium))
                 .foregroundStyle(AerieColor.text1)
             Text(msg)
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text3)
                 .multilineTextAlignment(.center)
         }

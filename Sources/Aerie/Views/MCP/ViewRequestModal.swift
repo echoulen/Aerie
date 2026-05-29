@@ -51,11 +51,11 @@ struct ViewRequestModal: View {
     private func section(title: String, body: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(AerieFont.eyebrow())
+                .aerieFont(AerieFont.eyebrow())
                 .foregroundStyle(AerieColor.text3)
             ScrollView {
                 Text(body)
-                    .font(AerieFont.code(11))
+                    .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

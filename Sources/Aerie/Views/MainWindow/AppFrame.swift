@@ -31,6 +31,14 @@ struct AppFrame<Content: View>: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        // Pull the titlebar + account-menu overlay up under the native traffic
+        // lights. In a `fullSizeContentView` window SwiftUI still reserves a top
+        // safe-area inset the height of the native title bar, which pushed the
+        // centred brand + avatar below the window controls. `Backdrop` already
+        // ignores it; the content stack and overlays must too so the 32 pt
+        // titlebar starts at the window top and its 16 pt centre lines up with
+        // the traffic lights.
+        .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .bottomTrailing) {
             if let toasts = toastManager {
                 ToastsOverlay(manager: toasts, onViewRequest: onToastViewRequest)

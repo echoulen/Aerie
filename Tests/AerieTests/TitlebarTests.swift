@@ -19,11 +19,11 @@ final class TitlebarTests: XCTestCase {
                 Spacer()
             }
         }
-        .frame(width: 1240, height: 44)
+        .frame(width: 1240, height: AerieMetric.titlebarHeight)
 
         assertSnapshot(
             of: NSHostingView(rootView: view),
-            as: .image(size: CGSize(width: 1240, height: 44))
+            as: .image(size: CGSize(width: 1240, height: AerieMetric.titlebarHeight))
         )
     }
 }

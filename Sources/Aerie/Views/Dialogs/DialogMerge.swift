@@ -62,14 +62,14 @@ struct DialogMerge: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Text("\(repo.githubOwner)/\(repo.githubRepo)")
-                    .font(AerieFont.small())
+                    .aerieFont(AerieFont.small())
                     .foregroundStyle(AerieColor.text2)
                 Text("#\(pr.number)")
-                    .font(AerieFont.code(11))
+                    .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text3)
                 Spacer()
                 Text("by \(pr.authorLogin)")
-                    .font(AerieFont.small())
+                    .aerieFont(AerieFont.small())
                     .foregroundStyle(AerieColor.text3)
             }
             Text(pr.title)

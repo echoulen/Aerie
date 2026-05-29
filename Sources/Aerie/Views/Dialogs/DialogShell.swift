@@ -68,11 +68,11 @@ struct DialogShell<Content: View>: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(AerieFont.sectionTitle())
+                .aerieFont(AerieFont.sectionTitle())
                 .foregroundStyle(AerieColor.text1)
             if let subtitle {
                 Text(subtitle)
-                    .font(AerieFont.small())
+                    .aerieFont(AerieFont.small())
                     .foregroundStyle(AerieColor.text3)
             }
         }
@@ -85,7 +85,7 @@ struct DialogShell<Content: View>: View {
             Spacer()
             Button(action: onSecondary) {
                 Text(secondaryTitle)
-                    .font(AerieFont.small())
+                    .aerieFont(AerieFont.small())
                     .padding(.horizontal, 16).padding(.vertical, 8)
                     .foregroundStyle(AerieColor.text2)
                     .background(Capsule().fill(AerieColor.glass1))
@@ -94,7 +94,7 @@ struct DialogShell<Content: View>: View {
             .buttonStyle(.plain)
             Button(action: onPrimary) {
                 Text(primaryTitle)
-                    .font(AerieFont.small().weight(.medium))
+                    .aerieFont(AerieFont.small().weight(.medium))
                     .padding(.horizontal, 16).padding(.vertical, 8)
                     .foregroundStyle(primaryTextColor)
                     .background(Capsule().fill(primaryFill))
@@ -112,7 +112,7 @@ struct DialogShell<Content: View>: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(AerieColor.err)
             Text(msg)
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text1)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)

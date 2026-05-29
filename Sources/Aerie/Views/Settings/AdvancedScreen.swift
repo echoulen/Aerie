@@ -47,10 +47,10 @@ struct AdvancedScreen: View {
             sectionEyebrow("ADVANCED")
             HStack(alignment: .firstTextBaseline) {
                 Text("Polling & rate limits")
-                    .font(AerieFont.sectionTitle())
+                    .aerieFont(AerieFont.sectionTitle())
                     .foregroundStyle(AerieColor.text1)
                 Text("how often Aerie refreshes")
-                    .font(AerieFont.code(13))
+                    .aerieFont(AerieFont.code(13))
                     .foregroundStyle(AerieColor.text3)
                 Spacer(minLength: 16)
                 resetButton
@@ -91,7 +91,7 @@ struct AdvancedScreen: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(AerieColor.warn)
             Text("Lower cadences may hit GitHub's rate limits faster.")
-                .font(AerieFont.small())
+                .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text2)
         }
         .padding(.horizontal, 12)
@@ -107,7 +107,7 @@ struct AdvancedScreen: View {
             VStack(alignment: .leading, spacing: 14) {
                 if viewModel.rateLimits.isEmpty {
                     Text("No rate limit data yet — polling hasn't started.")
-                        .font(AerieFont.small())
+                        .aerieFont(AerieFont.small())
                         .foregroundStyle(AerieColor.text3)
                 } else {
                     ForEach(Array(viewModel.rateLimits.enumerated()), id: \.element.id) { idx, item in
@@ -118,13 +118,13 @@ struct AdvancedScreen: View {
                         }
                         VStack(alignment: .leading, spacing: 8) {
                             Text("\(item.account.login) @ \(item.account.host)")
-                                .font(AerieFont.body().weight(.medium))
+                                .aerieFont(AerieFont.body().weight(.medium))
                                 .foregroundStyle(AerieColor.text1)
                             if let snap = item.snapshot {
                                 RateMeter(remaining: snap.remaining, limit: snap.limit)
                             } else {
                                 Text("not yet used")
-                                    .font(AerieFont.small())
+                                    .aerieFont(AerieFont.small())
                                     .foregroundStyle(AerieColor.text3)
                             }
                         }
@@ -171,10 +171,10 @@ struct AdvancedScreen: View {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(AerieFont.body())
+                        .aerieFont(AerieFont.body())
                         .foregroundStyle(AerieColor.text1)
                     Text(hint)
-                        .font(AerieFont.small())
+                        .aerieFont(AerieFont.small())
                         .foregroundStyle(AerieColor.text3)
                 }
                 Spacer(minLength: 16)
@@ -200,7 +200,7 @@ struct AdvancedScreen: View {
             Task { await viewModel.resetToDefaults() }
         }
         .buttonStyle(.plain)
-        .font(AerieFont.small())
+        .aerieFont(AerieFont.small())
         .foregroundStyle(AerieColor.text3)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -212,7 +212,7 @@ struct AdvancedScreen: View {
 
     private func sectionEyebrow(_ text: String) -> some View {
         Text(text)
-            .font(AerieFont.eyebrow())
+            .aerieFont(AerieFont.eyebrow())
             .tracking(2.0)
             .foregroundStyle(AerieColor.text4)
     }
