@@ -185,11 +185,22 @@ struct MainShell: View {
         .task {
             // Kick off focus-driven polling (idempotent), then paint instantly
             // from whatever's already cached. Fresh PRs arrive via the
-            // `.aeriePRCacheDidChange` notification once the first tick syncs.
+            // `.aeriePRCacheDidChange` notification, and fresh git status via
+            // `gitStatusDidChange`, once the first tick syncs. The view is
+            // already mounted here, so both .onReceive subscriptions below are
+            // attached before the first tick can emit.
             services.startPolling()
             await prsVM.refresh()
             await reposVM.refresh()
             await accountVM.refresh()
+        }
+        // Re-read repo cards whenever a polling tick upserts fresh status.
+        // Throttled so N repos in one tick don't trigger N full re-reads.
+        .onReceive(
+            services.gitStatusDidChange
+                .throttle(for: .milliseconds(250), scheduler: RunLoop.main, latest: true)
+        ) { _ in
+            Task { await reposVM.refresh() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .aeriePRCacheDidChange)) { _ in
             Task { await prsVM.refresh() }
