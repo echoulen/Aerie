@@ -44,8 +44,9 @@ struct BranchTag: View {
 }
 
 /// Small branch icon: two stacked nodes connected to a side node, mirroring
-/// the SVG used in the design source.
-private struct BranchGlyph: View {
+/// the SVG used in the design source (`BranchTiny`). Module-internal so the
+/// Settings → Repositories rows can reuse the same glyph.
+struct BranchGlyph: View {
     var body: some View {
         Canvas { ctx, size in
             let s = size.width

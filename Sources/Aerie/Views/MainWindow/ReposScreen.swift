@@ -118,24 +118,12 @@ struct ReposScreen: View {
     }
 
     private func header(total: Int, withDirty: Int) -> some View {
-        HStack(alignment: .bottom) {
-            // Title + count share one baseline-aligned row (design `Header`:
-            // `.row { gap:14; align-items:baseline }`), not stacked.
-            HStack(alignment: .firstTextBaseline, spacing: 14) {
-                Text("Local repositories")
-                    .font(AerieFont.display())
-                    .foregroundStyle(AerieColor.text1)
-                Text("\(total) tracked · \(withDirty) with changes")
-                    .font(AerieFont.eyebrow())
-                    .foregroundStyle(AerieColor.text4)
-                    .tracking(0.8)
-            }
-            Spacer(minLength: 16)
-            if let tabSelection {
-                SegmentedToggle(selection: tabSelection)
-            }
-        }
-        .padding(.top, 28)
+        PageHeader(
+            eyebrow: "VIEW · ⌘2",
+            title: "Local repositories",
+            count: "\(total) tracked · \(withDirty) with changes",
+            tabSelection: tabSelection
+        )
     }
 
     // MARK: - Actions

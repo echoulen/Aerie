@@ -122,24 +122,12 @@ struct PRsScreen: View {
     }
 
     private func header(open: Int, repos: Int, mine: Int) -> some View {
-        HStack(alignment: .bottom) {
-            // Title + count share one baseline-aligned row (design `Header`),
-            // matching the Repositories view — not stacked.
-            HStack(alignment: .firstTextBaseline, spacing: 14) {
-                Text("Open pull requests")
-                    .font(AerieFont.display())
-                    .foregroundStyle(AerieColor.text1)
-                Text("\(open) open · across \(repos) \(repos == 1 ? "repository" : "repositories") · \(mine) mine")
-                    .font(AerieFont.eyebrow())
-                    .foregroundStyle(AerieColor.text4)
-                    .tracking(0.8)
-            }
-            Spacer(minLength: 16)
-            if let tabSelection {
-                SegmentedToggle(selection: tabSelection)
-            }
-        }
-        .padding(.top, 28)
+        PageHeader(
+            eyebrow: "VIEW · ⌘1",
+            title: "Open pull requests",
+            count: "\(open) open · across \(repos) \(repos == 1 ? "repository" : "repositories") · \(mine) mine",
+            tabSelection: tabSelection
+        )
     }
 
     // MARK: - Actions

@@ -6,6 +6,8 @@ enum AerieFont {
 
     // Common sizes
     static func display() -> Font  { .custom(sans, size: 30).weight(.light) }
+    /// Main-window page heading (`.section-title`): 26pt medium.
+    static func pageTitle() -> Font { .custom(sans, size: 26).weight(.medium) }
     static func sectionTitle() -> Font  { .custom(sans, size: 22).weight(.medium) }
     static func body() -> Font      { .custom(sans, size: 13.5) }
     static func small() -> Font     { .custom(sans, size: 12) }
