@@ -14,6 +14,7 @@ struct SettingsWindow: View {
     @State private var accountsVM: AccountsViewModel
     @State private var reposVM: RepositoriesViewModel
     @State private var advancedVM: AdvancedViewModel
+    @State private var appearanceVM: AppearanceViewModel
     @State private var mcpVM: MCPSettingsViewModel
     @State private var showAddRepo: Bool = false
     @State private var addRepoVM = AddRepoSheetViewModel()
@@ -40,6 +41,7 @@ struct SettingsWindow: View {
             ghVersion: { await auth.ghVersion() }
         ))
         _reposVM = State(initialValue: RepositoriesViewModel(db: db))
+        _appearanceVM = State(initialValue: AppearanceViewModel(db: db))
         _advancedVM = State(initialValue: AdvancedViewModel(
             db: db,
             cadenceApplier: { active, background in
@@ -189,6 +191,8 @@ struct SettingsWindow: View {
             )
         case .mcp:
             MCPSettingsScreen(viewModel: mcpVM)
+        case .appearance:
+            AppearanceScreen(viewModel: appearanceVM)
         case .advanced:
             AdvancedScreen(viewModel: advancedVM)
         case .about:
@@ -201,6 +205,7 @@ struct SettingsWindow: View {
         case .accounts:     await accountsVM.refresh()
         case .repositories: await reposVM.refresh()
         case .mcp:          await mcpVM.refresh()
+        case .appearance:   await appearanceVM.refresh()
         case .advanced:     await advancedVM.refresh()
         case .about:        break
         }

@@ -5,7 +5,7 @@ import SwiftUI
 /// the requested point size, stroked at the design's 1.4 px weight with round
 /// caps/joins — matching the thin-line house style rather than SF Symbols.
 struct SidebarIcon: View {
-    enum Kind { case key, folder, plug, sliders, info }
+    enum Kind { case key, folder, plug, appearance, sliders, info }
 
     let kind: Kind
     var size: CGFloat = 14
@@ -46,6 +46,14 @@ struct SidebarIcon: View {
                               startAngle: .degrees(0), endAngle: .degrees(180), clockwise: false)
                 stroke.addLine(to: P(3.5, 5))
                 stroke.move(to: P(8, 12.5)); stroke.addLine(to: P(8, 15))
+
+            case .appearance:
+                // "Aa" — a large and a small letter A, the standard
+                // text-size glyph (design `settings.jsx` AppearanceIcon).
+                stroke.move(to: P(2.5, 13)); stroke.addLine(to: P(6, 3)); stroke.addLine(to: P(9.5, 13))
+                stroke.move(to: P(3.4, 10)); stroke.addLine(to: P(8.6, 10))
+                stroke.move(to: P(11, 13));  stroke.addLine(to: P(13, 7)); stroke.addLine(to: P(15, 13))
+                stroke.move(to: P(11.5, 11)); stroke.addLine(to: P(14.5, 11))
 
             case .sliders:
                 stroke.move(to: P(2, 4));  stroke.addLine(to: P(9, 4))
