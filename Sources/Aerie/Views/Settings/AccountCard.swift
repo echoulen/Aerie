@@ -38,19 +38,7 @@ struct AccountCard: View {
     // MARK: - Pieces
 
     private var avatar: some View {
-        Circle()
-            .fill(
-                RadialGradient(
-                    colors: [AerieColor.amber, AerieColor.amber.opacity(0.0)],
-                    center: UnitPoint(x: 0.35, y: 0.3),
-                    startRadius: 0,
-                    endRadius: 28
-                )
-            )
-            .frame(width: 44, height: 44)
-            .overlay(
-                Circle().strokeBorder(AerieColor.glassLine, lineWidth: 1)
-            )
+        AccountAvatar(login: row.account.login, size: 44)
     }
 
     private var identityRow: some View {

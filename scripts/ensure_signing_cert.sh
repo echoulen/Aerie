@@ -12,6 +12,13 @@
 CERT_NAME="${1:-AerieDev}"
 KEYCHAIN="${HOME}/Library/Keychains/login.keychain-db"
 
+# CI runners discard their keychain when the job ends, so persisting a
+# stable identity is pointless — fall through to the Makefile's ad-hoc
+# signing branch instead.
+if [ -n "$CI" ]; then
+    exit 0
+fi
+
 # Already exists — silent no-op
 if security find-certificate -c "$CERT_NAME" "$KEYCHAIN" >/dev/null 2>&1; then
     exit 0

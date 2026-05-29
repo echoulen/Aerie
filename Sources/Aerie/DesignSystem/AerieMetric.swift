@@ -6,6 +6,7 @@ enum AerieMetric {
     static let radiusRow:   CGFloat = 12
     static let radiusPill:  CGFloat = 999
     static let radiusWindow: CGFloat = 16
+    static let radiusDialog: CGFloat = 18
 
     // Spacing
     static let pagePadding: CGFloat = 44

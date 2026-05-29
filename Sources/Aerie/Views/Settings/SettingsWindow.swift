@@ -26,11 +26,13 @@ struct SettingsWindow: View {
         let configWriter = svc.configWriter
         let scheduler = svc.scheduler
 
+        let auth = svc.auth
         _accountsVM = State(initialValue: AccountsViewModel(
             db: db,
             api: multiApi,
-            scopesByAccount: { [:] },
-            primaryAccountId: { nil }
+            scopesByAccount: { await auth.scopesByAccount() },
+            primaryAccountId: { await auth.primaryAccountId() },
+            ghVersion: { await auth.ghVersion() }
         ))
         _reposVM = State(initialValue: RepositoriesViewModel(db: db))
         _advancedVM = State(initialValue: AdvancedViewModel(
@@ -70,29 +72,48 @@ struct SettingsWindow: View {
             Backdrop()
             VStack(spacing: 0) {
                 Titlebar(title: "Aerie · Settings")
-                HStack(spacing: 0) {
-                    SettingsSidebar(
-                        selection: route,
-                        mcpRunning: mcpVM.status.running,
-                        accountsCount: accountsVM.rows.count,
-                        repositoriesCount: reposVM.repos.count
-                    )
-                    body(for: route.wrappedValue)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            if showAddRepo {
-                Color.black.opacity(0.4)
-                    .ignoresSafeArea()
-                    .onTapGesture { showAddRepo = false }
-                AddRepoSheet(
-                    viewModel: addRepoVM,
-                    onCancel: { showAddRepo = false },
-                    onAdd: { _ in
-                        showAddRepo = false
-                        Task { await reposVM.refresh() }
+                // Inner ZStack so the scrim and sheet are constrained to the
+                // area BELOW the titlebar. Per `add-repo.jsx`, the AddRepo
+                // sheet slides down from the titlebar — that requires the
+                // scrim to start at the bottom of the title bar (not over it).
+                ZStack(alignment: .top) {
+                    HStack(spacing: 0) {
+                        SettingsSidebar(
+                            selection: route,
+                            mcpRunning: mcpVM.status.running,
+                            accountsCount: accountsVM.rows.count,
+                            repositoriesCount: reposVM.repos.count
+                        )
+                        body(for: route.wrappedValue)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                )
+                    // Mirror `add-repo.jsx`: blur + desat + opacity on the
+                    // parent so the sheet visibly floats above it.
+                    .blur(radius: showAddRepo ? 2 : 0)
+                    .saturation(showAddRepo ? 0.85 : 1)
+                    .opacity(showAddRepo ? 0.55 : 1)
+                    .allowsHitTesting(!showAddRepo)
+                    .animation(.easeOut(duration: 0.15), value: showAddRepo)
+
+                    if showAddRepo {
+                        // Dark scrim, scoped to the content area (titlebar
+                        // stays clear). 0.30 matches the design.
+                        Color.black.opacity(0.30)
+                            .onTapGesture { showAddRepo = false }
+                        AddRepoSheet(
+                            viewModel: addRepoVM,
+                            onCancel: { showAddRepo = false },
+                            onAdd: { _ in
+                                showAddRepo = false
+                                Task { await reposVM.refresh() }
+                            }
+                        )
+                        .frame(maxWidth: 640)
+                        .padding(.horizontal, 60)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeOut(duration: 0.18), value: showAddRepo)
             }
         }
         .frame(minWidth: AerieMetric.settingsWindowW, minHeight: AerieMetric.settingsWindowH)
@@ -106,7 +127,14 @@ struct SettingsWindow: View {
     private func body(for route: SettingsRoute) -> some View {
         switch route {
         case .accounts:
-            AccountsScreen(viewModel: accountsVM)
+            AccountsScreen(
+                viewModel: accountsVM,
+                ghVersion: accountsVM.ghVersion ?? "gh version unknown",
+                onRescan: {
+                    _ = try? await services.auth.bootstrap()
+                    await accountsVM.refresh()
+                }
+            )
         case .repositories:
             RepositoriesScreen(
                 viewModel: reposVM,

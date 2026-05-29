@@ -15,6 +15,13 @@ enum AerieColor {
     static let glassLine2 = Color.white.opacity(0.14)
     static let glassHighlight = Color.white.opacity(0.22)
 
+    // Dialog surface — dark warm-tinted, sits over a within-window blur.
+    // Matches design `rgba(28, 26, 32, 0.78)`: opaque enough to read dark,
+    // not the milky white-on-glass that .glass2 produced on the dialog.
+    static let dialogSurface = Color(red: 28/255, green: 26/255, blue: 32/255).opacity(0.78)
+    // Slightly recessed footer band inside a dialog (`rgba(0,0,0,0.18)`).
+    static let dialogFooter  = Color.black.opacity(0.18)
+
     // Text (white + stepped alpha)
     static let text1 = Color.white.opacity(0.96)
     static let text2 = Color.white.opacity(0.72)

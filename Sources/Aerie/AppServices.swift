@@ -34,7 +34,11 @@ final class AppServices {
 
     private init() throws {
         let db = try AppDatabase(url: AppDatabase.defaultURL())
-        let auth = LiveAuthService()
+        // Pass the AccountDAO so bootstrap can reconcile discovered gh
+        // accounts into the persistence layer — without this, the Settings ·
+        // Accounts screen reads an empty table and always shows zero rows
+        // even when `gh` is fully authenticated.
+        let auth = LiveAuthService(accountStore: db.accounts)
         let client = LiveGitHubAPIClient()
 
         let tokensByAccount: @Sendable () async -> [UUID: String] = { [auth] in

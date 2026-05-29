@@ -34,9 +34,11 @@ struct DialogShell<Content: View>: View {
         .ignoresSafeArea()
     }
 
+    // Pure dark scrim — `.ultraThinMaterial` brightens the area in dark mode
+    // (the "dialog looks too white" symptom), so we drop it and rely on the
+    // parent's natural darkness. 0.45 matches design `rgba(0,0,0,0.45)`.
     private var scrim: some View {
-        Color.black.opacity(0.55)
-            .background(.ultraThinMaterial)
+        Color.black.opacity(0.45)
     }
 
     private var card: some View {
@@ -51,11 +53,14 @@ struct DialogShell<Content: View>: View {
             footer
         }
         .frame(width: 520)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // Dark dialog surface (replaces `.regularMaterial`, which read milky
+        // on the dimmed scrim). For danger/warning tones we layer a coloured
+        // ring on top of the default glass-line-2 border.
+        .glass(.dialog)
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(ringColor, lineWidth: tone == .neutral ? 1 : 1.5)
+            RoundedRectangle(cornerRadius: AerieMetric.radiusDialog, style: .continuous)
+                .strokeBorder(ringColor, lineWidth: 1.5)
+                .opacity(tone == .neutral ? 0 : 1)
         )
         .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
     }
