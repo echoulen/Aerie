@@ -92,8 +92,16 @@ private struct AppRoot: View {
             switch current {
             case .ok:
                 MainShell()
-            case .ghMissing, .noAuth, .none:
+            case .ghMissing, .noAuth:
                 FirstRunRoot(bootstrapper: bootstrapper)
+            case .none:
+                // Bootstrapper hasn't completed its first call yet. Show a
+                // bare Backdrop so users with gh already configured don't see
+                // a one-frame flash of "Install GitHub CLI" before MainShell
+                // appears.
+                ZStack { Backdrop() }
+                    .frame(minWidth: AerieMetric.mainWindowW, minHeight: AerieMetric.mainWindowH)
+                    .aerieWindowChrome()
             }
         }
         .onAppear {
