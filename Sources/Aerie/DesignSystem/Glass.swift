@@ -8,26 +8,13 @@ struct GlassModifier: ViewModifier {
     let variant: Variant
 
     func body(content: Content) -> some View {
-        let blur: CGFloat = variant == .dialog ? 48 : 40
-        let cornerRadius: CGFloat = variant == .window ? AerieMetric.radiusWindow : AerieMetric.radiusCard
-        // Cards & dialogs refract the app's own aurora `Backdrop`, so blend
-        // *within* the window. `behindWindow` would instead sample the desktop
-        // wallpaper, making card backgrounds drift with whatever's behind the
-        // window (the source of the inconsistent green/blue card tints).
-        let blending: NSVisualEffectView.BlendingMode =
-            variant == .window ? .behindWindow : .withinWindow
+        let cornerRadius: CGFloat = self.cornerRadius
         return content
-            .background(
-                ZStack {
-                    AerieColor.glass1
-                    VisualEffectBlur(material: .hudWindow, blendingMode: blending)
-                        .opacity(blur / 50.0)
-                }
-            )
+            .background(backgroundLayer)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
+                    .strokeBorder(borderColor, lineWidth: 1)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -39,6 +26,49 @@ struct GlassModifier: ViewModifier {
                         )
                     )
             )
+    }
+
+    private var cornerRadius: CGFloat {
+        switch variant {
+        case .window: return AerieMetric.radiusWindow
+        case .card:   return AerieMetric.radiusCard
+        case .dialog: return AerieMetric.radiusDialog
+        }
+    }
+
+    // Dialog needs the brighter glass-line-2 ring so it reads as a raised
+    // surface against the dimmed scrim (matches the design's accent ring).
+    // Window/card stay on the subtler glass-line.
+    private var borderColor: Color {
+        variant == .dialog ? AerieColor.glassLine2 : AerieColor.glassLine
+    }
+
+    // Per `styles.css`:
+    //   .window → glass-1 (0.035) + behindWindow frosted material
+    //   .card   → glass-2 (0.055), nothing else; the aurora `Backdrop` is
+    //             nearly static so a stacked NSVisualEffectView only adds
+    //             milky brightness (the "三個區塊太白" symptom).
+    //   .dialog → dark `dialogSurface` (rgba(28,26,32,0.78)) layered over a
+    //             within-window blur. The old white-glass + `.menu` material
+    //             rendered too bright in dark mode; this matches the design's
+    //             dark dialog body + `backdrop-filter blur(48px)`.
+    @ViewBuilder
+    private var backgroundLayer: some View {
+        switch variant {
+        case .window:
+            ZStack {
+                AerieColor.glass1
+                VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                    .opacity(0.8)
+            }
+        case .card:
+            AerieColor.glass2
+        case .dialog:
+            ZStack {
+                VisualEffectBlur(material: .hudWindow, blendingMode: .withinWindow)
+                AerieColor.dialogSurface
+            }
+        }
     }
 }
 
