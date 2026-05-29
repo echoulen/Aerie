@@ -26,7 +26,7 @@ struct DialogSignOut: View {
             primaryDisabled: busy
         ) {
             if affectedRepos.isEmpty {
-                Text("Nothing else will change. The token stays in your gh keyring.")
+                Text("Aerie will run gh auth logout for this account, removing its token from the gh keyring. Sign back in any time with gh auth login.")
                     .font(AerieFont.small())
                     .foregroundStyle(AerieColor.text2)
                     .frame(maxWidth: .infinity, alignment: .leading)

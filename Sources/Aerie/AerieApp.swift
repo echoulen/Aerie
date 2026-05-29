@@ -126,18 +126,29 @@ private struct AppRoot: View {
 /// auto-refresh and the toast overlay are tracked as Known Issues in the plan.
 struct MainShell: View {
     private let services = AppServices.shared
+    @Environment(\.openWindow) private var openWindow
     @State private var appVM = AppViewModel()
     @State private var prsVM: PRsViewModel
     @State private var reposVM: ReposViewModel
+    @State private var accountVM: AccountMenuViewModel
 
     init() {
         let db = AppServices.shared.db
         _prsVM = State(initialValue: PRsViewModel(db: db))
         _reposVM = State(initialValue: ReposViewModel(db: db))
+        let auth = AppServices.shared.auth
+        _accountVM = State(initialValue: AccountMenuViewModel(
+            accounts: { await auth.allAccounts() },
+            primaryId: { await auth.primaryAccountId() }
+        ))
     }
 
     var body: some View {
-        AppFrame(viewModel: appVM) {
+        AppFrame(
+            viewModel: appVM,
+            accountMenu: accountVM,
+            onOpenSettings: { openWindow(id: "settings") }
+        ) {
             Group {
                 switch appVM.activeTab {
                 case .prs:   PRsScreen(viewModel: prsVM, tabSelection: $appVM.activeTab)
@@ -149,6 +160,7 @@ struct MainShell: View {
         .task {
             await prsVM.refresh()
             await reposVM.refresh()
+            await accountVM.refresh()
         }
     }
 }

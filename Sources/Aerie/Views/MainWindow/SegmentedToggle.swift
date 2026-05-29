@@ -15,7 +15,7 @@ struct SegmentedToggle: View {
     var body: some View {
         HStack(spacing: 2) {
             segmentButton(tab: .prs, label: "Pull Requests")
-            segmentButton(tab: .repos, label: "Repos")
+            segmentButton(tab: .repos, label: "Repositories")
         }
         .padding(3)
         .background(AerieColor.glass2)
