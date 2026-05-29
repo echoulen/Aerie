@@ -117,8 +117,9 @@ private struct AppRoot: View {
     }
 }
 
-/// The composed main window shell — Backdrop + Titlebar (with SegmentedToggle +
-/// LiveIndicator) + the currently-selected primary screen (PRs or Repos).
+/// The composed main window shell — Backdrop + Titlebar (centred brand) + the
+/// currently-selected primary screen (PRs or Repos). The view switcher lives
+/// in the active screen's page header.
 ///
 /// View models are constructed once per shell, seeded with the shared
 /// `AppServices.shared.db`, and refreshed on first appear. Polling-driven
@@ -139,8 +140,8 @@ struct MainShell: View {
         AppFrame(viewModel: appVM) {
             Group {
                 switch appVM.activeTab {
-                case .prs:   PRsScreen(viewModel: prsVM)
-                case .repos: ReposScreen(viewModel: reposVM)
+                case .prs:   PRsScreen(viewModel: prsVM, tabSelection: $appVM.activeTab)
+                case .repos: ReposScreen(viewModel: reposVM, tabSelection: $appVM.activeTab)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

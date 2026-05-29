@@ -18,6 +18,10 @@ struct PRsScreen: View {
     /// callers omit this and the cards use `Date()` for the relative-time
     /// computation.
     var now: Date = Date()
+    /// When provided, the page header renders the right-aligned
+    /// `SegmentedToggle` for switching between PRs and Repos (per the v2
+    /// design). Snapshot tests omit it.
+    var tabSelection: Binding<MainTab>? = nil
 
     var body: some View {
         switch viewModel.state {
@@ -102,14 +106,20 @@ struct PRsScreen: View {
     }
 
     private func header(open: Int, repos: Int, mine: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Open pull requests")
-                .font(AerieFont.display())
-                .foregroundStyle(AerieColor.text1)
-            Text("\(open) open · across \(repos) \(repos == 1 ? "repository" : "repositories") · \(mine) mine")
-                .font(AerieFont.eyebrow())
-                .foregroundStyle(AerieColor.text4)
-                .tracking(0.8)
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Open pull requests")
+                    .font(AerieFont.display())
+                    .foregroundStyle(AerieColor.text1)
+                Text("\(open) open · across \(repos) \(repos == 1 ? "repository" : "repositories") · \(mine) mine")
+                    .font(AerieFont.eyebrow())
+                    .foregroundStyle(AerieColor.text4)
+                    .tracking(0.8)
+            }
+            Spacer(minLength: 16)
+            if let tabSelection {
+                SegmentedToggle(selection: tabSelection)
+            }
         }
         .padding(.top, 28)
     }

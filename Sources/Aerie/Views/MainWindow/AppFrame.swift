@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// The main window's outer shell: aurora `Backdrop` + custom `Titlebar`
-/// (with `SegmentedToggle` in `mid` and `LiveIndicator` in `trail`) + a
-/// caller-provided content slot.
+/// (centred brand only) + a caller-provided content slot. The view switcher
+/// (`SegmentedToggle`) now lives in each screen's page header, right-aligned,
+/// per the v2 design — not in the titlebar.
 ///
 /// Design note: the v2 spec lists an "AmbientGlow" overlay alongside the
 /// backdrop. We rely on `Backdrop`'s existing amber + cool-blue radial
@@ -20,10 +21,7 @@ struct AppFrame<Content: View>: View {
         ZStack {
             Backdrop()
             VStack(spacing: 0) {
-                Titlebar(
-                    mid: { SegmentedToggle(selection: $viewModel.activeTab) },
-                    trail: { LiveIndicator(nextTickInSeconds: viewModel.nextTickInSeconds) }
-                )
+                Titlebar(title: "Aerie")
                 content()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

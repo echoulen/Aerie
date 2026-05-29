@@ -16,6 +16,10 @@ import AppKit
 ///   this view emits nothing destructive.
 struct ReposScreen: View {
     @Bindable var viewModel: ReposViewModel
+    /// When provided, the page header renders the right-aligned
+    /// `SegmentedToggle` for switching between PRs and Repos (per the v2
+    /// design). Snapshot tests omit it.
+    var tabSelection: Binding<MainTab>? = nil
 
     var body: some View {
         switch viewModel.state {
@@ -98,14 +102,20 @@ struct ReposScreen: View {
     }
 
     private func header(total: Int, withDirty: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Repositories")
-                .font(AerieFont.display())
-                .foregroundStyle(AerieColor.text1)
-            Text("\(total) tracked · \(withDirty) with uncommitted changes")
-                .font(AerieFont.eyebrow())
-                .foregroundStyle(AerieColor.text4)
-                .tracking(0.8)
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Repositories")
+                    .font(AerieFont.display())
+                    .foregroundStyle(AerieColor.text1)
+                Text("\(total) tracked · \(withDirty) with uncommitted changes")
+                    .font(AerieFont.eyebrow())
+                    .foregroundStyle(AerieColor.text4)
+                    .tracking(0.8)
+            }
+            Spacer(minLength: 16)
+            if let tabSelection {
+                SegmentedToggle(selection: tabSelection)
+            }
         }
         .padding(.top, 28)
     }

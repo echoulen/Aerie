@@ -122,7 +122,7 @@ final class PRsScreenTests: XCTestCase {
         let fixedNow = Date(timeIntervalSince1970: 1_700_010_000)
         let view = ZStack {
             Backdrop()
-            PRsScreen(viewModel: vm, now: fixedNow)
+            PRsScreen(viewModel: vm, now: fixedNow, tabSelection: .constant(.prs))
         }
         .frame(width: 1240, height: 760)
 
