@@ -96,6 +96,7 @@ struct SettingsWindow: View {
             }
         }
         .frame(minWidth: AerieMetric.settingsWindowW, minHeight: AerieMetric.settingsWindowH)
+        .aerieWindowChrome()
         .task(id: route.wrappedValue) {
             await refreshActive(route: route.wrappedValue)
         }

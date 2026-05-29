@@ -1,21 +1,28 @@
 import SwiftUI
 
-/// Custom 44 pt titlebar that replaces the native macOS title bar (hidden via
-/// `.windowStyle(.hiddenTitleBar)` in `AerieApp`).
+/// Custom 44 pt titlebar that sits flush under the native title bar (which
+/// is made transparent via `aerieWindowChrome()`). The native macOS traffic
+/// light buttons remain visible at top-left and overlay this view's leading
+/// inset — we reserve `nativeTrafficLightsInset` for them rather than
+/// redrawing our own.
 ///
 /// Layout (left → right):
-///   [ TrafficLights ]  16pt  [ BrandMark ]  24pt  [ mid ]  Spacer  [ trail ]
+///   [ native-buttons inset 72pt ]  [ BrandMark ]  24pt  [ mid ]  Spacer  [ trail ]
 ///
-/// `mid` and `trail` are generic slots so callers (Task 8.1+) can drop in
+/// `mid` and `trail` are generic slots so callers can drop in
 /// `SegmentedToggle`, `LiveIndicator`, etc. without changing this contract.
 struct Titlebar<Mid: View, Trail: View>: View {
     @ViewBuilder var mid: () -> Mid
     @ViewBuilder var trail: () -> Trail
 
+    /// Width reserved for the native macOS traffic light cluster
+    /// (close/min/zoom: 3 × 12pt buttons + 2 × 8pt gaps + ~13pt left padding
+    /// + a little breathing room).
+    private static var nativeTrafficLightsInset: CGFloat { 72 }
+
     var body: some View {
         HStack(spacing: 0) {
-            TrafficLights()
-            Spacer().frame(width: 16)
+            Spacer().frame(width: Self.nativeTrafficLightsInset)
             BrandMark()
             Spacer().frame(width: 24)
             mid()

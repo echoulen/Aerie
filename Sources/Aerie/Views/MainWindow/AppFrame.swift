@@ -34,5 +34,6 @@ struct AppFrame<Content: View>: View {
             }
         }
         .frame(minWidth: AerieMetric.mainWindowW, minHeight: AerieMetric.mainWindowH)
+        .aerieWindowChrome()
     }
 }
