@@ -88,9 +88,13 @@ final class AddRepoSheetViewModel {
 
 /// The "Add repository" sheet used by `RepositoriesScreen`.
 ///
-/// Visual contract: `docs/superpowers/design/v2/settings.jsx` lines 312-415.
-/// Phase 13.4 covers the empty state (drop-zone + recently-seen list);
-/// Phase 13.5 replaces `detectedStatePlaceholder` with the real UI.
+/// Visual contract: design bundle `aerie/project/src/v2/add-repo.jsx`.
+///
+/// The sheet slides down from the titlebar of the Settings window: only
+/// the bottom corners are rounded, the top edge has no border, and the
+/// dark surface sits over the dimmed parent screen. SettingsWindow owns
+/// positioning (top alignment, max-width 640, horizontal padding) and the
+/// scrim — this view is just the panel.
 struct AddRepoSheet: View {
     @Bindable var viewModel: AddRepoSheetViewModel
     var onCancel: () -> Void
@@ -98,60 +102,38 @@ struct AddRepoSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
             content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             footer
         }
-        .frame(width: 640, height: 520)
-        .glass(.dialog)
+        .background(sheetBackground)
+        .clipShape(sheetShape)
+        .overlay(
+            sheetShape
+                .stroke(AerieColor.glassLine2, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.6), radius: 30, x: 0, y: 18)
     }
 
-    // MARK: - Header / footer
+    // MARK: - Sheet shell
 
-    private var header: some View {
-        HStack {
-            Text("Add repository")
-                .font(AerieFont.sectionTitle())
-                .foregroundStyle(AerieColor.text1)
-            Spacer()
-            Button(action: onCancel) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(AerieColor.text3)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(20)
+    private var sheetShape: some Shape {
+        UnevenRoundedRectangle(
+            cornerRadii: .init(
+                topLeading: 0,
+                bottomLeading: AerieMetric.radiusDialog,
+                bottomTrailing: AerieMetric.radiusDialog,
+                topTrailing: 0
+            ),
+            style: .continuous
+        )
     }
 
-    private var footer: some View {
-        HStack {
-            Spacer()
-            Button("Cancel", action: onCancel)
-                .buttonStyle(.plain)
-                .font(AerieFont.small().weight(.medium))
-                .foregroundStyle(AerieColor.text2)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-            Button("Add") {
-                if case .detected(let d) = viewModel.state {
-                    onAdd(d)
-                }
-            }
-            .buttonStyle(.plain)
-            .font(AerieFont.small().weight(.medium))
-            .foregroundStyle(AerieColor.amber)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 8)
-            .background(Capsule().fill(AerieColor.amberSoft))
-            .overlay(Capsule().strokeBorder(AerieColor.amberLine, lineWidth: 1))
-            .disabled({
-                if case .detected = viewModel.state { return false }
-                return true
-            }())
+    @ViewBuilder
+    private var sheetBackground: some View {
+        ZStack {
+            VisualEffectBlur(material: .hudWindow, blendingMode: .withinWindow)
+            AerieColor.dialogSurface
         }
-        .padding(20)
     }
 
     // MARK: - Content switch
@@ -162,79 +144,202 @@ struct AddRepoSheet: View {
         case .empty:
             emptyState
         case .detecting(let url):
-            detectingState(url)
+            wrappedState { detectingState(url) }
         case .detected(let detected):
             detectedView(detected)
         case .error(let url, let msg):
-            errorState(url, msg)
+            wrappedState { errorState(url, msg) }
         }
+    }
+
+    /// Centered/padded wrapper for transient states (detecting, error) so
+    /// they don't collapse to zero height inside the dynamic-height sheet.
+    private func wrappedState<V: View>(@ViewBuilder _ body: () -> V) -> some View {
+        VStack {
+            Spacer(minLength: 0)
+            body()
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: 260)
+        .padding(.horizontal, 28)
+    }
+
+    // MARK: - Header
+
+    /// Eyebrow + title + subtitle, matching `AddRepoEmpty` in the design.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ADD REPOSITORY")
+                .font(AerieFont.eyebrow())
+                .tracking(2.0)
+                .foregroundStyle(AerieColor.text4)
+            Text("Point Aerie at a local git repository")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(AerieColor.text1)
+            (Text("Aerie reads ")
+                + Text(".git/").font(AerieFont.code(12))
+                + Text(" for state and uses the origin URL to find the matching GitHub repo."))
+                .font(AerieFont.body())
+                .foregroundStyle(AerieColor.text3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 28)
+        .padding(.top, 24)
+        .padding(.bottom, 18)
     }
 
     // MARK: - Empty state
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 0) {
+            header
             dropZone
+                .padding(.horizontal, 28)
+                .padding(.bottom, 18)
             if !viewModel.candidates.isEmpty {
                 recentlySeen
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 18)
             }
         }
-        .padding(20)
     }
 
     private var dropZone: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "folder.badge.plus")
-                .font(.system(size: 28))
-                .foregroundStyle(AerieColor.text2)
-            Text("Drop a folder here or click to browse")
-                .font(AerieFont.body())
-                .foregroundStyle(AerieColor.text2)
-            Button("Browse…", action: browseFolder)
-                .buttonStyle(.plain)
-                .font(AerieFont.small().weight(.medium))
-                .foregroundStyle(AerieColor.amber)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Capsule().fill(AerieColor.amberSoft))
-                .overlay(Capsule().strokeBorder(AerieColor.amberLine, lineWidth: 1))
+        VStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(AerieColor.glass2)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(AerieColor.text2)
+            }
+            .frame(width: 48, height: 48)
+
+            Text("Drag a folder here")
+                .font(.system(size: 14))
+                .foregroundStyle(AerieColor.text1)
+                .padding(.top, 6)
+            Text("or")
+                .font(AerieFont.small())
+                .foregroundStyle(AerieColor.text3)
+            browseButton
         }
-        .frame(maxWidth: .infinity, minHeight: 180)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
+        .padding(.horizontal, 24)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.02))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(
-                    AerieColor.glassLine,
-                    style: StrokeStyle(lineWidth: 1, dash: [6, 4])
+                    AerieColor.glassLine2,
+                    style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])
                 )
         )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: browseFolder)
+    }
+
+    /// Neutral glass button (matches the design's plain `.btn`, not amber —
+    /// the amber accent is reserved for the destination action "Add to fleet").
+    private var browseButton: some View {
+        Button("Browse…", action: browseFolder)
+            .buttonStyle(.plain)
+            .font(AerieFont.small().weight(.medium))
+            .foregroundStyle(AerieColor.text1)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(AerieColor.glass2)
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 
     private var recentlySeen: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Recently seen")
+        VStack(alignment: .leading, spacing: 2) {
+            Text("RECENTLY SEEN")
                 .font(AerieFont.eyebrow())
-                .foregroundStyle(AerieColor.text3)
+                .tracking(2.0)
+                .foregroundStyle(AerieColor.text4)
+                .padding(.bottom, 8)
             ForEach(viewModel.candidates) { candidate in
-                Button(action: { viewModel.chooseFolder(candidate.url) }) {
-                    HStack {
-                        Text(candidate.url.lastPathComponent)
-                            .font(AerieFont.body())
-                            .foregroundStyle(AerieColor.text1)
-                        Spacer()
-                        Text(candidate.url.path)
-                            .font(AerieFont.code(11))
-                            .foregroundStyle(AerieColor.text3)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(AerieColor.glass1)
-                    )
-                }
-                .buttonStyle(.plain)
+                recentRow(candidate)
             }
         }
+    }
+
+    private func recentRow(_ candidate: RepoCandidate) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: "folder")
+                .font(.system(size: 12))
+                .foregroundStyle(AerieColor.text3)
+            Text(candidate.url.lastPathComponent)
+                .font(.system(size: 13))
+                .foregroundStyle(AerieColor.text1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(candidate.url.path)
+                .font(AerieFont.code(11.5))
+                .foregroundStyle(AerieColor.text3)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Add") { viewModel.chooseFolder(candidate.url) }
+                .buttonStyle(.plain)
+                .font(AerieFont.small().weight(.medium))
+                .foregroundStyle(AerieColor.text2)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+
+    // MARK: - Footer
+
+    /// Cancel is always present. The amber primary appears only on `.detected`
+    /// — empty/detecting/error states have no primary action to offer.
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Spacer()
+            Button("Cancel", action: onCancel)
+                .buttonStyle(.plain)
+                .font(AerieFont.small().weight(.medium))
+                .foregroundStyle(AerieColor.text3)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+
+            if case .detected(let d) = viewModel.state {
+                Button("Add to fleet") { onAdd(d) }
+                    .buttonStyle(.plain)
+                    .font(AerieFont.small().weight(.semibold))
+                    .foregroundStyle(Color(red: 0.20, green: 0.18, blue: 0.10))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(AerieColor.amber)
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(AerieColor.amberLine, lineWidth: 1)
+                    )
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+        .background(
+            ZStack(alignment: .top) {
+                AerieColor.dialogFooter
+                Rectangle()
+                    .fill(AerieColor.glassLine)
+                    .frame(height: 1)
+            }
+        )
     }
 
     private func browseFolder() {
@@ -247,7 +352,7 @@ struct AddRepoSheet: View {
         }
     }
 
-    // MARK: - Detecting / error states
+    // MARK: - Detecting / detected / error states (compact placeholders)
 
     private func detectingState(_ url: URL) -> some View {
         VStack(spacing: 12) {
@@ -258,12 +363,26 @@ struct AddRepoSheet: View {
         }
     }
 
-    /// Detected-state body: folder card + key/value summary + a hint
-    /// about polling cadence. Account picker is deliberately simple
-    /// here — Phase 16's integration pass can promote it to a real
-    /// dropdown once detection is wired into the integration layer.
+    /// Detected state: keeps the existing summary layout but inside the
+    /// new sheet shell + header pattern.
     private func detectedView(_ d: DetectedRepo) -> some View {
         VStack(alignment: .leading, spacing: 14) {
+            // Header
+            HStack(alignment: .firstTextBaseline) {
+                Text("ADD REPOSITORY")
+                    .font(AerieFont.eyebrow())
+                    .tracking(2.0)
+                    .foregroundStyle(AerieColor.text4)
+                Spacer()
+                Text("✓ detected")
+                    .font(AerieFont.code(11))
+                    .foregroundStyle(AerieColor.ok)
+            }
+            Text("Add \(d.url.lastPathComponent) to your fleet")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(AerieColor.text1)
+                .padding(.bottom, 2)
+
             // Folder card
             HStack(spacing: 12) {
                 Image(systemName: "folder.fill")
@@ -282,40 +401,64 @@ struct AddRepoSheet: View {
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(AerieColor.glass1)
+                    .fill(Color.black.opacity(0.22))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
             )
 
-            // Summary rows
-            kvRow("GitHub", "\(d.githubOwner)/\(d.githubRepo)")
-            kvRow("Host", d.host)
-            kvRow("Default branch", d.defaultBranch)
-            kvRow("Current branch", d.currentBranch.isEmpty ? "(none)" : d.currentBranch)
-            kvRow("Dirty", d.isDirty ? "yes" : "no")
-            if let suggested = d.suggestedAccountId {
-                let short = suggested.uuidString.prefix(8)
-                kvRow("Account", "suggested by host (id: \(short))")
-            } else {
-                kvRow("Account", "no match")
+            VStack(spacing: 0) {
+                kvRow("github", "\(d.githubOwner)/\(d.githubRepo)")
+                kvRow("host", d.host)
+                kvRow("default branch", d.defaultBranch)
+                kvRow("current branch", d.currentBranch.isEmpty ? "(none)" : d.currentBranch)
+                kvRow("working tree", d.isDirty ? "● dirty" : "clean", isLast: d.suggestedAccountId == nil)
+                if let suggested = d.suggestedAccountId {
+                    let short = suggested.uuidString.prefix(8)
+                    kvRow("account", "suggested · \(short)", isLast: true)
+                }
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.black.opacity(0.16))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
+            )
 
-            Text("Polling starts within 30s after adding.")
-                .font(AerieFont.eyebrow())
-                .foregroundStyle(AerieColor.text3)
+            Text("polling starts within 30s after adding.")
+                .font(AerieFont.code(11))
+                .foregroundStyle(AerieColor.text4)
         }
-        .padding(20)
+        .padding(.horizontal, 28)
+        .padding(.top, 24)
+        .padding(.bottom, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func kvRow(_ key: String, _ value: String) -> some View {
-        HStack {
+    private func kvRow(_ key: String, _ value: String, isLast: Bool = false) -> some View {
+        HStack(spacing: 14) {
             Text(key)
-                .font(AerieFont.small())
-                .foregroundStyle(AerieColor.text3)
-                .frame(width: 120, alignment: .leading)
+                .font(AerieFont.code(11))
+                .tracking(0.4)
+                .foregroundStyle(AerieColor.text4)
+                .frame(width: 130, alignment: .leading)
             Text(value)
                 .font(AerieFont.body())
                 .foregroundStyle(AerieColor.text1)
             Spacer()
+        }
+        .padding(.vertical, 9)
+        .overlay(alignment: .bottom) {
+            if !isLast {
+                Rectangle()
+                    .fill(AerieColor.glassLine)
+                    .frame(height: 1)
+            }
         }
     }
 
@@ -332,6 +475,5 @@ struct AddRepoSheet: View {
                 .foregroundStyle(AerieColor.text3)
                 .multilineTextAlignment(.center)
         }
-        .padding(20)
     }
 }
