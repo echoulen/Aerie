@@ -91,6 +91,10 @@ private struct GhostButtonStyle: ButtonStyle {
             .padding(.vertical, 6)
             .background(Capsule().fill(AerieColor.glass1))
             .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.easeOut(duration: 0.10), value: configuration.isPressed)
+            .contentShape(Capsule())
     }
 }
 
@@ -103,5 +107,9 @@ private struct AmberButtonStyle: ButtonStyle {
             .padding(.vertical, 6)
             .background(Capsule().fill(AerieColor.amberSoft))
             .overlay(Capsule().strokeBorder(AerieColor.amberLine, lineWidth: 1))
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.easeOut(duration: 0.10), value: configuration.isPressed)
+            .contentShape(Capsule())
     }
 }

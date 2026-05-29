@@ -36,6 +36,25 @@ final class RepositoriesViewModelTests: XCTestCase {
         return id
     }
 
+    private func detected(
+        path: String = "/tmp/Example",
+        owner: String = "octocat",
+        repo: String = "hello-world",
+        host: String = "github.com",
+        suggestedAccountId: UUID? = nil
+    ) -> DetectedRepo {
+        DetectedRepo(
+            url: URL(fileURLWithPath: path),
+            githubOwner: owner,
+            githubRepo: repo,
+            host: host,
+            defaultBranch: "main",
+            currentBranch: "main",
+            isDirty: false,
+            suggestedAccountId: suggestedAccountId
+        )
+    }
+
     @discardableResult
     private func insertRepo(
         _ db: AppDatabase,
@@ -142,6 +161,83 @@ final class RepositoriesViewModelTests: XCTestCase {
         // Repo's account unchanged.
         let found = try await db.repos.find(id: r.id)
         XCTAssertEqual(found?.primaryAccountId, acct)
+    }
+
+    func test_add_persistsDetectedRepo_andRefreshes() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+
+        let vm = RepositoriesViewModel(db: db)
+        await vm.refresh()
+        XCTAssertEqual(vm.repos.count, 0)
+
+        let ok = await vm.add(detected(path: "/tmp/ChaosOfThreeKingdoms", owner: "echoulen", repo: "ChaosOfThreeKingdoms"))
+        XCTAssertTrue(ok)
+
+        // Reflected in VM state...
+        XCTAssertEqual(vm.repos.count, 1)
+        XCTAssertEqual(vm.repos.first?.name, "ChaosOfThreeKingdoms")
+        XCTAssertEqual(vm.repos.first?.githubOwner, "echoulen")
+        XCTAssertEqual(vm.repos.first?.primaryAccountId, acct)
+        XCTAssertNil(vm.error)
+
+        // ...and actually persisted.
+        let all = try await db.repos.all()
+        XCTAssertEqual(all.count, 1)
+    }
+
+    func test_add_usesSuggestedAccount_whenPresent() async throws {
+        let db = try makeDB()
+        let other = try insertAccount(db, login: "aaa-first")   // sorts first
+        let suggested = try insertAccount(db, login: "zzz-suggested")
+
+        let vm = RepositoriesViewModel(db: db)
+        await vm.refresh()
+
+        let ok = await vm.add(detected(suggestedAccountId: suggested))
+        XCTAssertTrue(ok)
+        XCTAssertEqual(vm.repos.first?.primaryAccountId, suggested)
+        XCTAssertNotEqual(vm.repos.first?.primaryAccountId, other)
+    }
+
+    func test_add_fallsBackToFirstAccount_whenNoSuggestion() async throws {
+        let db = try makeDB()
+        let first = try insertAccount(db, login: "aaa-first")
+        _ = try insertAccount(db, login: "zzz-second")
+
+        let vm = RepositoriesViewModel(db: db)
+        await vm.refresh()
+
+        let ok = await vm.add(detected(suggestedAccountId: nil))
+        XCTAssertTrue(ok)
+        XCTAssertEqual(vm.repos.first?.primaryAccountId, first)
+    }
+
+    func test_add_assignsNextSortOrder() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        try await insertRepo(db, accountId: acct, name: "Existing", repo: "existing", sortOrder: 5)
+
+        let vm = RepositoriesViewModel(db: db)
+        await vm.refresh()
+
+        let ok = await vm.add(detected(path: "/tmp/New", owner: "o", repo: "new"))
+        XCTAssertTrue(ok)
+
+        let added = try await db.repos.all().first { $0.name == "New" }
+        XCTAssertEqual(added?.sortOrder, 6)
+    }
+
+    func test_add_returnsFalse_whenNoAccounts() async throws {
+        let db = try makeDB()   // no accounts inserted
+
+        let vm = RepositoriesViewModel(db: db)
+        await vm.refresh()
+
+        let ok = await vm.add(detected(suggestedAccountId: nil))
+        XCTAssertFalse(ok)
+        XCTAssertEqual(vm.repos.count, 0)
+        XCTAssertNotNil(vm.error)
     }
 
     func test_setAccount_updatesRepo_whenAccountExists() async throws {

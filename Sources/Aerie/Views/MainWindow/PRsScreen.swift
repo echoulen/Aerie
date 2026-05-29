@@ -123,7 +123,9 @@ struct PRsScreen: View {
 
     private func header(open: Int, repos: Int, mine: Int) -> some View {
         HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 6) {
+            // Title + count share one baseline-aligned row (design `Header`),
+            // matching the Repositories view — not stacked.
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
                 Text("Open pull requests")
                     .font(AerieFont.display())
                     .foregroundStyle(AerieColor.text1)

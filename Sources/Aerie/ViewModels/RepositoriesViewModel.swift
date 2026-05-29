@@ -31,6 +31,48 @@ final class RepositoriesViewModel {
         }
     }
 
+    /// Persists a freshly-detected repo, then refreshes so it appears in
+    /// the list and the sidebar count.
+    ///
+    /// `DetectedRepo.suggestedAccountId` is the account matched on host —
+    /// it's nil when nothing matched. The `repos.account_id` column is
+    /// `NOT NULL REFERENCES accounts(id)`, so we fall back to the first
+    /// known account; the user can reassign via the row's account dropdown.
+    /// With no accounts at all there's nothing valid to satisfy the FK, so
+    /// we surface an error and write nothing.
+    ///
+    /// Returns whether the repo was persisted.
+    @discardableResult
+    func add(_ detected: DetectedRepo) async -> Bool {
+        if accounts.isEmpty {
+            accounts = (try? await db.accounts.all()) ?? []
+        }
+        guard let accountId = detected.suggestedAccountId ?? accounts.first?.id else {
+            error = "Add a GitHub account before adding a repository."
+            return false
+        }
+        let nextOrder = (repos.map(\.sortOrder).max() ?? -1) + 1
+        let repo = Repository(
+            id: UUID(),
+            name: detected.url.lastPathComponent,
+            localPath: detected.url,
+            githubOwner: detected.githubOwner,
+            githubRepo: detected.githubRepo,
+            defaultBranch: detected.defaultBranch,
+            primaryAccountId: accountId,
+            sortOrder: nextOrder,
+            hidden: false
+        )
+        do {
+            try await db.repos.insert(repo)
+            await refresh()
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
     /// Move the row at index `from` to position `to` (in the
     /// pre-removal coordinate space used by SwiftUI's `move(fromOffsets:toOffset:)`).
     /// Updates `sort_order` for ALL rows so the persisted order matches

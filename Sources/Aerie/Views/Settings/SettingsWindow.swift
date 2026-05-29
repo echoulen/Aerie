@@ -17,6 +17,11 @@ struct SettingsWindow: View {
     @State private var mcpVM: MCPSettingsViewModel
     @State private var showAddRepo: Bool = false
     @State private var addRepoVM = AddRepoSheetViewModel()
+    /// The account whose "Sign out…" confirmation dialog is showing, plus the
+    /// repos that use it as primary (computed when the dialog opens so the
+    /// dialog can spell out the blast radius). Nil when no dialog is up.
+    @State private var signOutTarget: AccountRow? = nil
+    @State private var signOutAffectedRepos: [Repository] = []
 
     init() {
         let svc = AppServices.shared
@@ -103,9 +108,9 @@ struct SettingsWindow: View {
                         AddRepoSheet(
                             viewModel: addRepoVM,
                             onCancel: { showAddRepo = false },
-                            onAdd: { _ in
+                            onAdd: { detected in
                                 showAddRepo = false
-                                Task { await reposVM.refresh() }
+                                Task { await reposVM.add(detected) }
                             }
                         )
                         .frame(maxWidth: 640)
@@ -116,6 +121,26 @@ struct SettingsWindow: View {
                 .animation(.easeOut(duration: 0.18), value: showAddRepo)
             }
         }
+        // Sign-out confirmation. DialogShell brings its own full-window scrim
+        // (and ignoresSafeArea), so it overlays the whole window — no extra
+        // scrim/blur needed here, unlike the AddRepo sheet above.
+        .overlay {
+            if let target = signOutTarget {
+                DialogSignOut(
+                    account: target.account,
+                    affectedRepos: signOutAffectedRepos,
+                    onConfirm: {
+                        try? await services.auth.signOut(accountId: target.account.id)
+                        _ = try? await services.auth.bootstrap()
+                        await accountsVM.refresh()
+                        signOutTarget = nil
+                    },
+                    onCancel: { signOutTarget = nil }
+                )
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: signOutTarget)
         .frame(minWidth: AerieMetric.settingsWindowW, minHeight: AerieMetric.settingsWindowH)
         .aerieWindowChrome()
         .task(id: route.wrappedValue) {
@@ -133,6 +158,21 @@ struct SettingsWindow: View {
                 onRescan: {
                     _ = try? await services.auth.bootstrap()
                     await accountsVM.refresh()
+                },
+                onMakePrimary: { row in
+                    Task {
+                        try? await services.auth.makePrimary(accountId: row.account.id)
+                        // Re-bootstrap so primaryAccountId() reflects the switch.
+                        _ = try? await services.auth.bootstrap()
+                        await accountsVM.refresh()
+                    }
+                },
+                onSignOut: { row in
+                    Task {
+                        let repos = (try? await services.db.repos.all()) ?? []
+                        signOutAffectedRepos = repos.filter { $0.primaryAccountId == row.account.id }
+                        signOutTarget = row
+                    }
                 }
             )
         case .repositories:
@@ -141,6 +181,9 @@ struct SettingsWindow: View {
                 onRefreshAll: { Task { await reposVM.refresh() } },
                 onAddRepo: {
                     addRepoVM.reset()
+                    // Feed the loaded accounts in so RepoDetector can match a
+                    // primary account by host (otherwise suggestion is always nil).
+                    addRepoVM.accounts = reposVM.accounts
                     showAddRepo = true
                 }
             )

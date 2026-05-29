@@ -7,6 +7,20 @@ enum AuthBootstrapResult: Equatable {
     case noAuth
 }
 
+/// Errors raised by the mutating account actions (`makePrimary` / `signOut`).
+/// These shell out to `gh`, so failures carry the CLI's stderr for surfacing.
+enum AuthActionError: Error, LocalizedError {
+    case accountNotFound
+    case commandFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .accountNotFound: return "Account not found."
+        case .commandFailed(let msg): return msg.isEmpty ? "gh command failed." : msg
+        }
+    }
+}
+
 /// AuthService discovers GitHub accounts via the `gh` CLI and caches their tokens
 /// in-memory for the lifetime of the actor.
 ///
@@ -30,6 +44,17 @@ protocol AuthService: Actor {
     /// back to the first parsed account when none is marked active. `nil`
     /// when no accounts were discovered.
     func primaryAccountId() -> UUID?
+    /// Makes `accountId` the active gh account via `gh auth switch`. Since
+    /// Aerie's "primary" is defined as gh's active account, switching here is
+    /// what the Settings → Accounts "Make primary" action does. Callers should
+    /// `bootstrap()` afterwards to re-derive the primary id. Throws on a
+    /// non-zero gh exit (`AuthActionError`).
+    func makePrimary(accountId: UUID) async throws
+    /// Signs `accountId` out of gh entirely via `gh auth logout`, removing its
+    /// token from the gh keyring so it is no longer rediscovered on the next
+    /// bootstrap. Backs the Settings → Accounts "Sign out…" action. Throws on
+    /// a non-zero gh exit (`AuthActionError`).
+    func signOut(accountId: UUID) async throws
 }
 
 // Default implementations let test doubles (`FixedAuthService`,
@@ -40,6 +65,8 @@ extension AuthService {
     func ghVersion() -> String? { nil }
     func scopesByAccount() -> [UUID: [String]] { [:] }
     func primaryAccountId() -> UUID? { nil }
+    func makePrimary(accountId: UUID) async throws {}
+    func signOut(accountId: UUID) async throws {}
 }
 
 actor LiveAuthService: AuthService {
@@ -125,7 +152,43 @@ actor LiveAuthService: AuthService {
     func scopesByAccount() -> [UUID: [String]] { scopes }
     func primaryAccountId() -> UUID? { primaryId }
 
+    func makePrimary(accountId: UUID) async throws {
+        let acc = try account(for: accountId)
+        // `--hostname` + `--user` keeps `gh auth switch` non-interactive.
+        let (_, err, rc) = try await runner.run("gh", [
+            "auth", "switch",
+            "--hostname", acc.host,
+            "--user", acc.login,
+        ])
+        if rc != 0 {
+            throw AuthActionError.commandFailed(err.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
+    func signOut(accountId: UUID) async throws {
+        let acc = try account(for: accountId)
+        // `--hostname` + `--user` makes `gh auth logout` skip its prompt and
+        // remove just this account's token.
+        let (_, err, rc) = try await runner.run("gh", [
+            "auth", "logout",
+            "--hostname", acc.host,
+            "--user", acc.login,
+        ])
+        if rc != 0 {
+            throw AuthActionError.commandFailed(err.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
     // MARK: - Helpers
+
+    /// Resolves an in-memory account by id, throwing `accountNotFound` when the
+    /// id is stale (e.g. a card was actioned after the account vanished).
+    private func account(for accountId: UUID) throws -> GitHubAccount {
+        guard let acc = accounts.first(where: { $0.id == accountId }) else {
+            throw AuthActionError.accountNotFound
+        }
+        return acc
+    }
 
     /// Runs `gh --version` and returns its first stdout line, trimmed. Throws
     /// only on runner errors; returns `nil` on non-zero exit codes or empty

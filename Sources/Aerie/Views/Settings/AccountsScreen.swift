@@ -43,6 +43,12 @@ struct AccountsScreen: View {
     /// gh bootstrap + VM refresh both finish. SettingsWindow wires this; the
     /// default no-op keeps previews / snapshots dependency-free.
     var onRescan: () async -> Void = {}
+    /// "Make primary" on a (non-primary) account card. Wired by SettingsWindow
+    /// to `gh auth switch`; no-op default keeps previews dependency-free.
+    var onMakePrimary: (AccountRow) -> Void = { _ in }
+    /// "Sign out…" on an account card. Wired by SettingsWindow to open the
+    /// sign-out confirmation dialog; no-op default keeps previews clean.
+    var onSignOut: (AccountRow) -> Void = { _ in }
 
     @State private var isRescanning: Bool = false
     @State private var isRescanHovered: Bool = false
@@ -56,7 +62,12 @@ struct AccountsScreen: View {
                 if !viewModel.rows.isEmpty {
                     VStack(spacing: 12) {
                         ForEach(viewModel.rows) { row in
-                            AccountCard(row: row, now: now)
+                            AccountCard(
+                                row: row,
+                                now: now,
+                                onMakePrimary: { onMakePrimary(row) },
+                                onSignOut: { onSignOut(row) }
+                            )
                         }
                     }
                     .padding(.top, 18)

@@ -13,9 +13,19 @@ import SwiftUI
 ///
 /// `now` is injected so snapshot tests can keep the relative-time string
 /// stable. Production callers omit it.
+///
+/// The trailing actions (`Make primary` on non-primary rows, `Sign out…` on
+/// all rows) are the design's `.btn.ghost.sm` buttons. They fire the injected
+/// callbacks; the integration layer (`SettingsWindow`) decides what they do
+/// (`gh auth switch` / a sign-out confirmation → `gh auth logout`).
 struct AccountCard: View {
     let row: AccountRow
     var now: Date = Date()
+    /// Make this account the active/primary gh account. Hidden when the row is
+    /// already primary, so this is only invoked for non-primary accounts.
+    var onMakePrimary: () -> Void = {}
+    /// Begin signing this account out (opens the confirmation dialog upstream).
+    var onSignOut: () -> Void = {}
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
@@ -29,7 +39,8 @@ struct AccountCard: View {
                         .foregroundStyle(AerieColor.text3)
                 }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 12)
+            actions
         }
         .padding(AerieMetric.cardPaddingV)
         .glass(.card)
@@ -86,9 +97,46 @@ struct AccountCard: View {
         }
     }
 
+    // Trailing action buttons — `settings.jsx` lines 191-195.
+    private var actions: some View {
+        HStack(spacing: 8) {
+            if !row.isPrimary {
+                GhostSmallButton(title: "Make primary", action: onMakePrimary)
+            }
+            GhostSmallButton(title: "Sign out…", action: onSignOut)
+        }
+    }
+
     private func relativeTime(_ d: Date) -> String {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .abbreviated
         return f.localizedString(for: d, relativeTo: now)
+    }
+}
+
+/// The design's `.btn.ghost.sm`: transparent at rest (text-3), filling with
+/// `glass-2` + text-1 on hover. `sm` = 12 pt / 5×10 pad, 9 pt corner radius.
+private struct GhostSmallButton: View {
+    let title: String
+    let action: () -> Void
+
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(AerieFont.small().weight(.medium))
+                .foregroundStyle(hover ? AerieColor.text1 : AerieColor.text3)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(hover ? AerieColor.glass2 : Color.clear)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .animation(.easeOut(duration: 0.12), value: hover)
     }
 }

@@ -15,6 +15,11 @@ struct AppFrame<Content: View>: View {
     /// in older snapshot tests), no overlay is added.
     var toastManager: ToastManager? = nil
     var onToastViewRequest: (ToastItem) -> Void = { _ in }
+    /// When non-nil, renders the titlebar account avatar + dropdown in the
+    /// top-right. Nil in tests / snapshots that don't exercise the menu.
+    var accountMenu: AccountMenuViewModel? = nil
+    /// Invoked when the account dropdown's "Settings…" item is chosen.
+    var onOpenSettings: () -> Void = {}
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -29,6 +34,13 @@ struct AppFrame<Content: View>: View {
         .overlay(alignment: .bottomTrailing) {
             if let toasts = toastManager {
                 ToastsOverlay(manager: toasts, onViewRequest: onToastViewRequest)
+            }
+        }
+        // Account avatar/dropdown floats above the page content so the panel
+        // isn't clipped by the titlebar.
+        .overlay {
+            if let accountMenu {
+                AccountMenu(viewModel: accountMenu, onOpenSettings: onOpenSettings)
             }
         }
         .frame(minWidth: AerieMetric.mainWindowW, minHeight: AerieMetric.mainWindowH)
