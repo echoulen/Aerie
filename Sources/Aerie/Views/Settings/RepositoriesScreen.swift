@@ -33,6 +33,7 @@ struct RepositoriesScreen: View {
     // converts a drag distance into a number of slots moved.
     @State private var draggingId: UUID?
     @State private var dragTranslation: CGFloat = 0
+    @State private var dragTarget: Int?
     @State private var rowHeight: CGFloat = 64
 
     var body: some View {
@@ -142,35 +143,45 @@ struct RepositoriesScreen: View {
                 Task { await viewModel.remove(id: repo.id) }
             },
             onDragChange: { translation in
-                // The grip uses `minimumDistance: 0` to win the mouse-down race
-                // against the window's background-drag; ignore sub-threshold
-                // jitter here so a plain click doesn't kick off a reorder.
-                guard draggingId != nil || abs(translation) > 2 else { return }
                 if draggingId == nil { draggingId = repo.id }
                 dragTranslation = translation
+                updateDragTarget()
             },
             onDragEnd: { commitDrag() }
         )
         .background(rowHeightReader(idx: idx))
+        // No scaleEffect while dragging: scaling a full-width row from its centre
+        // shoves the left-edge grip ~10 pt sideways, so it visibly drifts off the
+        // cursor. A shadow + zIndex give the "lifted" feel without moving the grip.
         .offset(y: rowOffset(idx: idx, isDragging: dragging))
-        .scaleEffect(dragging ? 1.015 : 1)
         .shadow(color: .black.opacity(dragging ? 0.28 : 0),
                 radius: dragging ? 12 : 0, y: dragging ? 6 : 0)
         .zIndex(dragging ? 1 : 0)
-        // The dragged row tracks the finger 1:1 (no animation lag); the rest
-        // spring aside as the target slot changes.
-        .animation(dragging ? nil : .spring(response: 0.28, dampingFraction: 0.82),
-                   value: dragTranslation)
+        // The dragged row follows the finger 1:1 via `dragTranslation`, which
+        // this animation deliberately doesn't observe. The other rows spring
+        // aside only when the discrete `dragTarget` slot changes — so moving
+        // within a slot never restarts the animation, which is what killed the
+        // judder.
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: dragTarget)
     }
 
     // MARK: - Drag-reorder maths
 
-    /// The slot the dragged row currently hovers over, derived from how many
-    /// row-heights it has travelled from its origin.
-    private func targetIndex(from: Int) -> Int {
+    /// Recomputes the target slot from the live drag translation, with
+    /// hysteresis: the dragged row must cross a slot's centre by `margin` before
+    /// committing to that slot. Without it, a hand resting near a boundary
+    /// flip-flops between two slots and the let-aside rows judder.
+    private func updateDragTarget() {
+        guard let id = draggingId,
+              let from = viewModel.repos.firstIndex(where: { $0.id == id }) else { return }
         let step = rowHeight + 1 // +1 for the hairline separator
-        let shift = Int((dragTranslation / step).rounded())
-        return min(max(0, from + shift), viewModel.repos.count - 1)
+        let raw = dragTranslation / step
+        let last = viewModel.repos.count - 1
+        let margin: CGFloat = 0.2
+        var target = dragTarget ?? from
+        while target < last, raw > CGFloat(target - from) + 0.5 + margin { target += 1 }
+        while target > 0,    raw < CGFloat(target - from) - 0.5 - margin { target -= 1 }
+        if target != dragTarget { dragTarget = target }
     }
 
     /// Vertical offset for a row during a drag: the dragged row follows the
@@ -178,34 +189,30 @@ struct RepositoriesScreen: View {
     /// the gap; everything else stays put.
     private func rowOffset(idx: Int, isDragging: Bool) -> CGFloat {
         guard let id = draggingId,
-              let from = viewModel.repos.firstIndex(where: { $0.id == id }) else { return 0 }
+              let from = viewModel.repos.firstIndex(where: { $0.id == id }),
+              let to = dragTarget else { return 0 }
         if isDragging { return dragTranslation }
-        let to = targetIndex(from: from)
         let step = rowHeight + 1
         if from < to, idx > from, idx <= to { return -step }
         if from > to, idx >= to, idx < from { return step }
         return 0
     }
 
-    /// On release: resolve the target slot, apply the move optimistically, and
-    /// clear the drag state — all inside one animation so the row springs into
-    /// place instead of snapping back then jumping.
+    /// On release: apply the move optimistically and clear the drag state — all
+    /// inside one animation so the row springs into place instead of snapping
+    /// back then jumping.
     private func commitDrag() {
-        guard let id = draggingId,
-              let from = viewModel.repos.firstIndex(where: { $0.id == id }) else {
-            draggingId = nil
-            dragTranslation = 0
-            return
-        }
-        let to = targetIndex(from: from)
+        let from = draggingId.flatMap { id in viewModel.repos.firstIndex(where: { $0.id == id }) }
+        let to = dragTarget
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            if to != from {
+            if let from, let to, to != from {
                 // Convert our final index back to move(fromOffsets:toOffset:) space.
                 let dest = to >= from ? to + 1 : to
                 viewModel.applyReorder(from: from, to: dest)
             }
             draggingId = nil
             dragTranslation = 0
+            dragTarget = nil
         }
     }
 
@@ -215,7 +222,9 @@ struct RepositoriesScreen: View {
         GeometryReader { geo in
             Color.clear
                 .onAppear { if idx == 0 { rowHeight = geo.size.height } }
-                .onChange(of: geo.size.height) { _, h in if idx == 0 { rowHeight = h } }
+                // Freeze the measurement mid-drag so an animating layout can't
+                // feed a changing rowHeight back into the slot maths.
+                .onChange(of: geo.size.height) { _, h in if idx == 0, draggingId == nil { rowHeight = h } }
         }
     }
 }

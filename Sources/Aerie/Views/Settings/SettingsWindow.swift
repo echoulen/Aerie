@@ -126,6 +126,10 @@ struct SettingsWindow: View {
                 .animation(.easeOut(duration: 0.18), value: showAddRepo)
             }
         }
+        // Pull the titlebar up under the native traffic lights — same top
+        // safe-area inset fix as AppFrame, so "Aerie · Settings" lines up with
+        // the window controls instead of sitting a title-bar height too low.
+        .ignoresSafeArea(.container, edges: .top)
         // Sign-out confirmation. DialogShell brings its own full-window scrim
         // (and ignoresSafeArea), so it overlays the whole window — no extra
         // scrim/blur needed here, unlike the AddRepo sheet above.

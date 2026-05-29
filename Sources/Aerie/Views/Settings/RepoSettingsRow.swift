@@ -60,14 +60,16 @@ struct RepoSettingsRow: View {
             .contentShape(Rectangle())
             .onHover { gripHover = $0 }
             .help("Drag to reorder")
-            // `minimumDistance: 0` claims the gesture on mouse-DOWN, beating the
-            // window's `isMovableByWindowBackground` background-drag — AppKit
-            // grabs the mouseDown for a window-move otherwise, and the gesture
-            // never fires. Same trick the zoom stepper / CadenceSlider use. The
-            // list applies a small movement threshold before treating it as a
-            // real reorder, so a plain click on the grip doesn't start one.
+            // `coordinateSpace: .global` is critical: the list moves the dragged
+            // row with `.offset`, and this grip rides inside that row. With the
+            // default `.local` space the gesture measures translation against the
+            // row's OWN (moving) origin, so the offset feeds back into the
+            // translation and the row oscillates violently. Global space is fixed
+            // to the screen, so translation reflects only real finger movement.
+            // (The window no longer background-drags — see `AerieWindowChrome` —
+            // so a normal distance threshold cleanly separates drag from click.)
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 4, coordinateSpace: .global)
                     .onChanged { onDragChange($0.translation.height) }
                     .onEnded { _ in onDragEnd() }
             )

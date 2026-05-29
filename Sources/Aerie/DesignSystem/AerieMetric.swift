@@ -15,11 +15,12 @@ enum AerieMetric {
     static let cardGap:     CGFloat = 14
 
     // Window dimensions
-    /// Custom titlebar height. Matches the native macOS title-bar band (32 pt on
-    /// macOS 26) so that the centred brand cluster lands at 16 pt — the measured
-    /// vertical centre of the traffic-light buttons — keeping "Aerie" + the
-    /// account avatar level with the system window controls.
-    static let titlebarHeight: CGFloat = 32
+    /// Custom titlebar height. Taller than the native title-bar band to give the
+    /// centred brand cluster breathing room above and below, matching the v2
+    /// design. The brand (and the account avatar) centre vertically here at
+    /// 26 pt; the native traffic lights are pinned by the system at 16 pt, so by
+    /// design the brand sits a touch below them in exchange for the padding.
+    static let titlebarHeight: CGFloat = 52
     static let mainWindowW: CGFloat = 1240
     static let mainWindowH: CGFloat = 880
     static let settingsWindowW: CGFloat = 1040

@@ -88,11 +88,11 @@ struct AccountMenu: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
                     }
                 }
-                // The titlebar is 32 pt with 14 pt side padding; the 30 pt-tall
-                // button centres vertically at (32-30)/2 = 1 pt from the top, so
-                // the 24 pt avatar's centre lands at 1+3+12 = 16 pt — level with
-                // the traffic lights (measured centre 16 pt from the window top).
-                .padding(.top, 1)
+                // The titlebar is 52 pt; centre the 30 pt-tall button in it with
+                // top = (52-30)/2 = 11 pt, so the avatar's centre lands at 26 pt —
+                // matching the centred brand cluster. (The native traffic lights
+                // stay pinned at 16 pt, so both sit slightly below them by design.)
+                .padding(.top, 11)
                 .padding(.trailing, 14)
             }
         }

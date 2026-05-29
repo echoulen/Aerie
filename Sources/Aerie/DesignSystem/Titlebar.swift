@@ -1,14 +1,15 @@
 import SwiftUI
 
-/// Custom titlebar (`AerieMetric.titlebarHeight`, 32 pt) that sits flush under
+/// Custom titlebar (`AerieMetric.titlebarHeight`, 52 pt) that sits flush under
 /// the native (transparent) title bar. The native macOS traffic lights stay at
 /// top-left; this view draws a horizontally-centred brand cluster — the amber
 /// `BrandMark` orb plus a title — exactly like the v2 design (`styles.css
 /// .brand`, centred via `left: 50%`).
 ///
-/// The 32 pt height matches the native title-bar band so the vertically-centred
-/// brand cluster lands at 16 pt — the measured centre of the traffic lights —
-/// leaving "Aerie" level with the system window controls.
+/// The height is taller than the native title-bar band to give the brand
+/// breathing room above and below (matching the v2 design). The brand centres
+/// vertically at 26 pt; the traffic lights are system-pinned at 16 pt, so the
+/// brand sits slightly below them by design in exchange for the padding.
 ///
 /// The title text is the only per-window difference: the main window shows
 /// "Aerie", the Settings window "Aerie · Settings".
