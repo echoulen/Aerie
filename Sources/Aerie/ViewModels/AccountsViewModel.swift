@@ -33,22 +33,28 @@ struct AccountRow: Equatable, Identifiable {
 final class AccountsViewModel {
     private(set) var rows: [AccountRow] = []
     private(set) var error: String? = nil
+    /// Raw `gh --version` first line, surfaced by `AccountsScreen`'s banner.
+    /// `nil` until the integration layer's provider returns something.
+    private(set) var ghVersion: String? = nil
 
     private let db: AppDatabase
     private let api: any AccountUsageTracker
     private let scopesByAccount: () async -> [UUID: [String]]
     private let primaryAccountId: () async -> UUID?
+    private let ghVersionProvider: () async -> String?
 
     init(
         db: AppDatabase,
         api: any AccountUsageTracker,
         scopesByAccount: @escaping () async -> [UUID: [String]],
-        primaryAccountId: @escaping () async -> UUID?
+        primaryAccountId: @escaping () async -> UUID?,
+        ghVersion: @escaping () async -> String? = { nil }
     ) {
         self.db = db
         self.api = api
         self.scopesByAccount = scopesByAccount
         self.primaryAccountId = primaryAccountId
+        self.ghVersionProvider = ghVersion
     }
 
     /// Re-reads accounts + repo counts + scopes + last-used and projects
@@ -61,6 +67,7 @@ final class AccountsViewModel {
             let allRepos = try await db.repos.all()
             let scopes = await scopesByAccount()
             let primary = await primaryAccountId()
+            self.ghVersion = await ghVersionProvider()
             var built: [AccountRow] = []
             for acc in accounts {
                 let count = allRepos.filter { $0.primaryAccountId == acc.id }.count
