@@ -40,6 +40,7 @@ let package = Package(
             exclude: [
                 "__Snapshots__",
                 "Dialogs/__Snapshots__",
+                "MCP/__Snapshots__",
             ]
         ),
     ]

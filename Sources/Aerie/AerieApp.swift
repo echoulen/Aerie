@@ -6,19 +6,11 @@ import SwiftUI
 struct AerieApp: App {
     @NSApplicationDelegateAdaptor(AerieAppDelegate.self) private var appDelegate
 
+    private let services = AppServices.shared
+
     @State private var bootstrapper: GhBootstrapper = {
-        // Use the live auth service. AerieApp owns the bootstrapper for the
-        // process's lifetime.
-        let auth = LiveAuthService()
-        return GhBootstrapper(auth: auth, interval: 5.0)
+        GhBootstrapper(auth: AppServices.shared.auth, interval: 5.0)
     }()
-
-    /// Long-lived MCP server. Started after the first `.ok` AuthBootstrapResult
-    /// arrives (see ``startMCPServer()``). Stopped via the app delegate on
-    /// `applicationWillTerminate`.
-    @State private var mcpServer: MCPServer = MCPServer(router: JSONRPCRouter())
-
-    private let discovery = DiscoveryFileWriter()
 
     var body: some Scene {
         WindowGroup("Aerie") {
@@ -43,8 +35,8 @@ struct AerieApp: App {
     /// to `.ok`. Starts the MCP server, hands it to the app delegate so
     /// `applicationWillTerminate` can stop it, and writes the discovery file.
     private func startMCPServer() {
-        let server = mcpServer
-        let discovery = self.discovery
+        let server = services.mcpServer
+        let discovery = services.discovery
         let delegate = appDelegate
         Task {
             do {
@@ -99,9 +91,17 @@ private struct AppRoot: View {
         Group {
             switch current {
             case .ok:
-                ContentView()  // Phase 21 swaps this for the real main shell.
-            case .ghMissing, .noAuth, .none:
+                MainShell()
+            case .ghMissing, .noAuth:
                 FirstRunRoot(bootstrapper: bootstrapper)
+            case .none:
+                // Bootstrapper hasn't completed its first call yet. Show a
+                // bare Backdrop so users with gh already configured don't see
+                // a one-frame flash of "Install GitHub CLI" before MainShell
+                // appears.
+                ZStack { Backdrop() }
+                    .frame(minWidth: AerieMetric.mainWindowW, minHeight: AerieMetric.mainWindowH)
+                    .aerieWindowChrome()
             }
         }
         .onAppear {
@@ -117,10 +117,38 @@ private struct AppRoot: View {
     }
 }
 
-struct ContentView: View {
+/// The composed main window shell — Backdrop + Titlebar (with SegmentedToggle +
+/// LiveIndicator) + the currently-selected primary screen (PRs or Repos).
+///
+/// View models are constructed once per shell, seeded with the shared
+/// `AppServices.shared.db`, and refreshed on first appear. Polling-driven
+/// auto-refresh and the toast overlay are tracked as Known Issues in the plan.
+struct MainShell: View {
+    private let services = AppServices.shared
+    @State private var appVM = AppViewModel()
+    @State private var prsVM: PRsViewModel
+    @State private var reposVM: ReposViewModel
+
+    init() {
+        let db = AppServices.shared.db
+        _prsVM = State(initialValue: PRsViewModel(db: db))
+        _reposVM = State(initialValue: ReposViewModel(db: db))
+    }
+
     var body: some View {
-        Text("Aerie")
-            .font(.largeTitle)
+        AppFrame(viewModel: appVM) {
+            Group {
+                switch appVM.activeTab {
+                case .prs:   PRsScreen(viewModel: prsVM)
+                case .repos: ReposScreen(viewModel: reposVM)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .task {
+            await prsVM.refresh()
+            await reposVM.refresh()
+        }
     }
 }
 
