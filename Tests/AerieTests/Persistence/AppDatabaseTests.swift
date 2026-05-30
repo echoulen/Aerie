@@ -13,6 +13,7 @@ final class AppDatabaseTests: XCTestCase {
         XCTAssertTrue(tables.contains("repos"))
         XCTAssertTrue(tables.contains("accounts"))
         XCTAssertTrue(tables.contains("pr_cache"))
+        XCTAssertTrue(tables.contains("issue_cache"))
         XCTAssertTrue(tables.contains("pr_local_state_cache"))
         XCTAssertTrue(tables.contains("git_status_cache"))
         XCTAssertTrue(tables.contains("mcp_activity"))

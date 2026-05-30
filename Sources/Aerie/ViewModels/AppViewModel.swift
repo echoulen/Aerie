@@ -1,9 +1,10 @@
 import SwiftUI
 import Observation
 
-/// The two top-level destinations selectable in the main window's titlebar.
+/// The three top-level destinations selectable in the main window's page
+/// header: Pull Requests (⌘1), Issues (⌘2), Repositories (⌘3).
 enum MainTab: String, Equatable, CaseIterable {
-    case prs, repos
+    case prs, issues, repos
 }
 
 /// Shared state owner for the main window shell.

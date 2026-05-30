@@ -7,6 +7,7 @@ actor AppDatabase {
     nonisolated var repos: RepoDAO { RepoDAO(dbQueue: dbQueue) }
     nonisolated var accounts: AccountDAO { AccountDAO(dbQueue: dbQueue) }
     nonisolated var prCache: PRCacheDAO { PRCacheDAO(dbQueue: dbQueue) }
+    nonisolated var issueCache: IssueCacheDAO { IssueCacheDAO(dbQueue: dbQueue) }
     nonisolated var prLocalStateCache: PRLocalStateCacheDAO { PRLocalStateCacheDAO(dbQueue: dbQueue) }
     nonisolated var gitStatusCache: GitStatusCacheDAO { GitStatusCacheDAO(dbQueue: dbQueue) }
     nonisolated var mcpActivity: MCPActivityDAO { MCPActivityDAO(dbQueue: dbQueue) }
@@ -30,6 +31,9 @@ actor AppDatabase {
         var m = DatabaseMigrator()
         m.registerMigration("v1") { db in
             try db.execute(sql: AppDatabase.schemaV1)
+        }
+        m.registerMigration("v2") { db in
+            try db.execute(sql: AppDatabase.schemaV2)
         }
         return m
     }
@@ -93,6 +97,18 @@ actor AppDatabase {
     CREATE TABLE settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
+    );
+    """
+
+    /// v2 — the Issues tab's per-repo cache. Same shape as `pr_cache`: the
+    /// whole set of open issues for a repo is replaced on each sync.
+    static let schemaV2: String = """
+    CREATE TABLE issue_cache (
+        repo_id TEXT NOT NULL REFERENCES repos(id),
+        number INTEGER NOT NULL,
+        payload_json TEXT NOT NULL,
+        fetched_at REAL NOT NULL,
+        PRIMARY KEY (repo_id, number)
     );
     """
 }

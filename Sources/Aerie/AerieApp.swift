@@ -154,12 +154,14 @@ struct MainShell: View {
     @Environment(\.openWindow) private var openWindow
     @State private var appVM = AppViewModel()
     @State private var prsVM: PRsViewModel
+    @State private var issuesVM: IssuesViewModel
     @State private var reposVM: ReposViewModel
     @State private var accountVM: AccountMenuViewModel
 
     init() {
         let db = AppServices.shared.db
         _prsVM = State(initialValue: PRsViewModel(db: db))
+        _issuesVM = State(initialValue: IssuesViewModel(db: db))
         _reposVM = State(initialValue: ReposViewModel(db: db))
         let auth = AppServices.shared.auth
         _accountVM = State(initialValue: AccountMenuViewModel(
@@ -176,8 +178,28 @@ struct MainShell: View {
         ) {
             Group {
                 switch appVM.activeTab {
-                case .prs:   PRsScreen(viewModel: prsVM, tabSelection: $appVM.activeTab)
-                case .repos: ReposScreen(viewModel: reposVM, tabSelection: $appVM.activeTab)
+                case .prs:
+                    PRsScreen(
+                        viewModel: prsVM,
+                        tabSelection: $appVM.activeTab,
+                        onRefresh: { await services.refreshNow() }
+                    )
+                case .issues:
+                    IssuesScreen(
+                        viewModel: issuesVM,
+                        tabSelection: $appVM.activeTab,
+                        onRefresh: { await services.refreshNow() }
+                    )
+                case .repos:
+                    ReposScreen(
+                        viewModel: reposVM,
+                        tabSelection: $appVM.activeTab,
+                        onRefresh: { await services.refreshNow() },
+                        onAddRepo: {
+                            services.settingsNavigator.requestAddRepo()
+                            openWindow(id: "settings")
+                        }
+                    )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -191,6 +213,7 @@ struct MainShell: View {
             // attached before the first tick can emit.
             services.startPolling()
             await prsVM.refresh()
+            await issuesVM.refresh()
             await reposVM.refresh()
             await accountVM.refresh()
         }
@@ -204,6 +227,20 @@ struct MainShell: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .aeriePRCacheDidChange)) { _ in
             Task { await prsVM.refresh() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .aerieIssueCacheDidChange)) { _ in
+            Task { await issuesVM.refresh() }
+        }
+        // A repo was added/removed in Settings. Re-project all three tabs so the
+        // change shows immediately, then kick a real sync so the new repo's git
+        // status / PRs / issues populate without waiting for the next tick.
+        .onReceive(NotificationCenter.default.publisher(for: .aerieReposDidChange)) { _ in
+            Task {
+                await reposVM.refresh()
+                await prsVM.refresh()
+                await issuesVM.refresh()
+                await services.refreshNow()
+            }
         }
     }
 }

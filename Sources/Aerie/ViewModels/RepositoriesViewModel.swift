@@ -66,10 +66,21 @@ final class RepositoriesViewModel {
         do {
             try await db.repos.insert(repo)
             await refresh()
+            await Self.postReposDidChange()
             return true
         } catch {
             self.error = error.localizedDescription
             return false
+        }
+    }
+
+    /// Notifies the rest of the app (notably the main window's Repos tab) that
+    /// the tracked repo set changed, so it can re-project without waiting for a
+    /// polling tick. Posted on the main actor — `PassthroughSubject`/SwiftUI
+    /// observers expect main-thread delivery.
+    private static func postReposDidChange() async {
+        await MainActor.run {
+            NotificationCenter.default.post(name: .aerieReposDidChange, object: nil)
         }
     }
 
@@ -116,6 +127,7 @@ final class RepositoriesViewModel {
     func remove(id: UUID) async {
         try? await db.repos.delete(id: id)
         await refresh()
+        await Self.postReposDidChange()
     }
 
     /// Re-assigns the repo's primary account.

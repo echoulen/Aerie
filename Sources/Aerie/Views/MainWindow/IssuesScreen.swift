@@ -1,29 +1,24 @@
 import SwiftUI
 import AppKit
 
-/// The Repos tab's main content area. Owns no state — it renders whatever the
-/// injected `ReposViewModel` reports.
+/// The Issues tab's main content area. Owns no state — it renders whatever the
+/// injected `IssuesViewModel` reports. The issue-side mirror of ``PRsScreen``.
 ///
-/// Visual contract: `docs/superpowers/design/v2/screens.jsx` — header style
-/// mirrors `PRsScreen`, and the body stacks `RepoCard`s under it.
+/// Visual contract: `v2/app.jsx` `IssueView` (the "Open issues" header plus the
+/// stack of `IssueCard`s underneath).
 ///
 /// Action wiring:
-/// - "Open" launches the repo's local path in Finder via `NSWorkspace`.
-///   We prefer this over the GitHub URL because the Repos view is the
-///   "local-first" surface — the GitHub side is exposed via PRs.
-/// - "Hard reset" leaves a TODO log line for now. The full reset
-///   confirmation dialog (`DialogReset`) lands in Phase 17.2; until then,
-///   this view emits nothing destructive.
-struct ReposScreen: View {
-    @Bindable var viewModel: ReposViewModel
-    /// When provided, the page header renders the right-aligned
-    /// `SegmentedToggle` for switching between PRs and Repos (per the v2
-    /// design). Snapshot tests omit it.
+/// - "Open" launches the issue's HTML URL via `NSWorkspace`.
+struct IssuesScreen: View {
+    @Bindable var viewModel: IssuesViewModel
+    /// Fixed clock injected for deterministic snapshot tests. Production callers
+    /// omit this and the cards use `Date()` for the relative-time computation.
+    var now: Date = Date()
+    /// When provided, the page header renders the right-aligned `SegmentedToggle`
+    /// for switching views. Snapshot tests omit it.
     var tabSelection: Binding<MainTab>? = nil
     /// The real refresh to run when the header's Refresh button is tapped.
     var onRefresh: () async -> Void = {}
-    /// Opens the add-repository flow when the header's Add button is tapped.
-    var onAddRepo: () -> Void = {}
 
     var body: some View {
         switch viewModel.state {
@@ -40,14 +35,10 @@ struct ReposScreen: View {
 
     // MARK: - States
 
-    // The page header (title + meta + right-aligned tab toggle) renders in
-    // every state so the `SegmentedToggle` stays reachable when there are no
-    // repos yet. For non-ready states the counts collapse to 0 — the body
-    // below already communicates the actual state in words.
     @ViewBuilder
     private func nonReadyLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            header(total: 0, withDirty: 0)
+            header(open: 0, mine: 0)
                 .padding(.horizontal, AerieMetric.pagePadding)
                 .padding(.top, 12)
                 .padding(.bottom, 18)
@@ -61,7 +52,7 @@ struct ReposScreen: View {
             ProgressView()
                 .controlSize(.regular)
                 .tint(AerieColor.amber)
-            Text("Loading repositories…")
+            Text("Loading issues…")
                 .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text3)
         }
@@ -70,10 +61,10 @@ struct ReposScreen: View {
 
     private var emptyView: some View {
         VStack(spacing: 10) {
-            Text("No repositories tracked")
+            Text("No open issues")
                 .aerieFont(AerieFont.sectionTitle())
                 .foregroundStyle(AerieColor.text1)
-            Text("Add a repository in Settings to start watching it here.")
+            Text("Add a repository or wait for the next polling tick.")
                 .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text3)
         }
@@ -82,7 +73,7 @@ struct ReposScreen: View {
 
     private func errorView(message: String) -> some View {
         VStack(spacing: 10) {
-            Text("Couldn't load repositories")
+            Text("Couldn't load issues")
                 .aerieFont(AerieFont.sectionTitle())
                 .foregroundStyle(AerieColor.text1)
             Text(message)
@@ -97,22 +88,24 @@ struct ReposScreen: View {
     // MARK: - Ready (with content)
 
     @ViewBuilder
-    private func readyView(_ rows: [RepoRow]) -> some View {
-        let total = rows.count
-        let withDirty = rows.filter { $0.status?.isDirty == true }.count
+    private func readyView(_ rows: [IssueRow]) -> some View {
+        let openCount = rows.count
+        let mineCount = rows.filter { $0.issue.assignedToMe }.count
 
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                header(total: total, withDirty: withDirty)
+                header(open: openCount, mine: mineCount)
                     .padding(.bottom, 18)
 
                 ForEach(rows) { row in
-                    RepoCard(
+                    IssueCard(
                         row: row,
                         onOpen: { handleOpen(row) },
-                        onHardReset: { handleHardReset(row) }
+                        now: now
                     )
-                    .padding(.bottom, AerieMetric.cardGap)
+                    // More air between issue rows than the default card gap —
+                    // the rows read as too tight otherwise.
+                    .padding(.bottom, 24)
                 }
             }
             .padding(.horizontal, AerieMetric.pagePadding)
@@ -121,26 +114,19 @@ struct ReposScreen: View {
         }
     }
 
-    private func header(total: Int, withDirty: Int) -> some View {
+    private func header(open: Int, mine: Int) -> some View {
         PageHeader(
-            eyebrow: "VIEW · ⌘3",
-            title: "Local repositories",
-            count: "\(total) tracked · \(withDirty) with changes",
+            eyebrow: "VIEW · ⌘2",
+            title: "Open issues",
+            count: "\(open) open · \(mine) assigned to you",
             tabSelection: tabSelection,
-            onRefresh: onRefresh,
-            trailing: AnyView(AddRepoButton(action: onAddRepo))
+            onRefresh: onRefresh
         )
     }
 
     // MARK: - Actions
 
-    private func handleOpen(_ row: RepoRow) {
-        NSWorkspace.shared.open(row.repo.localPath)
-    }
-
-    private func handleHardReset(_ row: RepoRow) {
-        // TODO(phase-17.2): show DialogReset confirmation + invoke ResetService.
-        // For now, log intent only so we don't perform a destructive action.
-        print("[ReposScreen] Hard reset requested for \(row.repo.name) — DialogReset lands in Phase 17.2.")
+    private func handleOpen(_ row: IssueRow) {
+        NSWorkspace.shared.open(row.issue.htmlUrl)
     }
 }

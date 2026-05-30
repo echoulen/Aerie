@@ -89,6 +89,14 @@ actor PollingScheduler {
         await refreshAll(due, now: now)
     }
 
+    /// Forces an immediate refresh of every given repo, bypassing the per-repo
+    /// cadence gate. Drives the same per-repo `refresh` closure as the loop, so
+    /// it refreshes PRs, issues, and git status in one pass and resets each
+    /// repo's cadence clock. Used by the header's manual Refresh button.
+    func refreshNow(repoIds: [UUID], now: Date) async {
+        await refreshAll(repoIds, now: now)
+    }
+
     // MARK: Loop
 
     private func runLoop(repoIds: [UUID]) async {

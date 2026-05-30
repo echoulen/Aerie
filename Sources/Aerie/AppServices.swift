@@ -5,6 +5,44 @@ extension Notification.Name {
     /// Posted (on the main actor) after a `PRSyncService` sync writes fresh PRs
     /// into `pr_cache`. The main window observes it to re-project the PRs tab.
     static let aeriePRCacheDidChange = Notification.Name("aerie.prCacheDidChange")
+    /// Posted (on the main actor) after an `IssueSyncService` sync writes fresh
+    /// issues into `issue_cache`. The main window observes it to re-project the
+    /// Issues tab.
+    static let aerieIssueCacheDidChange = Notification.Name("aerie.issueCacheDidChange")
+    /// Posted (on the main actor) after the tracked repo set changes — a repo is
+    /// added or removed via Settings. The main window observes it to re-project
+    /// the Repos tab (and kick a sync) so a newly-added repo appears straight
+    /// away rather than waiting for the next polling tick.
+    static let aerieReposDidChange = Notification.Name("aerie.reposDidChange")
+}
+
+/// Cross-window navigation intent. The main window's "Add repository" button
+/// lives in a different SwiftUI scene from the Settings window, so it can't push
+/// state directly. It sets a pending request here and opens the Settings window;
+/// `SettingsWindow` consumes the request on appear (jumping to Repositories and
+/// opening the add-repo sheet), then clears it.
+@MainActor
+@Observable
+final class SettingsNavigator {
+    /// When set, `SettingsWindow` should select this route on next appearance.
+    var pendingRoute: SettingsRoute?
+    /// When true, `SettingsWindow` should present the add-repo sheet on next
+    /// appearance.
+    var pendingAddRepo: Bool = false
+
+    /// Requests that Settings open straight onto Repositories with the add-repo
+    /// sheet presented. Call this immediately before `openWindow(id:"settings")`.
+    func requestAddRepo() {
+        pendingRoute = .repositories
+        pendingAddRepo = true
+    }
+
+    /// Reads and clears the pending request in one shot, so it fires exactly
+    /// once even if `SettingsWindow` re-appears later.
+    func consume() -> (route: SettingsRoute?, showAddRepo: Bool) {
+        defer { pendingRoute = nil; pendingAddRepo = false }
+        return (pendingRoute, pendingAddRepo)
+    }
 }
 
 /// Process-wide singleton that owns the long-lived services and shares them
@@ -34,9 +72,13 @@ final class AppServices {
     let apiClient: LiveGitHubAPIClient
     let multiApi: MultiAccountAPI
     let prSync: PRSyncService
+    let issueSync: IssueSyncService
     let gitService: any GitService
     let scheduler: PollingScheduler
     let focusObserver: any AppFocusObserver
+    /// Cross-window navigation intents (e.g. the main window asking Settings to
+    /// open the add-repo sheet). Shared so both scenes see the same instance.
+    let settingsNavigator = SettingsNavigator()
     let mcpRouter: JSONRPCRouter
     let mcpRegistry: MCPToolRegistry
     let mcpLogger: ActivityLogger
@@ -97,11 +139,17 @@ final class AppServices {
                 NotificationCenter.default.post(name: .aeriePRCacheDidChange, object: nil)
             }
         })
+        let issueSync = IssueSyncService(db: db, api: multiApi, onChange: {
+            await MainActor.run {
+                NotificationCenter.default.post(name: .aerieIssueCacheDidChange, object: nil)
+            }
+        })
         let gitService = LiveGitService()
         let refresher = GitStatusRefresher(db: db, gitService: gitService)
         let statusSubject = PassthroughSubject<Void, Never>()
-        let scheduler = PollingScheduler(clock: LiveClock()) { [prSync, refresher, statusSubject] repoId in
+        let scheduler = PollingScheduler(clock: LiveClock()) { [prSync, issueSync, refresher, statusSubject] repoId in
             await prSync.sync(repoId: repoId)
+            await issueSync.sync(repoId: repoId)
             await refresher.refresh(repoId: repoId)
             await MainActor.run { statusSubject.send() }
         }
@@ -117,6 +165,7 @@ final class AppServices {
         self.apiClient = client
         self.multiApi = multiApi
         self.prSync = prSync
+        self.issueSync = issueSync
         self.gitService = gitService
         self.scheduler = scheduler
         self.focusObserver = focusObserver
@@ -150,5 +199,16 @@ final class AppServices {
                 background: TimeInterval(background ?? 300)
             )
         }
+    }
+
+    /// Forces an immediate refresh of every non-hidden repo, bypassing the
+    /// polling cadence. Drives the scheduler's per-repo closure (PRs + issues +
+    /// git status) in one pass; the resulting `.aeriePRCacheDidChange` /
+    /// `.aerieIssueCacheDidChange` / `gitStatusDidChange` signals re-project the
+    /// open views. Backs the page header's manual Refresh button. Returns once
+    /// every repo's fetch has settled, so the button can spin until then.
+    func refreshNow() async {
+        let repoIds = ((try? await db.repos.all()) ?? []).filter { !$0.hidden }.map(\.id)
+        await scheduler.refreshNow(repoIds: repoIds, now: Date())
     }
 }

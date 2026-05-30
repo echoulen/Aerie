@@ -86,6 +86,41 @@ actor MultiAccountAPI {
         }
     }
 
+    func listOpenIssues(
+        owner: String,
+        repo: String,
+        repoId: UUID
+    ) async throws -> MultiAccountAPIResult<[Issue]> {
+        try await tryAcrossAccounts { token in
+            try await self.client.listOpenIssues(
+                owner: owner,
+                repo: repo,
+                repoId: repoId,
+                token: token
+            )
+        }
+    }
+
+    /// Fetches open issues using exactly `accountId`'s token — **no** round-robin
+    /// fallback. The issue-side analogue of the bound-account `listOpenPRs`: the
+    /// polling orchestrator already knows each repo's bound account
+    /// (`primaryAccountId`), so this makes one precise API call.
+    func listOpenIssues(
+        owner: String,
+        repo: String,
+        repoId: UUID,
+        accountId: UUID
+    ) async throws -> MultiAccountAPIResult<[Issue]> {
+        try await withAccount(accountId) { token in
+            try await self.client.listOpenIssues(
+                owner: owner,
+                repo: repo,
+                repoId: repoId,
+                token: token
+            )
+        }
+    }
+
     func mergePR(
         owner: String,
         repo: String,
