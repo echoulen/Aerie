@@ -8,19 +8,35 @@ import SwiftUI
 struct DialogReset: View {
     let repo: Repository
     let status: LocalGitStatus
-    /// Closure invoked when the user confirms; the caller decides the actual
-    /// reset target (default branch is read from `repo.defaultBranch`).
-    var onConfirm: () async -> Void
+    /// Closure invoked when the user confirms. Returns an error message to
+    /// display in-dialog on failure, or `nil` on success — in which case the
+    /// caller dismisses the dialog. The caller decides the actual reset target
+    /// (default branch is read from `repo.defaultBranch`).
+    var onConfirm: () async -> String?
     var onCancel: () -> Void
     /// In-flight state for the primary button.
     @State private var busy: Bool = false
-    @State private var errorMessage: String? = nil
+    @State private var errorMessage: String?
+
+    init(
+        repo: Repository,
+        status: LocalGitStatus,
+        onConfirm: @escaping () async -> String?,
+        onCancel: @escaping () -> Void,
+        initialError: String? = nil
+    ) {
+        self.repo = repo
+        self.status = status
+        self.onConfirm = onConfirm
+        self.onCancel = onCancel
+        self._errorMessage = State(initialValue: initialError)
+    }
 
     var body: some View {
         DialogShell(
             tone: .danger,
             title: "Hard reset \(repo.name) to origin/\(repo.defaultBranch)?",
-            subtitle: "This is destructive and cannot be undone.",
+            subtitle: "This will run git reset --hard. Local commits and uncommitted changes on the current branch will be discarded.",
             primaryTitle: "Reset to origin/\(repo.defaultBranch)",
             onPrimary: { Task { await runConfirm() } },
             secondaryTitle: "Cancel",
@@ -28,14 +44,52 @@ struct DialogReset: View {
             primaryDisabled: busy,
             errorMessage: errorMessage
         ) {
-            KVList(pairs: [
-                ("Repository", "\(repo.githubOwner)/\(repo.githubRepo)"),
-                ("Current branch", status.currentBranch),
-                ("Working tree", status.isDirty ? "\(status.dirtyFileCount) modified" : "clean"),
-                ("Ahead of origin", "\(status.aheadOfDefault)"),
-                ("Behind origin", "\(status.behindOfDefault)"),
-                ("Unpushed commits", "\(status.unpushedCommits)"),
+            KVList(rows: [
+                KVList.Row("repository", AnyView(mono("\(repo.githubOwner)/\(repo.githubRepo)"))),
+                KVList.Row("current branch", AnyView(mono(status.currentBranch))),
+                KVList.Row("working tree", AnyView(workingTreeValue)),
+                KVList.Row("unpushed", AnyView(unpushedValue)),
+                KVList.Row("target", AnyView(mono("origin/\(repo.defaultBranch) @ \(shortSha)"))),
             ])
+        }
+    }
+
+    // MARK: - Styled row values (mirrors the design's coloured KVList values)
+
+    private var shortSha: String { String(status.originDefaultSha.prefix(7)) }
+
+    private func mono(_ text: String) -> some View {
+        Text(text)
+            .aerieFont(AerieFont.code(13))
+            .foregroundStyle(AerieColor.text1)
+    }
+
+    @ViewBuilder
+    private var workingTreeValue: some View {
+        if status.isDirty {
+            HStack(spacing: 7) {
+                Circle().fill(AerieColor.err).frame(width: 6, height: 6)
+                Text("dirty · \(status.dirtyFileCount) \(status.dirtyFileCount == 1 ? "file" : "files") changed")
+                    .aerieFont(AerieFont.custom(.sans, size: 13))
+                    .foregroundStyle(AerieColor.err)
+            }
+        } else {
+            Text("clean")
+                .aerieFont(AerieFont.custom(.sans, size: 13))
+                .foregroundStyle(AerieColor.text3)
+        }
+    }
+
+    @ViewBuilder
+    private var unpushedValue: some View {
+        if status.unpushedCommits > 0 {
+            Text("\(status.unpushedCommits) \(status.unpushedCommits == 1 ? "commit" : "commits") on this branch")
+                .aerieFont(AerieFont.custom(.sans, size: 13))
+                .foregroundStyle(AerieColor.amber)
+        } else {
+            Text("none")
+                .aerieFont(AerieFont.custom(.sans, size: 13))
+                .foregroundStyle(AerieColor.text3)
         }
     }
 
@@ -43,7 +97,8 @@ struct DialogReset: View {
         guard !busy else { return }
         busy = true
         errorMessage = nil
-        await onConfirm()
+        // nil → success (caller dismisses); non-nil → show the error, stay open.
+        errorMessage = await onConfirm()
         busy = false
     }
 }
