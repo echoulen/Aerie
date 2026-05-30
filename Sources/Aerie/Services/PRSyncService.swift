@@ -31,15 +31,18 @@ extension MultiAccountAPI: PRFetching {}
 actor PRSyncService {
     private let db: AppDatabase
     private let api: PRFetching
+    private let git: any GitService
     private let onChange: @Sendable () async -> Void
 
     init(
         db: AppDatabase,
         api: PRFetching,
+        git: any GitService,
         onChange: @escaping @Sendable () async -> Void = {}
     ) {
         self.db = db
         self.api = api
+        self.git = git
         self.onChange = onChange
     }
 
@@ -54,6 +57,25 @@ actor PRSyncService {
                 accountId: repo.primaryAccountId
             )
             try await db.prCache.upsert(result.value, for: repo.id)
+
+            // Resolve and cache each PR's local checkout state so the PRs tab
+            // can render dirty/ahead/behind (or "exists locally") instead of a
+            // permanent muted "Not checked out locally". Best-effort per PR: a
+            // single branch's git failure must not drop the rest of the repo's
+            // local-state refresh, nor block the `onChange` re-projection below.
+            for pr in result.value {
+                do {
+                    let localState = try await git.prLocalState(
+                        repoAt: repo.localPath,
+                        prId: pr.id,
+                        sourceBranch: pr.sourceBranch
+                    )
+                    try await db.prLocalStateCache.upsert(localState, repoId: repo.id)
+                } catch {
+                    NSLog("PRSyncService: prLocalState failed for PR \(pr.id): \(error)")
+                }
+            }
+
             await onChange()
         } catch {
             // Swallow — one repo's failure shouldn't abort the tick. The stale
