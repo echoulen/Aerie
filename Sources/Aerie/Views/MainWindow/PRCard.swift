@@ -22,13 +22,21 @@ struct PRCard: View {
 
     // MARK: - Derived presentation bits
 
+    private var mergeable: Bool { Self.isMergeable(row.pr) }
+
     /// Presentation-layer heuristic for "ready to merge". The `PullRequest`
     /// model doesn't yet carry an authoritative `mergeable` flag from
-    /// GitHub — TODO: thread that through in a later phase.
-    private var mergeable: Bool {
-        row.pr.state == .open
-            && row.pr.reviewState == .approved
-            && row.pr.ciState == .success
+    /// GitHub — TODO: thread that through in a later phase. Static + internal
+    /// so the heuristic is unit-testable without rendering the view.
+    static func isMergeable(_ pr: PullRequest) -> Bool {
+        guard pr.state == .open, pr.reviewState == .approved else { return false }
+        // CI blocks the merge only when it's actively failing or still running.
+        // A PR with no checks configured (`.none`) is mergeable — GitHub has no
+        // required status to enforce, so the button must stay enabled.
+        switch pr.ciState {
+        case .success, .none:    return true
+        case .failure, .pending: return false
+        }
     }
 
     var body: some View {

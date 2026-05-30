@@ -134,4 +134,30 @@ final class PRCardTests: XCTestCase {
         )
         assertSnapshot(of: host(row), as: .image(size: CGSize(width: 980, height: 240)))
     }
+
+    // MARK: - isMergeable heuristic
+
+    /// The reported bug: an approved PR with **no required checks** (`ci .none`)
+    /// is mergeable on GitHub, but the Merge button rendered disabled because
+    /// the heuristic demanded `ci == .success`. No checks must not block.
+    func test_isMergeable_approvedWithNoChecks_isMergeable() {
+        XCTAssertTrue(PRCard.isMergeable(makePR(ci: .none, review: .approved)))
+    }
+
+    func test_isMergeable_approvedWithPassingCI_isMergeable() {
+        XCTAssertTrue(PRCard.isMergeable(makePR(ci: .success, review: .approved)))
+    }
+
+    func test_isMergeable_failingCI_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .failure, review: .approved)))
+    }
+
+    func test_isMergeable_pendingCI_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .pending, review: .approved)))
+    }
+
+    func test_isMergeable_notApproved_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .none, review: .reviewRequired)))
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .changesRequested)))
+    }
 }
