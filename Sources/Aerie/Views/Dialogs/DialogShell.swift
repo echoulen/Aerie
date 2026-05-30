@@ -28,6 +28,11 @@ struct DialogShell<Content: View>: View {
     var icon: String? = nil
     @ViewBuilder var content: () -> Content
 
+    // Hover state for the footer buttons (the design's `.btn` family has hover
+    // styles: ghost → glass-2 + text-1; danger → deeper err fill).
+    @State private var secondaryHover = false
+    @State private var primaryHover = false
+
     var body: some View {
         ZStack {
             scrim
@@ -137,16 +142,23 @@ struct DialogShell<Content: View>: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Spacer()
-            // Cancel — a plain text (ghost) button: no fill, no border.
+            // Cancel — `.btn.ghost`: transparent at rest (a text button), and
+            // on hover gains a glass-2 fill + text-1 (per the design).
             Button(action: onSecondary) {
                 Text(secondaryTitle)
                     .aerieFont(AerieFont.small())
                     .padding(.horizontal, 14).padding(.vertical, 8)
-                    .foregroundStyle(AerieColor.text2)
-                    .contentShape(Rectangle())
+                    .foregroundStyle(secondaryHover ? AerieColor.text1 : AerieColor.text3)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(secondaryHover ? AerieColor.glass2 : Color.clear)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
             .buttonStyle(.plain)
-            // Primary — `.btn`-style rounded rect (9pt radius, not a capsule).
+            .onHover { secondaryHover = $0 }
+            .animation(.easeOut(duration: 0.18), value: secondaryHover)
+            // Primary — `.btn`-family rounded rect (9pt), tone fill deepens on hover.
             Button(action: onPrimary) {
                 Text(primaryTitle)
                     .aerieFont(AerieFont.small().weight(.medium))
@@ -159,10 +171,13 @@ struct DialogShell<Content: View>: View {
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
                             .strokeBorder(primaryStroke, lineWidth: 1)
                     )
+                    .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(primaryDisabled)
             .opacity(primaryDisabled ? 0.5 : 1)
+            .onHover { primaryHover = primaryDisabled ? false : $0 }
+            .animation(.easeOut(duration: 0.18), value: primaryHover)
         }
         .padding(.horizontal, 20).padding(.vertical, 14)
         .background(AerieColor.dialogFooter)
@@ -201,25 +216,27 @@ struct DialogShell<Content: View>: View {
         }
     }
 
+    // Fill/stroke/text match the design's `.btn` tones; the fill deepens while
+    // hovering (`.btn.danger:hover` → err/0.18, `.btn:hover` → glass-3).
     private var primaryFill: Color {
         switch tone {
-        case .danger: return AerieColor.err.opacity(0.15)
-        case .warning: return AerieColor.amberSoft
-        case .neutral: return AerieColor.glass2
+        case .danger:  return primaryHover ? AerieColor.dangerFillHover : AerieColor.dangerFill
+        case .warning: return primaryHover ? AerieColor.amber.opacity(0.22) : AerieColor.amberSoft
+        case .neutral: return primaryHover ? AerieColor.glass3 : AerieColor.glass2
         }
     }
 
     private var primaryStroke: Color {
         switch tone {
-        case .danger: return AerieColor.err.opacity(0.5)
+        case .danger:  return AerieColor.dangerLine
         case .warning: return AerieColor.amberLine
-        case .neutral: return AerieColor.glassLine
+        case .neutral: return primaryHover ? AerieColor.glassLine2 : AerieColor.glassLine
         }
     }
 
     private var primaryTextColor: Color {
         switch tone {
-        case .danger: return AerieColor.err
+        case .danger:  return AerieColor.dangerText
         case .warning: return AerieColor.amber
         case .neutral: return AerieColor.text1
         }
