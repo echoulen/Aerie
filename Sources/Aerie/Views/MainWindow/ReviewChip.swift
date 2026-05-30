@@ -2,52 +2,29 @@ import SwiftUI
 
 /// A pill-style chip that summarises the review status of a pull request.
 ///
-/// Visual contract: `docs/superpowers/design/v2/screens.jsx` `StatusChip(kind="review", ...)`.
+/// Visual contract: `docs/superpowers/design/v2/app.jsx` `ReviewStatus(...)` —
+/// a tone-coloured `StatusPill` (no dot): an `ok` "Approved", an `err`
+/// "Changes requested", or a neutral "Review requested".
 struct ReviewChip: View {
     let state: ReviewState
 
     var body: some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(dotColor)
-                .frame(width: 6, height: 6)
-            Text(label)
-                .aerieFont(AerieFont.small())
-                .foregroundStyle(textColor)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                .fill(AerieColor.glass2)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-        )
+        StatusPill(text: label, tone: tone)
     }
 
-    private var dotColor: Color {
+    private var tone: StatusPill.Tone {
         switch state {
-        case .approved:         return AerieColor.ok
-        case .changesRequested: return AerieColor.err
-        case .reviewRequired:   return AerieColor.warn
-        }
-    }
-
-    private var textColor: Color {
-        switch state {
-        case .approved:         return AerieColor.ok
-        case .changesRequested: return AerieColor.err
-        case .reviewRequired:   return AerieColor.warn
+        case .approved:         return .ok
+        case .changesRequested: return .err
+        case .reviewRequired:   return .neutral
         }
     }
 
     private var label: String {
         switch state {
-        case .approved:         return "approved"
-        case .changesRequested: return "changes requested"
-        case .reviewRequired:   return "review needed"
+        case .approved:         return "Approved"
+        case .changesRequested: return "Changes requested"
+        case .reviewRequired:   return "Review requested"
         }
     }
 }

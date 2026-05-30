@@ -1,19 +1,17 @@
 import SwiftUI
 
-/// A single PR row, rendered as a glass card.
+/// A single PR row. Renders through the shared ``CardContent`` skeleton, so it
+/// stays pixel-consistent with the Issue and Repo cards.
 ///
-/// Visual contract: `docs/superpowers/design/v2/screens.jsx` lines 155-242.
-/// Layout:
+/// Visual contract: `docs/superpowers/design/v2/app.jsx` `PRCard`:
 ///   ┌───────────────────────────────────────────────────────────────┐
-///   │ <repo> · #N · <author> · [yours pill] · <updated ago>         │
-///   │                                                               │
-///   │ <title>                                                       │
-///   │                                                               │
-///   │ <CIChip> <ReviewChip> [ready to ship eyebrow]                 │
-///   │ ────────────────────────────────────────────────────────────  │
-///   │ LOCAL · <BranchTag> · <dirty/clean> · <DeltaView>             │
-///   │                                                  [Merge] [↗]  │
+///   │ <repo> · #N · <author> · [yours] · <updated ago>             │
+///   │ <title>                                       [Open ↗][Merge]  │
+///   │ <CI pill>  <Review pill>  <Local-state pill>                  │
 ///   └───────────────────────────────────────────────────────────────┘
+///
+/// The whole local-branch picture collapses into one calm sentence pill, and
+/// `Merge` only lights amber when CI passes *and* the PR is approved.
 struct PRCard: View {
     let row: PRRow
     var onMerge: () -> Void
@@ -27,197 +25,101 @@ struct PRCard: View {
     /// Presentation-layer heuristic for "ready to merge". The `PullRequest`
     /// model doesn't yet carry an authoritative `mergeable` flag from
     /// GitHub — TODO: thread that through in a later phase.
-    private var isReadyToShip: Bool {
+    private var mergeable: Bool {
         row.pr.state == .open
             && row.pr.reviewState == .approved
             && row.pr.ciState == .success
     }
 
-    private var prMergeable: Bool { isReadyToShip }
-
-    private var repoLabel: String { row.repo.name }
-
-    private var updatedAgo: String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: row.pr.updatedAt, relativeTo: now)
-    }
-
     var body: some View {
-        HStack(alignment: .center, spacing: 32) {
-            leftColumn
-            actions
-                .frame(minWidth: 140)
+        CardContent(title: row.pr.title, updatedAt: row.pr.updatedAt, now: now) {
+            CardMeta(
+                name: row.repo.name,
+                number: row.pr.number,
+                author: row.pr.authorLogin,
+                badge: row.pr.isMine ? "yours" : nil
+            )
+        } chips: {
+            CIChip(state: row.pr.ciState)
+            ReviewChip(state: row.pr.reviewState)
+            StatusPill(text: localStatus.text, tone: localStatus.tone)
+        } actions: {
+            CardOpenButton(action: onOpen)
+            mergeButton
         }
-        .padding(.vertical, 24)
-        .padding(.horizontal, 28)
-        .glass(.card)
     }
 
-    // MARK: - Left column
+    // MARK: - Local state → one sentence pill
 
-    private var leftColumn: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Meta row
-            HStack(spacing: 10) {
-                Text(repoLabel)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text2)
-                dot
-                Text("#\(row.pr.number)")
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
-                dot
-                Text(row.pr.authorLogin)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
-                if row.pr.isMine {
-                    yoursPill
-                }
-                Spacer(minLength: 0)
-                Text(updatedAgo)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
-            }
-
-            // Title
-            Text(row.pr.title)
-                .aerieFont(AerieFont.custom(.sans, size: 19).weight(.medium))
-                .foregroundStyle(AerieColor.text1)
-                .lineLimit(2)
-                .padding(.top, 10)
-                .padding(.bottom, 16)
-
-            // Status row
-            HStack(spacing: 18) {
-                CIChip(state: row.pr.ciState)
-                ReviewChip(state: row.pr.reviewState)
-                if isReadyToShip {
-                    Text("READY TO SHIP")
-                        .aerieFont(AerieFont.eyebrow())
-                        .foregroundStyle(AerieColor.amber)
-                        .tracking(1.2)
-                }
-                Spacer(minLength: 0)
-            }
-
-            // Local strip — only when we have local state to show.
-            if let local = row.localState {
-                Rectangle()
-                    .fill(AerieColor.glassLine)
-                    .frame(height: 1)
-                    .padding(.top, 18)
-                    .padding(.bottom, 16)
-
-                HStack(spacing: 22) {
-                    Text("LOCAL")
-                        .aerieFont(AerieFont.eyebrow())
-                        .foregroundStyle(AerieColor.text4)
-                        .tracking(1.6)
-
-                    BranchTag(name: row.pr.sourceBranch, isCurrent: local.isCurrentBranch)
-
-                    dirtyOrClean(local)
-
-                    DeltaView(
-                        ahead: local.ahead ?? 0,
-                        behind: local.behind ?? 0,
-                        unpushed: local.unpushed ?? 0
-                    )
-
-                    Spacer(minLength: 0)
-                }
-            }
+    /// Mirrors the design's `localState` branch in `app.jsx`: a single tone +
+    /// sentence describing whether this PR's branch is checked out and in sync.
+    private var localStatus: (tone: StatusPill.Tone, text: String) {
+        guard let local = row.localState, local.isCurrentBranch else {
+            return (.muted, "Not checked out locally")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        if local.dirty == true {
+            return (.warn, "Branch checked out · working tree dirty")
+        }
+        let ahead = local.ahead ?? 0
+        let behind = local.behind ?? 0
+        let unpushed = local.unpushed ?? 0
+        if ahead > 0 || behind > 0 || unpushed > 0 {
+            var bits: [String] = []
+            if ahead > 0 { bits.append("\(ahead) ahead") }
+            if behind > 0 { bits.append("\(behind) behind") }
+            if unpushed > 0 { bits.append("\(unpushed) unpushed") }
+            return (.amber, "Branch checked out · " + bits.joined(separator: " · "))
+        }
+        return (.ok, "Branch checked out · clean & in sync")
+    }
+
+    // MARK: - Merge button
+
+    private var mergeButton: some View {
+        Button(action: onMerge) {
+            Text("Merge")
+                .aerieFont(AerieFont.custom(.sans, size: 13).weight(mergeable ? .semibold : .medium))
+                .foregroundStyle(mergeable ? AerieColor.amberInk : AerieColor.text2)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(mergeBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(mergeable ? AerieColor.amberCtaLine : AerieColor.glassLine, lineWidth: 1)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .opacity(mergeable ? 1 : 0.45)
+        .disabled(!mergeable)
+        .fixedSize()
     }
 
     @ViewBuilder
-    private func dirtyOrClean(_ local: PRLocalState) -> some View {
-        if local.isCurrentBranch, local.dirty == true {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(AerieColor.warn)
-                    .frame(width: 6, height: 6)
-                Text("dirty")
-                    .aerieFont(AerieFont.code(12))
-                    .foregroundStyle(AerieColor.warn)
-            }
+    private var mergeBackground: some View {
+        if mergeable {
+            // The design's `.btn.amber`: vertical amber gradient + bright top edge.
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [AerieColor.amberFillTop, AerieColor.amberFillBot],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.40), Color.clear],
+                                startPoint: .top, endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                        .blendMode(.plusLighter)
+                )
         } else {
-            Text("clean")
-                .aerieFont(AerieFont.code(12))
-                .foregroundStyle(AerieColor.text4)
-        }
-    }
-
-    private var dot: some View {
-        Text("·")
-            .aerieFont(AerieFont.code(11))
-            .foregroundStyle(AerieColor.text4)
-    }
-
-    private var yoursPill: some View {
-        Text("YOURS")
-            .aerieFont(AerieFont.eyebrow())
-            .foregroundStyle(AerieColor.amber)
-            .tracking(1.2)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .fill(AerieColor.amberSoft)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .strokeBorder(AerieColor.amberLine, lineWidth: 1)
-            )
-    }
-
-    // MARK: - Right column actions
-
-    private var actions: some View {
-        VStack(spacing: 10) {
-            Button(action: onMerge) {
-                HStack(spacing: 8) {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("Merge")
-                        .aerieFont(AerieFont.custom(.sans, size: 13).weight(.medium))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .foregroundStyle(prMergeable ? AerieColor.amber : AerieColor.text3)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(prMergeable ? AerieColor.amberSoft : AerieColor.glass2)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(prMergeable ? AerieColor.amberLine : AerieColor.glassLine, lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(!prMergeable)
-
-            Button(action: onOpen) {
-                HStack(spacing: 8) {
-                    Text("Open")
-                    Text("↗")
-                }
-                .aerieFont(AerieFont.custom(.sans, size: 12))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .foregroundStyle(AerieColor.text2)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(AerieColor.glass2)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(AerieColor.glass2)
         }
     }
 }

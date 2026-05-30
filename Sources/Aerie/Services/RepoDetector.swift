@@ -3,7 +3,7 @@ import SwiftGitX
 
 /// Inspects a local folder and produces a `DetectedRepo` summary —
 /// owner/repo + host parsed from `origin`, default + current branch,
-/// dirty flag, and a suggested account matched by host.
+/// dirty flag, and a suggested account (matched by owner, then host).
 ///
 /// Lives in `Services` because it shells out via `Process`, opens a
 /// libgit2 repo, and is the kind of side-effecting glue that doesn't
@@ -62,8 +62,20 @@ actor RepoDetector {
         let statusOutput = (try? runGitSync(["status", "--porcelain"], in: url)) ?? ""
         let isDirty = !statusOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
-        // 7. Suggest account by host.
-        let suggested = accounts.first { $0.host == parsed.host }?.id
+        // 7. Suggest an account. Prefer the one whose login matches the repo
+        //    owner — that's the account that actually owns (and can access)
+        //    the repo. Matching on host alone is ambiguous when several
+        //    accounts share a host (e.g. multiple github.com logins): it binds
+        //    to whichever happened to be first, which may not have access to a
+        //    private repo and leaves the PRs/Issues lists silently empty.
+        //    Fall back to the first host match for org-owned repos where no
+        //    account login equals the owner.
+        let suggested =
+            accounts.first {
+                $0.host == parsed.host
+                    && $0.login.caseInsensitiveCompare(parsed.owner) == .orderedSame
+            }?.id
+            ?? accounts.first { $0.host == parsed.host }?.id
 
         return DetectedRepo(
             url: url,

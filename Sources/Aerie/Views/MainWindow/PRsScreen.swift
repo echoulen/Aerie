@@ -4,7 +4,7 @@ import AppKit
 /// The PRs tab's main content area. Owns no state — it renders whatever the
 /// injected `PRsViewModel` reports.
 ///
-/// Visual contract: `docs/superpowers/design/v2/screens.jsx` (the section
+/// Visual contract: `docs/superpowers/design/v2/app.jsx` `PRView` (the section
 /// titled "Open pull requests" plus the stack of `PRCard`s underneath).
 ///
 /// Action wiring:
@@ -47,7 +47,7 @@ struct PRsScreen: View {
     @ViewBuilder
     private func nonReadyLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            header(open: 0, repos: 0, mine: 0)
+            header(open: 0, ready: 0)
                 .padding(.horizontal, AerieMetric.pagePadding)
                 .padding(.top, 12)
                 .padding(.bottom, 18)
@@ -99,12 +99,13 @@ struct PRsScreen: View {
     @ViewBuilder
     private func readyView(_ rows: [PRRow]) -> some View {
         let openCount = rows.count
-        let repoCount = Set(rows.map { $0.repo.id }).count
-        let mineCount = rows.filter { $0.pr.isMine }.count
+        let readyCount = rows.filter {
+            $0.pr.state == .open && $0.pr.ciState == .success && $0.pr.reviewState == .approved
+        }.count
 
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                header(open: openCount, repos: repoCount, mine: mineCount)
+                header(open: openCount, ready: readyCount)
                     .padding(.bottom, 18)
 
                 ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
@@ -123,11 +124,11 @@ struct PRsScreen: View {
         }
     }
 
-    private func header(open: Int, repos: Int, mine: Int) -> some View {
+    private func header(open: Int, ready: Int) -> some View {
         PageHeader(
             eyebrow: "VIEW · ⌘1",
             title: "Open pull requests",
-            count: "\(open) open · across \(repos) \(repos == 1 ? "repository" : "repositories") · \(mine) mine",
+            count: "\(open) open · \(ready) ready to merge",
             tabSelection: tabSelection,
             onRefresh: onRefresh
         )
