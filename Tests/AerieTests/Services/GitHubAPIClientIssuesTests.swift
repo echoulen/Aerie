@@ -77,12 +77,14 @@ final class GitHubAPIClientIssuesTests: XCTestCase {
         XCTAssertEqual(i1.labels, [IssueLabel(name: "bug", color: "d73a4a"), IssueLabel(name: "polling", color: "ededed")])
         XCTAssertEqual(i1.commentCount, 6)
         XCTAssertEqual(i1.htmlUrl.absoluteString, "https://github.com/acme/widgets/issues/148")
+        XCTAssertEqual(i1.assigneeLogins, ["carlos-li"])
         XCTAssertTrue(i1.assignedToMe, "viewer is in the assignees")
 
         let i2 = issues[1]
         XCTAssertEqual(i2.number, 204)
         XCTAssertEqual(i2.commentCount, 0)
         XCTAssertEqual(i2.labels, [])
+        XCTAssertEqual(i2.assigneeLogins, ["someone-else"])
         XCTAssertFalse(i2.assignedToMe, "viewer is not in the assignees")
     }
 

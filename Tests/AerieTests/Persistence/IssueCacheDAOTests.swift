@@ -59,6 +59,7 @@ final class IssueCacheDAOTests: XCTestCase {
             title: title,
             authorLogin: "carlos-li",
             assignedToMe: true,
+            assigneeLogins: ["carlos-li"],
             labels: [IssueLabel(name: "bug", color: "d73a4a")],
             commentCount: 3,
             htmlUrl: URL(string: "https://github.com/octocat/hello-world/issues/\(number)")!,

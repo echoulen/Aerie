@@ -68,6 +68,7 @@ final class IssuesViewModelTests: XCTestCase {
             title: title,
             authorLogin: "carlos-li",
             assignedToMe: assignedToMe,
+            assigneeLogins: assignedToMe ? ["carlos-li"] : [],
             labels: [],
             commentCount: 0,
             htmlUrl: URL(string: "https://github.com/octocat/hello-world/issues/\(number)")!,

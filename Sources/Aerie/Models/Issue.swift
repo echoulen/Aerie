@@ -13,10 +13,13 @@ struct IssueLabel: Codable, Equatable {
 ///
 /// Deliberately parallel to ``PullRequest`` so the Issues pipeline (fetch →
 /// cache → project) reuses the same shape the PRs pipeline already established.
-/// `assignedToMe` is the issue-side analogue of `PullRequest.isMine`, but —
-/// unlike PRs — it is computed for real (the GraphQL query compares each
-/// issue's assignees against the fetching token's `viewer.login`), so the
-/// header's "N assigned to you" count is meaningful.
+///
+/// `assigneeLogins` carries every assignee's GitHub login, and `assignedToMe`
+/// is the issue-side analogue of `PullRequest.isMine`. Crucially, "me" spans
+/// **all connected accounts**, not just the repo's syncing account: a repo is
+/// often synced via one account (e.g. a bot) while an issue is assigned to
+/// another of the user's logins. `IssueSyncService` resolves `assignedToMe`
+/// against the full account set so the "N assigned to you" count is correct.
 struct Issue: Codable, Equatable, Identifiable {
     let id: UUID
     let repoId: UUID
@@ -24,8 +27,22 @@ struct Issue: Codable, Equatable, Identifiable {
     let title: String
     let authorLogin: String
     let assignedToMe: Bool
+    let assigneeLogins: [String]
     let labels: [IssueLabel]
     let commentCount: Int
     let htmlUrl: URL
     let updatedAt: Date
+
+    /// Returns a copy with `assignedToMe` recomputed against `myLogins`
+    /// (case-insensitive). Used by `IssueSyncService` once it knows every
+    /// connected account's login.
+    func resolvingAssignedToMe(myLogins: Set<String>) -> Issue {
+        let mine = assigneeLogins.contains { myLogins.contains($0.lowercased()) }
+        return Issue(
+            id: id, repoId: repoId, number: number, title: title,
+            authorLogin: authorLogin, assignedToMe: mine,
+            assigneeLogins: assigneeLogins, labels: labels,
+            commentCount: commentCount, htmlUrl: htmlUrl, updatedAt: updatedAt
+        )
+    }
 }

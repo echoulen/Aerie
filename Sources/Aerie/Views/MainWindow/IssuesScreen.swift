@@ -103,7 +103,9 @@ struct IssuesScreen: View {
                         onOpen: { handleOpen(row) },
                         now: now
                     )
-                    .padding(.bottom, AerieMetric.cardGap)
+                    // More air between issue rows than the default card gap —
+                    // the rows read as too tight otherwise.
+                    .padding(.bottom, 24)
                 }
             }
             .padding(.horizontal, AerieMetric.pagePadding)

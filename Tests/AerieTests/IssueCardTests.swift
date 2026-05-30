@@ -43,6 +43,7 @@ final class IssueCardTests: XCTestCase {
             title: title,
             authorLogin: "maja-c",
             assignedToMe: assignedToMe,
+            assigneeLogins: assignedToMe ? ["maja-c"] : [],
             labels: labels,
             commentCount: comments,
             htmlUrl: URL(string: "https://github.com/carlos-li/aerie/issues/\(number)")!,
@@ -81,6 +82,36 @@ final class IssueCardTests: XCTestCase {
             comments: 0
         )
         assertSnapshot(of: host(issue), as: .image(size: CGSize(width: 980, height: 180)))
+    }
+
+    /// A label-less card must be exactly as tall as one with labels (the label
+    /// row reserves a constant height). Titles are identical 1-liners so the
+    /// only variable is label presence.
+    func test_issueCard_sameHeight_withAndWithoutLabels() {
+        let bare = makeIssue(
+            number: 1, title: "Short one-line title",
+            assignedToMe: false, labels: [], comments: 0
+        )
+        let labeled = makeIssue(
+            number: 2, title: "Short one-line title",
+            assignedToMe: false,
+            labels: [IssueLabel(name: "bug", color: "d73a4a")], comments: 3
+        )
+        XCTAssertEqual(
+            cardHeight(bare), cardHeight(labeled), accuracy: 0.5,
+            "label presence must not change card height"
+        )
+    }
+
+    private func cardHeight(_ issue: Issue) -> CGFloat {
+        let card = IssueCard(
+            row: IssueRow(issue: issue, repo: makeRepo()),
+            onOpen: {}, now: fixedNow
+        )
+        .frame(width: 900)
+        let host = NSHostingView(rootView: card)
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.height
     }
 
     func test_issueCard_bare() {

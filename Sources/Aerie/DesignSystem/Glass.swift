@@ -45,9 +45,12 @@ struct GlassModifier: ViewModifier {
 
     // Per `styles.css`:
     //   .window → glass-1 (0.035) + behindWindow frosted material
-    //   .card   → glass-2 (0.055), nothing else; the aurora `Backdrop` is
-    //             nearly static so a stacked NSVisualEffectView only adds
-    //             milky brightness (the "三個區塊太白" symptom).
+    //   .card   → `cardSurface` (0.10) flat fill, nothing else; the aurora
+    //             `Backdrop` is nearly static so a stacked NSVisualEffectView
+    //             only adds milky brightness (the "三個區塊太白" symptom). The
+    //             flat fill is a touch lighter than glass-2 so the panel reads
+    //             as distinct from the backdrop (matching the design, whose
+    //             `backdrop-filter` blur lifts the card on its own).
     //   .dialog → dark `dialogSurface` (rgba(28,26,32,0.78)) layered over a
     //             within-window blur. The old white-glass + `.menu` material
     //             rendered too bright in dark mode; this matches the design's
@@ -62,7 +65,7 @@ struct GlassModifier: ViewModifier {
                     .opacity(0.8)
             }
         case .card:
-            AerieColor.glass2
+            AerieColor.cardSurface
         case .dialog:
             ZStack {
                 VisualEffectBlur(material: .hudWindow, blendingMode: .withinWindow)

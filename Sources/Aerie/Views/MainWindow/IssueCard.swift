@@ -23,14 +23,18 @@ struct IssueCard: View {
     private var updatedAgo: String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
-        return formatter.localizedString(for: issue.updatedAt, relativeTo: now)
+        // GitHub's `updatedAt` can sit a few seconds ahead of the local clock
+        // (e.g. the issue was just touched), which the formatter would render
+        // as a future "in 9s" / "2 min" string. An update is always in the
+        // past, so clamp the reference so the date is never after it.
+        let reference = max(now, issue.updatedAt)
+        return formatter.localizedString(for: issue.updatedAt, relativeTo: reference)
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 32) {
+        HStack(alignment: .center, spacing: 28) {
             leftColumn
-            actions
-                .frame(minWidth: 120)
+            openButton
         }
         .padding(.vertical, 24)
         .padding(.horizontal, 28)
@@ -40,7 +44,9 @@ struct IssueCard: View {
     // MARK: - Left column
 
     private var leftColumn: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // Uniform 12pt rhythm between meta · title · labels (the design's
+        // `col { gap: 12 }`), so the top and bottom gaps read as equal.
+        VStack(alignment: .leading, spacing: 12) {
             // Meta row
             HStack(spacing: 10) {
                 Text(row.repo.name)
@@ -65,13 +71,13 @@ struct IssueCard: View {
 
             // Title
             Text(issue.title)
-                .aerieFont(AerieFont.custom(.sans, size: 19).weight(.medium))
+                .aerieFont(AerieFont.custom(.sans, size: 18).weight(.medium))
                 .foregroundStyle(AerieColor.text1)
                 .lineLimit(2)
-                .padding(.top, 10)
-                .padding(.bottom, 16)
 
-            // Labels + comment count
+            // Labels + comment count. The row reserves a constant height even
+            // when an issue has no labels/comments, so a label-less card is the
+            // same height as one with labels.
             HStack(spacing: 10) {
                 ForEach(Array(issue.labels.enumerated()), id: \.offset) { _, label in
                     IssueLabelPill(label: label)
@@ -89,6 +95,7 @@ struct IssueCard: View {
                 }
                 Spacer(minLength: 0)
             }
+            .frame(minHeight: 24, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -116,28 +123,26 @@ struct IssueCard: View {
             )
     }
 
-    // MARK: - Right column actions
+    // MARK: - Open button
 
-    private var actions: some View {
+    /// A compact, content-sized `Open ↗` control pinned to the trailing edge —
+    /// per the design's `1fr auto` grid (the left column is greedy, this column
+    /// is `auto`). Styled as the design's `.btn.ghost`: plain text, no fill or
+    /// border (the padding still gives a comfortable click target).
+    private var openButton: some View {
         Button(action: onOpen) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Text("Open")
                 Text("↗")
             }
-            .aerieFont(AerieFont.custom(.sans, size: 12))
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
+            .aerieFont(AerieFont.custom(.sans, size: 13))
             .foregroundStyle(AerieColor.text2)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(AerieColor.glass2)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-            )
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .fixedSize()
     }
 }
 

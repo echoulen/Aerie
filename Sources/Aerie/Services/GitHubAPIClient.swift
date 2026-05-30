@@ -401,6 +401,8 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         viewerLogin: String?
     ) -> Issue {
         let assignees = node.assignees.nodes.map(\.login)
+        // Provisional, single-account default — `IssueSyncService` re-resolves
+        // this against *all* connected accounts once it has the full set.
         let assignedToMe: Bool
         if let viewerLogin {
             assignedToMe = assignees.contains(viewerLogin)
@@ -414,6 +416,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             title: node.title,
             authorLogin: node.author?.login ?? "",
             assignedToMe: assignedToMe,
+            assigneeLogins: assignees,
             labels: node.labels.nodes.map { IssueLabel(name: $0.name, color: $0.color) },
             commentCount: node.comments.totalCount,
             htmlUrl: node.url,

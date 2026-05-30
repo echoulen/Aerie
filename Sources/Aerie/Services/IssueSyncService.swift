@@ -52,7 +52,13 @@ actor IssueSyncService {
                 repoId: repo.id,
                 accountId: repo.primaryAccountId
             )
-            try await db.issueCache.upsert(result.value, for: repo.id)
+            // "Assigned to you" spans every connected account, not just the one
+            // that synced this repo. Resolve it here, where we can see them all.
+            let myLogins = Set(
+                ((try? await db.accounts.all()) ?? []).map { $0.login.lowercased() }
+            )
+            let issues = result.value.map { $0.resolvingAssignedToMe(myLogins: myLogins) }
+            try await db.issueCache.upsert(issues, for: repo.id)
             await onChange()
         } catch {
             // Swallow — one repo's failure shouldn't abort the tick. The stale

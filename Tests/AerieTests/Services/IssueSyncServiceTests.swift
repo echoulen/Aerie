@@ -83,14 +83,20 @@ final class IssueSyncServiceTests: XCTestCase {
         return r
     }
 
-    private func makeIssue(repoId: UUID, number: Int) -> Issue {
+    private func makeIssue(
+        repoId: UUID,
+        number: Int,
+        assigneeLogins: [String] = []
+    ) -> Issue {
         Issue(
             id: UUID(),
             repoId: repoId,
             number: number,
             title: "Issue \(number)",
             authorLogin: "ghost",
+            // Provisional false — the sync service is expected to re-resolve it.
             assignedToMe: false,
+            assigneeLogins: assigneeLogins,
             labels: [],
             commentCount: 0,
             htmlUrl: URL(string: "https://github.com/octocat/hello-world/issues/\(number)")!,
@@ -155,6 +161,55 @@ final class IssueSyncServiceTests: XCTestCase {
         XCTAssertEqual(cached.map(\.number), [7])
         let changes = await counter.value()
         XCTAssertEqual(changes, 0, "no successful sync → no notification")
+    }
+
+    func test_sync_resolvesAssignedToMe_acrossAllConnectedAccounts() async throws {
+        let db = try makeDB()
+        // Repo is synced via the "bot" account…
+        let bot = try insertAccount(db, login: "bot-account")
+        // …but the user also has their personal account connected.
+        _ = try insertAccount(db, login: "echoulen")
+        let repo = try await insertRepo(db, accountId: bot)
+
+        let fetcher = StubIssueFetcher()
+        await fetcher.setResult(
+            [
+                // Assigned to the personal account (NOT the syncing account).
+                makeIssue(repoId: repo.id, number: 1, assigneeLogins: ["echoulen"]),
+                // Assigned to a stranger.
+                makeIssue(repoId: repo.id, number: 2, assigneeLogins: ["someone-else"]),
+                // Unassigned.
+                makeIssue(repoId: repo.id, number: 3, assigneeLogins: []),
+            ],
+            forRepo: repo.id
+        )
+
+        let service = IssueSyncService(db: db, api: fetcher)
+        await service.sync(repoId: repo.id)
+
+        let cached = try await db.issueCache.issues(forRepo: repo.id)
+        let byNumber = Dictionary(uniqueKeysWithValues: cached.map { ($0.number, $0) })
+        XCTAssertEqual(byNumber[1]?.assignedToMe, true, "assigned to a connected (non-syncing) account → yours")
+        XCTAssertEqual(byNumber[2]?.assignedToMe, false, "assigned to a stranger → not yours")
+        XCTAssertEqual(byNumber[3]?.assignedToMe, false, "unassigned → not yours")
+    }
+
+    func test_sync_resolvesAssignedToMe_caseInsensitively() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db, login: "Echoulen")
+        let repo = try await insertRepo(db, accountId: acct)
+
+        let fetcher = StubIssueFetcher()
+        await fetcher.setResult(
+            [makeIssue(repoId: repo.id, number: 1, assigneeLogins: ["echoulen"])],
+            forRepo: repo.id
+        )
+
+        let service = IssueSyncService(db: db, api: fetcher)
+        await service.sync(repoId: repo.id)
+
+        let cached = try await db.issueCache.issues(forRepo: repo.id)
+        XCTAssertEqual(cached.first?.assignedToMe, true, "login match is case-insensitive")
     }
 
     // MARK: syncAll()
