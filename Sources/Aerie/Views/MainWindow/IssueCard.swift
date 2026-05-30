@@ -20,65 +20,17 @@ struct IssueCard: View {
 
     private var issue: Issue { row.issue }
 
-    private var updatedAgo: String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        // GitHub's `updatedAt` can sit a few seconds ahead of the local clock
-        // (e.g. the issue was just touched), which the formatter would render
-        // as a future "in 9s" / "2 min" string. An update is always in the
-        // past, so clamp the reference so the date is never after it.
-        let reference = max(now, issue.updatedAt)
-        return formatter.localizedString(for: issue.updatedAt, relativeTo: reference)
-    }
-
     var body: some View {
         HStack(alignment: .center, spacing: 28) {
-            leftColumn
-            openButton
-        }
-        .padding(.vertical, 24)
-        .padding(.horizontal, 28)
-        .glass(.card)
-    }
-
-    // MARK: - Left column
-
-    private var leftColumn: some View {
-        // Uniform 12pt rhythm between meta · title · labels (the design's
-        // `col { gap: 12 }`), so the top and bottom gaps read as equal.
-        VStack(alignment: .leading, spacing: 12) {
-            // Meta row
-            HStack(spacing: 10) {
-                Text(row.repo.name)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text2)
-                dot
-                Text("#\(issue.number)")
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
-                dot
-                Text(issue.authorLogin)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
-                if issue.assignedToMe {
-                    assignedPill
-                }
-                Spacer(minLength: 0)
-                Text(updatedAgo)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
-            }
-
-            // Title
-            Text(issue.title)
-                .aerieFont(AerieFont.custom(.sans, size: 18).weight(.medium))
-                .foregroundStyle(AerieColor.text1)
-                .lineLimit(2)
-
-            // Labels + comment count. The row reserves a constant height even
-            // when an issue has no labels/comments, so a label-less card is the
-            // same height as one with labels.
-            HStack(spacing: 10) {
+            CardContent(
+                repo: row.repo.name,
+                number: issue.number,
+                author: issue.authorLogin,
+                badge: issue.assignedToMe ? "assigned to you" : nil,
+                title: issue.title,
+                updatedAt: issue.updatedAt,
+                now: now
+            ) {
                 ForEach(Array(issue.labels.enumerated()), id: \.offset) { _, label in
                     IssueLabelPill(label: label)
                 }
@@ -93,34 +45,12 @@ struct IssueCard: View {
                     }
                     .padding(.leading, 2)
                 }
-                Spacer(minLength: 0)
             }
-            .frame(minHeight: 24, alignment: .leading)
+            openButton
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var dot: some View {
-        Text("·")
-            .aerieFont(AerieFont.code(11))
-            .foregroundStyle(AerieColor.text4)
-    }
-
-    private var assignedPill: some View {
-        Text("assigned to you")
-            .aerieFont(AerieFont.eyebrow())
-            .foregroundStyle(AerieColor.amber)
-            .tracking(0.6)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .fill(AerieColor.amberSoft)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .strokeBorder(AerieColor.amberLine, lineWidth: 1)
-            )
+        .padding(.vertical, 24)
+        .padding(.horizontal, 28)
+        .glass(.card)
     }
 
     // MARK: - Open button
