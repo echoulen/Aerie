@@ -1,22 +1,22 @@
 import SwiftUI
 
-/// A single repository row, rendered as a glass card.
+/// A single repository row. Renders through the shared ``CardContent`` skeleton,
+/// so it stays pixel-consistent with the PR and Issue cards.
 ///
-/// Visual contract: `docs/superpowers/design/v2/app.jsx` `RepoCard(...)`.
-/// Three columns share one piece of glass:
+/// Visual contract: `docs/superpowers/design/v2/app.jsx` `RepoCard(...)`, mapped
+/// onto the shared Issue-style layout:
 ///   ┌──────────────────────────────────────────────────────────────────┐
 ///   │ <owner> · [off default]                                            │
-///   │ <name>                     ● <status sentence>   Open ↗  [Reset…] │
-///   │ ⎇ <branch>                                                         │
+///   │ <name>                                       [Open ↗] [Reset…]     │
+///   │ ⎇ <branch>  ● <status sentence>                                    │
 ///   └──────────────────────────────────────────────────────────────────┘
-/// - Identity: owner + (when off the default branch) an "off default" pill,
-///   the repo name (20pt medium), and the checked-out branch as a plain
-///   glyph + mono name (no bordered tag).
-/// - Status: a single tone-coloured dot + one calm sentence — "Working tree
-///   dirty", "Clean · in sync with origin", or an "N ahead · M behind …"
-///   summary — replacing the old inline dirty/clean + delta chips.
+/// - Meta: the owner, plus an "off default" pill when the checked-out branch
+///   isn't the default.
+/// - Title: the repo name.
+/// - Chips: the checked-out branch as a ``BranchTag``, then a single
+///   tone-coloured ``StatusPill`` summarising the working tree — "Working tree
+///   dirty", "Clean · in sync with origin", or an "N ahead · M behind …" line.
 /// - Actions: a ghost "Open ↗" and a red `.btn.danger` "Reset to origin/<b>".
-///   Per the v2 design the reset action is always offered (no muted state).
 struct RepoCard: View {
     let row: RepoRow
     var onOpen: () -> Void
@@ -37,12 +37,10 @@ struct RepoCard: View {
         return s.currentBranch == row.repo.defaultBranch
     }
 
-    private enum StatusTone { case ok, warn, amber }
-
     /// Mirrors `app.jsx`: clean → ok, dirty → warn, otherwise an
     /// ahead/behind/unpushed summary → amber. `nil` status reads as clean
     /// (we have no evidence to the contrary).
-    private var statusTone: StatusTone {
+    private var statusTone: StatusPill.Tone {
         guard let s = row.status else { return .ok }
         if s.isDirty { return .warn }
         if s.aheadOfDefault > 0 || s.behindOfDefault > 0 || s.unpushedCommits > 0 { return .amber }
@@ -59,63 +57,25 @@ struct RepoCard: View {
         return bits.isEmpty ? "Clean · in sync with origin" : bits.joined(separator: " · ")
     }
 
-    private var statusColor: Color {
-        switch statusTone {
-        case .ok:    return AerieColor.ok
-        case .warn:  return AerieColor.warn
-        case .amber: return AerieColor.amber
-        }
-    }
-
     // MARK: - Body
 
     var body: some View {
-        HStack(alignment: .center, spacing: 28) {
-            identityColumn
-                .frame(maxWidth: .infinity, alignment: .leading)
-            statusColumn
-                .frame(maxWidth: .infinity, alignment: .leading)
-            actions
-        }
-        .padding(.vertical, 22)
-        .padding(.horizontal, 26)
-        .glass(.card)
-    }
-
-    // MARK: - Identity column
-
-    private var identityColumn: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        CardContent(title: repoTitle) {
             HStack(spacing: 10) {
                 Text(owner)
-                    .aerieFont(AerieFont.custom(.sans, size: 12))
-                    .foregroundStyle(AerieColor.text3)
+                    .aerieFont(AerieFont.code(11))
+                    .foregroundStyle(AerieColor.text2)
                 if !isOnDefault {
-                    Text("·")
-                        .aerieFont(AerieFont.custom(.sans, size: 12))
-                        .foregroundStyle(AerieColor.text4)
+                    MetaDot()
                     offDefaultPill
                 }
             }
-
-            Text(repoTitle)
-                .aerieFont(AerieFont.custom(.sans, size: 20).weight(.medium))
-                .tracking(-0.16)                 // -0.008em @ 20pt
-                .foregroundStyle(AerieColor.text1)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            HStack(spacing: 8) {
-                BranchGlyph()
-                    .frame(width: 13, height: 13)
-                    .foregroundStyle(AerieColor.text2)
-                Text(branchName)
-                    .aerieFont(AerieFont.code(13))
-                    .foregroundStyle(AerieColor.text2)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .padding(.top, 2)
+        } chips: {
+            BranchTag(name: branchName, isCurrent: !isOnDefault)
+            StatusPill(text: statusText, tone: statusTone, showsDot: true)
+        } actions: {
+            CardOpenButton(action: onOpen)
+            DangerButton(title: "Reset to origin/\(defaultBranch)", action: onHardReset)
         }
     }
 
@@ -128,59 +88,9 @@ struct RepoCard: View {
             .background(Capsule(style: .continuous).fill(AerieColor.glass2))
             .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
     }
-
-    // MARK: - Status column
-
-    private var statusColumn: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 7, height: 7)
-                .shadow(color: statusColor.opacity(0.6), radius: 4)
-            Text(statusText)
-                .aerieFont(AerieFont.custom(.sans, size: 13.5))
-                .foregroundStyle(AerieColor.text2)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-    }
-
-    // MARK: - Actions
-
-    private var actions: some View {
-        HStack(spacing: 8) {
-            GhostButton(title: "Open ↗", action: onOpen)
-            DangerButton(title: "Reset to origin/\(defaultBranch)", action: onHardReset)
-        }
-    }
 }
 
 // MARK: - Buttons
-
-/// `.btn.ghost.sm` — transparent until hover, where it gains a `glass2` fill
-/// and brightens to `text1`. 12pt sans, 5×10 padding, 9pt radius.
-private struct GhostButton: View {
-    let title: String
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .aerieFont(AerieFont.custom(.sans, size: 12))
-                .foregroundStyle(hovering ? AerieColor.text1 : AerieColor.text3)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(hovering ? AerieColor.glass2 : Color.clear)
-                )
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-    }
-}
 
 /// `.btn.danger` — lighter-red text on an `err`-tinted fill with a matching
 /// hairline; the fill deepens on hover. 13pt medium sans, 8×14 padding.

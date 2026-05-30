@@ -1,15 +1,13 @@
 import SwiftUI
 
-/// A single issue row, rendered as a glass card. The issue-side mirror of
-/// ``PRCard``.
+/// A single issue row. Renders through the shared ``CardContent`` skeleton, so
+/// it stays pixel-consistent with the PR and Repo cards.
 ///
-/// Visual contract: `v2/app.jsx` `IssueCard`. Layout:
+/// Visual contract: `docs/superpowers/design/v2/app.jsx` `IssueCard`:
 ///   ┌───────────────────────────────────────────────────────────────┐
 ///   │ <repo> · #N · <author> · [assigned to you] · <updated ago>    │
-///   │                                                               │
-///   │ <title>                                                       │
-///   │                                                               │
-///   │ <label pills…>  <💬 comments>                        [Open ↗]  │
+///   │ <title>                                              [Open ↗]   │
+///   │ <label pills…>  <💬 comments>                                  │
 ///   └───────────────────────────────────────────────────────────────┘
 struct IssueCard: View {
     let row: IssueRow
@@ -21,58 +19,31 @@ struct IssueCard: View {
     private var issue: Issue { row.issue }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 28) {
-            CardContent(
-                repo: row.repo.name,
+        CardContent(title: issue.title, updatedAt: issue.updatedAt, now: now) {
+            CardMeta(
+                name: row.repo.name,
                 number: issue.number,
                 author: issue.authorLogin,
-                badge: issue.assignedToMe ? "assigned to you" : nil,
-                title: issue.title,
-                updatedAt: issue.updatedAt,
-                now: now
-            ) {
-                ForEach(Array(issue.labels.enumerated()), id: \.offset) { _, label in
-                    IssueLabelPill(label: label)
-                }
-                if issue.commentCount > 0 {
-                    HStack(spacing: 5) {
-                        Image(systemName: "bubble.left")
-                            .font(.system(size: 10, weight: .regular))
-                            .foregroundStyle(AerieColor.text4)
-                        Text("\(issue.commentCount)")
-                            .aerieFont(AerieFont.code(12))
-                            .foregroundStyle(AerieColor.text3)
-                    }
-                    .padding(.leading, 2)
-                }
+                badge: issue.assignedToMe ? "assigned to you" : nil
+            )
+        } chips: {
+            ForEach(Array(issue.labels.enumerated()), id: \.offset) { _, label in
+                IssueLabelPill(label: label)
             }
-            openButton
-        }
-        .padding(.vertical, 24)
-        .padding(.horizontal, 28)
-        .glass(.card)
-    }
-
-    // MARK: - Open button
-
-    /// A compact, content-sized `Open ↗` control pinned to the trailing edge —
-    /// per the design's `1fr auto` grid (the left column is greedy, this column
-    /// is `auto`). Styled as the design's `.btn.ghost`: plain text, no fill or
-    /// border (the padding still gives a comfortable click target).
-    private var openButton: some View {
-        Button(action: onOpen) {
-            HStack(spacing: 6) {
-                Text("Open")
-                Text("↗")
+            if issue.commentCount > 0 {
+                HStack(spacing: 5) {
+                    Image(systemName: "bubble.left")
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundStyle(AerieColor.text4)
+                    Text("\(issue.commentCount)")
+                        .aerieFont(AerieFont.code(12))
+                        .foregroundStyle(AerieColor.text3)
+                }
+                .padding(.leading, 2)
             }
-            .aerieFont(AerieFont.custom(.sans, size: 13))
-            .foregroundStyle(AerieColor.text2)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
+        } actions: {
+            CardOpenButton(action: onOpen)
         }
-        .buttonStyle(.plain)
-        .fixedSize()
     }
 }
 

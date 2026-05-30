@@ -1,20 +1,17 @@
 import SwiftUI
 
-/// A single PR row, rendered as a glass card. The PR-side mirror of ``IssueCard``.
+/// A single PR row. Renders through the shared ``CardContent`` skeleton, so it
+/// stays pixel-consistent with the Issue and Repo cards.
 ///
-/// Visual contract: `docs/superpowers/design/v2/app.jsx` `PRCard`. Layout:
+/// Visual contract: `docs/superpowers/design/v2/app.jsx` `PRCard`:
 ///   ┌───────────────────────────────────────────────────────────────┐
 ///   │ <repo> · #N · <author> · [yours] · <updated ago>             │
-///   │                                                               │
-///   │ <title>                                                       │
-///   │                                                               │
-///   │ <CI pill>  <Review pill>  <Local-state pill>   [Open ↗][Merge]│
+///   │ <title>                                       [Open ↗][Merge]  │
+///   │ <CI pill>  <Review pill>  <Local-state pill>                  │
 ///   └───────────────────────────────────────────────────────────────┘
 ///
-/// The whole local-branch picture collapses into one calm sentence pill
-/// (the design dropped the separate "LOCAL" strip with branch tag + deltas),
-/// and the two actions sit side-by-side: a ghost "Open ↗" and a "Merge" that
-/// only lights amber when CI passes *and* the PR is approved.
+/// The whole local-branch picture collapses into one calm sentence pill, and
+/// `Merge` only lights amber when CI passes *and* the PR is approved.
 struct PRCard: View {
     let row: PRRow
     var onMerge: () -> Void
@@ -34,91 +31,22 @@ struct PRCard: View {
             && row.pr.ciState == .success
     }
 
-    private var updatedAgo: String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        // An update is always in the past; clamp the reference so a few
-        // seconds of clock skew never renders a future "in 9s" string.
-        let reference = max(now, row.pr.updatedAt)
-        return formatter.localizedString(for: row.pr.updatedAt, relativeTo: reference)
-    }
-
     var body: some View {
-        HStack(alignment: .center, spacing: 28) {
-            leftColumn
-            actions
-        }
-        .padding(.vertical, 24)
-        .padding(.horizontal, 28)
-        .glass(.card)
-    }
-
-    // MARK: - Left column
-
-    private var leftColumn: some View {
-        // Uniform 12pt rhythm between meta · title · status (the design's
-        // `col { gap: 12 }`).
-        VStack(alignment: .leading, spacing: 12) {
-            // Meta row
-            HStack(spacing: 10) {
-                Text(row.repo.name)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text2)
-                dot
-                Text("#\(row.pr.number)")
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
-                dot
-                Text(row.pr.authorLogin)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
-                if row.pr.isMine {
-                    yoursPill
-                }
-                Spacer(minLength: 0)
-                Text(updatedAgo)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
-            }
-
-            // Title
-            Text(row.pr.title)
-                .aerieFont(AerieFont.custom(.sans, size: 18).weight(.medium))
-                .foregroundStyle(AerieColor.text1)
-                .lineLimit(2)
-
-            // Status row — CI · review · local, all in the same pill language.
-            HStack(spacing: 10) {
-                CIChip(state: row.pr.ciState)
-                ReviewChip(state: row.pr.reviewState)
-                StatusPill(text: localStatus.text, tone: localStatus.tone)
-                Spacer(minLength: 0)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var dot: some View {
-        Text("·")
-            .aerieFont(AerieFont.code(11))
-            .foregroundStyle(AerieColor.text4)
-    }
-
-    private var yoursPill: some View {
-        Text("yours")
-            .aerieFont(AerieFont.eyebrow())
-            .foregroundStyle(AerieColor.amber)
-            .tracking(0.6)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .fill(AerieColor.amberSoft)
+        CardContent(title: row.pr.title, updatedAt: row.pr.updatedAt, now: now) {
+            CardMeta(
+                name: row.repo.name,
+                number: row.pr.number,
+                author: row.pr.authorLogin,
+                badge: row.pr.isMine ? "yours" : nil
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .strokeBorder(AerieColor.amberLine, lineWidth: 1)
-            )
+        } chips: {
+            CIChip(state: row.pr.ciState)
+            ReviewChip(state: row.pr.reviewState)
+            StatusPill(text: localStatus.text, tone: localStatus.tone)
+        } actions: {
+            CardOpenButton(action: onOpen)
+            mergeButton
+        }
     }
 
     // MARK: - Local state → one sentence pill
@@ -145,33 +73,7 @@ struct PRCard: View {
         return (.ok, "Branch checked out · clean & in sync")
     }
 
-    // MARK: - Right column actions
-
-    /// `Open ↗` (ghost) then `Merge`, side-by-side per the design's
-    /// `row { gap: 8 }`. The `auto` grid column sizes to the buttons.
-    private var actions: some View {
-        HStack(spacing: 8) {
-            openButton
-            mergeButton
-        }
-        .fixedSize()
-    }
-
-    private var openButton: some View {
-        Button(action: onOpen) {
-            HStack(spacing: 6) {
-                Text("Open")
-                Text("↗")
-            }
-            .aerieFont(AerieFont.custom(.sans, size: 12))
-            .foregroundStyle(AerieColor.text2)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .fixedSize()
-    }
+    // MARK: - Merge button
 
     private var mergeButton: some View {
         Button(action: onMerge) {

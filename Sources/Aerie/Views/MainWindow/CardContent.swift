@@ -1,85 +1,123 @@
 import SwiftUI
 
-/// The shared content column for the PR and Issue list cards — the meta row
-/// (`<repo> · #N · <author> · [badge] · <updated ago>`) above the title, with a
-/// trailing slot for card-specific chips (issue labels + comment count, or PR
-/// CI / review / local-status pills).
+/// The shared card skeleton for every main-window list row — PRs, Issues, and
+/// Repos all render through this so they read identically. Standardised on the
+/// **Issue card layout**:
 ///
-/// Standardised on the Issue card's design so both cards read identically:
-/// a uniform 12pt vertical rhythm, an 18pt medium title, the clamped
-/// relative-time string, and the amber ``CardBadge`` pill.
+///   ┌──────────────────────────────────────────────────────────────────┐
+///   │ <meta…>                                              <updated ago> │
+///   │ <title>                                              <actions…>    │
+///   │ <chips…>                                                           │
+///   └──────────────────────────────────────────────────────────────────┘
 ///
-/// Visual contract: `docs/superpowers/design/v2/app.jsx` (the PR/Issue card body).
-struct CardContent<Chips: View>: View {
-    let repo: String
-    let number: Int
-    let author: String
-    /// Optional amber badge shown after the author — e.g. "assigned to you" on
-    /// an issue, "yours" on a PR. Hidden when nil.
-    var badge: String? = nil
+/// - One piece of `.glass(.card)` with 24×28 padding.
+/// - A leading content column (meta · title · chips) on a uniform 12pt rhythm,
+///   a 20pt medium title (up to two lines), and a chip row that reserves a
+///   constant 24pt height so a chip-less card matches one with chips.
+/// - A trailing `actions` slot, vertically centred against the content.
+///
+/// Each card supplies its own `meta`, `chips`, and `actions`; only the skeleton
+/// is shared, which keeps the three rows pixel-consistent. The `repo · #N ·
+/// author · [badge]` meta common to PRs and Issues is provided by ``CardMeta``;
+/// the shared "Open ↗" control by ``CardOpenButton``.
+///
+/// Visual contract: `docs/superpowers/design/v2/app.jsx` (the card body).
+struct CardContent<Meta: View, Chips: View, Actions: View>: View {
     let title: String
-    let updatedAt: Date
+    /// When set, the meta row shows a trailing clamped relative-time string.
+    /// Repos omit it (no meaningful "updated" timestamp on the row).
+    var updatedAt: Date? = nil
     /// Reference "now" for the relative-time string. Tests inject a fixed value
     /// to keep snapshots deterministic; production callers omit it.
     var now: Date = Date()
-    /// Card-specific chips rendered in the bottom row, leading-aligned.
+    @ViewBuilder var meta: () -> Meta
     @ViewBuilder var chips: () -> Chips
+    @ViewBuilder var actions: () -> Actions
 
-    private var updatedAgo: String {
+    private var updatedAgo: String? {
+        guard let updatedAt else { return nil }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
-        // `updatedAt` can sit a few seconds ahead of the local clock (e.g. the
-        // item was just touched), which the formatter would render as a future
-        // "in 9s". An update is always in the past, so clamp the reference so
-        // the date is never after it.
+        // An update is always in the past; clamp the reference so a few seconds
+        // of clock skew never renders a future "in 9s" string.
         let reference = max(now, updatedAt)
         return formatter.localizedString(for: updatedAt, relativeTo: reference)
     }
 
     var body: some View {
-        // Uniform 12pt rhythm between meta · title · chips (the design's
-        // `col { gap: 12 }`), so the top and bottom gaps read as equal.
-        VStack(alignment: .leading, spacing: 12) {
-            // Meta row
-            HStack(spacing: 10) {
-                Text(repo)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text2)
-                dot
+        HStack(alignment: .center, spacing: 28) {
+            // Leading content column — uniform 12pt rhythm between meta · title
+            // · chips (the design's `col { gap: 12 }`).
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    meta()
+                    Spacer(minLength: 0)
+                    if let updatedAgo {
+                        Text(updatedAgo)
+                            .aerieFont(AerieFont.code(11))
+                            .foregroundStyle(AerieColor.text4)
+                    }
+                }
+
+                Text(title)
+                    .aerieFont(AerieFont.custom(.sans, size: 20).weight(.medium))
+                    .foregroundStyle(AerieColor.text1)
+                    .lineLimit(2)
+
+                HStack(spacing: 10) {
+                    chips()
+                    Spacer(minLength: 0)
+                }
+                .frame(minHeight: 24, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            actions()
+        }
+        .padding(.vertical, 24)
+        .padding(.horizontal, 28)
+        .glass(.card)
+    }
+}
+
+/// The `repo · #N · author · [badge]` meta line shared by the PR and Issue
+/// cards. `number` / `author` / `badge` are optional so other rows can reuse the
+/// same dot-separated styling with fewer fields.
+struct CardMeta: View {
+    let name: String
+    var number: Int? = nil
+    var author: String? = nil
+    /// Optional amber pill shown after the author — "yours" on a PR, "assigned
+    /// to you" on an issue.
+    var badge: String? = nil
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(name)
+                .aerieFont(AerieFont.code(11))
+                .foregroundStyle(AerieColor.text2)
+            if let number {
+                MetaDot()
                 Text("#\(number)")
                     .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text4)
-                dot
+            }
+            if let author {
+                MetaDot()
                 Text(author)
                     .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text4)
-                if let badge {
-                    CardBadge(text: badge)
-                }
-                Spacer(minLength: 0)
-                Text(updatedAgo)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
             }
-
-            // Title
-            Text(title)
-                .aerieFont(AerieFont.custom(.sans, size: 18).weight(.medium))
-                .foregroundStyle(AerieColor.text1)
-                .lineLimit(2)
-
-            // Card-specific chips. The row reserves a constant height even when
-            // empty, so a chip-less card is the same height as one with chips.
-            HStack(spacing: 10) {
-                chips()
-                Spacer(minLength: 0)
+            if let badge {
+                CardBadge(text: badge)
             }
-            .frame(minHeight: 24, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
 
-    private var dot: some View {
+/// The `·` separator used between meta items.
+struct MetaDot: View {
+    var body: some View {
         Text("·")
             .aerieFont(AerieFont.code(11))
             .foregroundStyle(AerieColor.text4)
@@ -87,7 +125,7 @@ struct CardContent<Chips: View>: View {
 }
 
 /// The amber pill shown in a card's meta row — "assigned to you" on an issue,
-/// "yours" on a PR. Standardised on the Issue card's styling.
+/// "yours" on a PR.
 struct CardBadge: View {
     let text: String
 
@@ -106,5 +144,28 @@ struct CardBadge: View {
                 RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                     .strokeBorder(AerieColor.amberLine, lineWidth: 1)
             )
+    }
+}
+
+/// The shared "Open ↗" ghost control on the trailing edge of every card.
+/// Standardised on the Issue card's styling (13pt sans, `text2`, 8×6 padding)
+/// so all three rows present an identical open affordance.
+struct CardOpenButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text("Open")
+                Text("↗")
+            }
+            .aerieFont(AerieFont.custom(.sans, size: 13))
+            .foregroundStyle(AerieColor.text2)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
     }
 }
