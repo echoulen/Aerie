@@ -40,9 +40,9 @@ struct DialogMerge: View {
     var body: some View {
         DialogShell(
             tone: .warning,
-            title: "Merge PR #\(pr.number)?",
-            subtitle: pr.title,
-            primaryTitle: "Squash and merge",
+            title: "Merge pull request #\(pr.number)?",
+            subtitle: "Squash and merge using \(account.login). The source branch will be deleted on \(account.host) after merging.",
+            primaryTitle: "Merge",
             onPrimary: { Task { await runConfirm() } },
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
@@ -51,45 +51,76 @@ struct DialogMerge: View {
         ) {
             VStack(spacing: 12) {
                 preview
-                KVList(pairs: [
-                    ("Method", "squash"),
-                    ("Commit subject", "\(pr.title) (#\(pr.number))"),
-                    ("Source branch", pr.sourceBranch),
-                    ("Account", "\(account.login) · \(account.host)"),
+                KVList(rows: [
+                    KVList.Row("method", AnyView(mono("squash + merge"))),
+                    KVList.Row("commit subj", AnyView(mono("\(pr.title) (#\(pr.number))"))),
+                    KVList.Row("account", AnyView(mono("\(account.login) · \(account.host)"))),
                 ])
             }
         }
     }
 
+    // PR preview card — mirrors the design's `DialogMerge` preview: a
+    // `repo · #N` eyebrow, the PR title, then an inline status row. The design's
+    // row also shows check counts, the approver's login, and +/- diff stats;
+    // our `PullRequest` model doesn't track those, so we surface the CI + review
+    // state we do have, in the same inline-text style.
     private var preview: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Text("\(repo.githubOwner)/\(repo.githubRepo)")
-                    .aerieFont(AerieFont.small())
-                    .foregroundStyle(AerieColor.text2)
-                Text("#\(pr.number)")
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text3)
-                Spacer()
-                Text("by \(pr.authorLogin)")
-                    .aerieFont(AerieFont.small())
-                    .foregroundStyle(AerieColor.text3)
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            Text("\(repo.githubRepo) · #\(pr.number)")
+                .aerieFont(AerieFont.code(11))
+                .foregroundStyle(AerieColor.text4)
             Text(pr.title)
-                .font(.system(size: 16, weight: .medium))
+                .aerieFont(AerieFont.custom(.sans, size: 14.5))
                 .foregroundStyle(AerieColor.text1)
-            HStack(spacing: 8) {
-                CIChip(state: pr.ciState)
-                ReviewChip(state: pr.reviewState)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 5)
+            HStack(spacing: 14) {
+                ciSummary
+                reviewSummary
             }
+            .padding(.top, 10)
         }
-        .padding(14)
-        .background(AerieColor.glass1)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.black.opacity(0.22))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(AerieColor.glassLine, lineWidth: 1)
         )
+    }
+
+    private func mono(_ text: String) -> some View {
+        Text(text)
+            .aerieFont(AerieFont.code(13))
+            .foregroundStyle(AerieColor.text1)
+    }
+
+    @ViewBuilder
+    private var ciSummary: some View {
+        switch pr.ciState {
+        case .success: statusText("✓ CI passing", AerieColor.ok)
+        case .failure: statusText("✕ CI failing", AerieColor.err)
+        case .pending: statusText("• CI pending", AerieColor.text3)
+        case .none:    statusText("No checks", AerieColor.text3)
+        }
+    }
+
+    @ViewBuilder
+    private var reviewSummary: some View {
+        switch pr.reviewState {
+        case .approved:         statusText("✓ Approved", AerieColor.ok)
+        case .changesRequested: statusText("Changes requested", AerieColor.err)
+        case .reviewRequired:   statusText("Review requested", AerieColor.text3)
+        }
+    }
+
+    private func statusText(_ text: String, _ color: Color) -> some View {
+        Text(text)
+            .aerieFont(AerieFont.custom(.sans, size: 12))
+            .foregroundStyle(color)
     }
 
     private func runConfirm() async {
