@@ -225,15 +225,23 @@ actor LiveGitService: GitService {
             currentBranch: currentBranch
         )
 
-        // Now the actual reset via SwiftGitX.
-        let repo = try SwiftGitX.Repository(at: url, createIfNotExists: false)
+        // Fetch origin so origin/<defaultBranch> is up-to-date. Use the git
+        // CLI, NOT SwiftGitX/libgit2: libgit2 has no access to the git
+        // credential helper / keychain (HTTPS tokens) or ~/.ssh/config host
+        // aliases, so its fetch fails to authenticate against a private remote
+        // — which surfaced as `SwiftGitXError error 1` on a private HTTPS repo.
+        // The CLI authenticates exactly as a manual `git fetch` would.
+        guard runGit(["fetch", "origin"], at: url) != nil else {
+            throw NSError(
+                domain: "GitService", code: 2,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Couldn't fetch origin — check your network connection and git credentials."]
+            )
+        }
 
-        // Fetch origin so origin/<defaultBranch> is up-to-date. We resolve
-        // the origin remote explicitly since `fetch(remote:)` will fall
-        // back to the current-branch upstream if `nil` is passed, which we
-        // don't always have.
-        let origin = try repo.remote.get(named: "origin")
-        try await repo.fetch(remote: origin)
+        // Now the local reset via SwiftGitX (switch + reset --hard need no
+        // network, so libgit2's missing credentials don't matter here).
+        let repo = try SwiftGitX.Repository(at: url, createIfNotExists: false)
 
         // Switch to the local default branch (creating it if needed by
         // tracking the remote).

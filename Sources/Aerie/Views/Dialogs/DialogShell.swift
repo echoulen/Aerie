@@ -55,13 +55,13 @@ struct DialogShell<Content: View>: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 content()
+                if let msg = errorMessage {
+                    errorBanner(msg)
+                }
             }
             .padding(.horizontal, 28)
             .padding(.top, 26)
             .padding(.bottom, 18)
-            if let msg = errorMessage {
-                errorBanner(msg)
-            }
             footer
         }
         .frame(width: 520)
@@ -189,22 +189,28 @@ struct DialogShell<Content: View>: View {
         )
     }
 
+    // A contained, inset error box (rounded, err-tinted) — not a full-width
+    // band with a hard top hairline, which read as a stray red line across
+    // the dialog.
     private func errorBanner(_ msg: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12))
                 .foregroundStyle(AerieColor.err)
             Text(msg)
                 .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text1)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AerieColor.err.opacity(0.12))
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(AerieColor.err.opacity(0.12))
+        )
         .overlay(
-            Rectangle()
-                .fill(AerieColor.err.opacity(0.4))
-                .frame(height: 1)
-                .frame(maxWidth: .infinity, alignment: .top)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(AerieColor.err.opacity(0.30), lineWidth: 1)
         )
     }
 
