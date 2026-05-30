@@ -132,6 +132,60 @@ final class RepoDetectorTests: XCTestCase {
         XCTAssertEqual(result.suggestedAccountId, gheAccount.id)
     }
 
+    /// Regression: when several accounts share a host (e.g. multiple
+    /// github.com logins), the suggestion must prefer the account whose login
+    /// matches the repo **owner** — not merely the first host match. Binding a
+    /// repo to an account that can't access it (a private repo owned by a
+    /// different login) left the PRs/Issues lists silently empty.
+    func test_detect_prefersAccountMatchingOwner_amongSameHostAccounts() async throws {
+        let dir = try makeTempRepo(origin: "git@github.com:echoulen/Aerie.git")
+
+        let botAccount = GitHubAccount(
+            id: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!,
+            login: "Jarvis-E",
+            host: "github.com"
+        )
+        let ownerAccount = GitHubAccount(
+            id: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000002")!,
+            login: "echoulen",
+            host: "github.com"
+        )
+
+        let detector = RepoDetector()
+        // botAccount is listed first — host-only matching would wrongly pick it.
+        let result = try await detector.detect(at: dir, accounts: [botAccount, ownerAccount])
+
+        XCTAssertEqual(result.suggestedAccountId, ownerAccount.id)
+    }
+
+    /// Owner matching is case-insensitive (GitHub logins are), so an origin
+    /// owner of `Echoulen` still binds to the `echoulen` account.
+    func test_detect_ownerMatchIsCaseInsensitive() async throws {
+        let dir = try makeTempRepo(origin: "git@github.com:Echoulen/Aerie.git")
+        let ownerAccount = GitHubAccount(
+            id: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000003")!,
+            login: "echoulen",
+            host: "github.com"
+        )
+        let detector = RepoDetector()
+        let result = try await detector.detect(at: dir, accounts: [ownerAccount])
+        XCTAssertEqual(result.suggestedAccountId, ownerAccount.id)
+    }
+
+    /// When no account login matches the owner (e.g. an org-owned repo), fall
+    /// back to the first account on the same host — preserving prior behaviour.
+    func test_detect_fallsBackToHost_whenNoOwnerMatch() async throws {
+        let dir = try makeTempRepo(origin: "git@github.com:some-org/proj.git")
+        let a = GitHubAccount(
+            id: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000004")!,
+            login: "carlos-li",
+            host: "github.com"
+        )
+        let detector = RepoDetector()
+        let result = try await detector.detect(at: dir, accounts: [a])
+        XCTAssertEqual(result.suggestedAccountId, a.id)
+    }
+
     func test_detect_marksDirty_whenWorkingTreeHasChanges() async throws {
         let dir = try makeTempRepo(origin: "git@github.com:test/repo.git")
         // Make a dirty file
