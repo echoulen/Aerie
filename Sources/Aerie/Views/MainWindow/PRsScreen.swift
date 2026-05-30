@@ -22,6 +22,8 @@ struct PRsScreen: View {
     /// `SegmentedToggle` for switching between PRs and Repos (per the v2
     /// design). Snapshot tests omit it.
     var tabSelection: Binding<MainTab>? = nil
+    /// The real refresh to run when the header's Refresh button is tapped.
+    var onRefresh: () async -> Void = {}
 
     var body: some View {
         switch viewModel.state {
@@ -126,7 +128,8 @@ struct PRsScreen: View {
             eyebrow: "VIEW · ⌘1",
             title: "Open pull requests",
             count: "\(open) open · across \(repos) \(repos == 1 ? "repository" : "repositories") · \(mine) mine",
-            tabSelection: tabSelection
+            tabSelection: tabSelection,
+            onRefresh: onRefresh
         )
     }
 

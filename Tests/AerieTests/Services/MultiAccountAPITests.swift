@@ -8,6 +8,7 @@ import XCTest
 actor StubGitHubAPIClient: GitHubAPIClient {
     enum Outcome {
         case prs([PullRequest])
+        case issues([Issue])
         case merge(MergeResult)
         case apiError(GitHubAPIError)
         case throwError(Error)
@@ -51,8 +52,24 @@ actor StubGitHubAPIClient: GitHubAPIClient {
         case .prs(let prs): return prs
         case .apiError(let err): throw err
         case .throwError(let err): throw err
-        case .merge:
+        case .issues, .merge:
             throw GitHubAPIError(status: -1, message: "wrong outcome type for listOpenPRs")
+        }
+    }
+
+    func listOpenIssues(
+        owner: String,
+        repo: String,
+        repoId: UUID,
+        token: String
+    ) async throws -> [Issue] {
+        let outcome = try consume(token: token)
+        switch outcome {
+        case .issues(let issues): return issues
+        case .apiError(let err): throw err
+        case .throwError(let err): throw err
+        case .prs, .merge:
+            throw GitHubAPIError(status: -1, message: "wrong outcome type for listOpenIssues")
         }
     }
 
@@ -68,7 +85,7 @@ actor StubGitHubAPIClient: GitHubAPIClient {
         case .merge(let r): return r
         case .apiError(let err): throw err
         case .throwError(let err): throw err
-        case .prs:
+        case .prs, .issues:
             throw GitHubAPIError(status: -1, message: "wrong outcome type for mergePR")
         }
     }

@@ -155,6 +155,28 @@ struct SettingsWindow: View {
         .task(id: route.wrappedValue) {
             await refreshActive(route: route.wrappedValue)
         }
+        // Honour a deep-link from the main window's "Add repository" button.
+        // `onAppear` covers a freshly-opened Settings window; `onChange` covers
+        // the case where Settings is already open and merely refocused.
+        .onAppear { consumeNavigationIntent() }
+        .onChange(of: services.settingsNavigator.pendingAddRepo) { _, newValue in
+            if newValue { consumeNavigationIntent() }
+        }
+    }
+
+    /// Reads (and clears) any pending cross-window navigation request: jumps to
+    /// the requested route and, if asked, opens the add-repo sheet once its repo
+    /// list + accounts have loaded.
+    private func consumeNavigationIntent() {
+        let pending = services.settingsNavigator.consume()
+        if let r = pending.route { routeRaw = r.rawValue }
+        guard pending.showAddRepo else { return }
+        Task {
+            await reposVM.refresh()
+            addRepoVM.reset()
+            addRepoVM.accounts = reposVM.accounts
+            showAddRepo = true
+        }
     }
 
     @ViewBuilder

@@ -42,6 +42,13 @@ protocol GitHubAPIClient: Sendable {
         token: String
     ) async throws -> [PullRequest]
 
+    func listOpenIssues(
+        owner: String,
+        repo: String,
+        repoId: UUID,
+        token: String
+    ) async throws -> [Issue]
+
     func mergePR(
         owner: String,
         repo: String,
@@ -155,6 +162,70 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             throw GitHubAPIError(status: 404, message: "repository not visible")
         }
         return repository.pullRequests.nodes.map { Self.map($0, repoId: repoId) }
+    }
+
+    // MARK: listOpenIssues
+
+    // Unlike the REST `/issues` endpoint, the GraphQL `repository.issues`
+    // connection NEVER includes pull requests, so there is no PR contamination
+    // to filter out. `viewer.login` lets us compute `assignedToMe` against the
+    // fetching token's own account.
+    private static let listOpenIssuesQuery: String = """
+    query($owner: String!, $repo: String!) {
+      viewer { login }
+      repository(owner: $owner, name: $repo) {
+        issues(states: OPEN, first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          nodes {
+            number
+            title
+            author { login }
+            labels(first: 10) { nodes { name color } }
+            comments { totalCount }
+            assignees(first: 10) { nodes { login } }
+            updatedAt
+            url
+          }
+        }
+      }
+    }
+    """
+
+    func listOpenIssues(
+        owner: String,
+        repo: String,
+        repoId: UUID,
+        token: String
+    ) async throws -> [Issue] {
+        var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+        let payload: [String: Any] = [
+            "query": Self.listOpenIssuesQuery,
+            "variables": ["owner": owner, "repo": repo],
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await session.data(for: request)
+        let http = response as? HTTPURLResponse
+        recordRateLimit(token: token, response: http)
+        try checkOK(status: http?.statusCode ?? 0, data: data)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ListIssuesResponse.self, from: data)
+        // GraphQL returns `200 + repository: null` when this token can't see the
+        // (private) repo. Surface that as a 404 so `MultiAccountAPI` can fall
+        // through to an account that *can* see it.
+        guard let repository = decoded.data.repository else {
+            throw GitHubAPIError(status: 404, message: "repository not visible")
+        }
+        let viewerLogin = decoded.data.viewer?.login
+        return repository.issues.nodes.map {
+            Self.map($0, repoId: repoId, viewerLogin: viewerLogin)
+        }
     }
 
     // MARK: mergePR
@@ -290,6 +361,61 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             ciState: ci,
             reviewState: review,
             labels: node.labels.nodes.map(\.name),
+            htmlUrl: node.url,
+            updatedAt: node.updatedAt
+        )
+    }
+
+    // MARK: Issues GraphQL DTO + mapping
+
+    private struct ListIssuesResponse: Decodable {
+        struct DataLayer: Decodable {
+            let viewer: Viewer?
+            let repository: Repo?
+        }
+        struct Viewer: Decodable { let login: String }
+        struct Repo: Decodable { let issues: IssuesLayer }
+        struct IssuesLayer: Decodable { let nodes: [Node] }
+        struct Node: Decodable {
+            let number: Int
+            let title: String
+            let author: Author?
+            let labels: LabelLayer
+            let comments: CommentsLayer
+            let assignees: AssigneesLayer
+            let updatedAt: Date
+            let url: URL
+        }
+        struct Author: Decodable { let login: String }
+        struct LabelLayer: Decodable { let nodes: [LabelNode] }
+        struct LabelNode: Decodable { let name: String; let color: String }
+        struct CommentsLayer: Decodable { let totalCount: Int }
+        struct AssigneesLayer: Decodable { let nodes: [Assignee] }
+        struct Assignee: Decodable { let login: String }
+        let data: DataLayer
+    }
+
+    private static func map(
+        _ node: ListIssuesResponse.Node,
+        repoId: UUID,
+        viewerLogin: String?
+    ) -> Issue {
+        let assignees = node.assignees.nodes.map(\.login)
+        let assignedToMe: Bool
+        if let viewerLogin {
+            assignedToMe = assignees.contains(viewerLogin)
+        } else {
+            assignedToMe = false
+        }
+        return Issue(
+            id: UUID(),
+            repoId: repoId,
+            number: node.number,
+            title: node.title,
+            authorLogin: node.author?.login ?? "",
+            assignedToMe: assignedToMe,
+            labels: node.labels.nodes.map { IssueLabel(name: $0.name, color: $0.color) },
+            commentCount: node.comments.totalCount,
             htmlUrl: node.url,
             updatedAt: node.updatedAt
         )

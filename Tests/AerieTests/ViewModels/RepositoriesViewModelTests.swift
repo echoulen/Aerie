@@ -240,6 +240,49 @@ final class RepositoriesViewModelTests: XCTestCase {
         XCTAssertNotNil(vm.error)
     }
 
+    func test_add_postsReposDidChange() async throws {
+        let db = try makeDB()
+        try insertAccount(db)
+
+        let vm = RepositoriesViewModel(db: db)
+        await vm.refresh()
+
+        let exp = expectation(forNotification: .aerieReposDidChange, object: nil)
+
+        let ok = await vm.add(detected(path: "/tmp/New", owner: "o", repo: "new"))
+        XCTAssertTrue(ok)
+
+        await fulfillment(of: [exp], timeout: 1.0)
+    }
+
+    func test_add_failure_doesNotPostReposDidChange() async throws {
+        let db = try makeDB()   // no accounts → add fails
+
+        let vm = RepositoriesViewModel(db: db)
+        await vm.refresh()
+
+        let exp = expectation(forNotification: .aerieReposDidChange, object: nil)
+        exp.isInverted = true
+
+        let ok = await vm.add(detected(suggestedAccountId: nil))
+        XCTAssertFalse(ok)
+
+        await fulfillment(of: [exp], timeout: 0.3)
+    }
+
+    func test_remove_postsReposDidChange() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let a = try await insertRepo(db, accountId: acct, name: "Alpha", repo: "alpha", sortOrder: 0)
+
+        let vm = RepositoriesViewModel(db: db)
+        await vm.refresh()
+
+        let exp = expectation(forNotification: .aerieReposDidChange, object: nil)
+        await vm.remove(id: a.id)
+        await fulfillment(of: [exp], timeout: 1.0)
+    }
+
     func test_setAccount_updatesRepo_whenAccountExists() async throws {
         let db = try makeDB()
         let acct1 = try insertAccount(db, login: "first")
