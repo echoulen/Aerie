@@ -56,6 +56,51 @@ final class PRSyncServiceTests: XCTestCase {
         return try AppDatabase(url: url)
     }
 
+    /// Run a command via `/usr/bin/env`, capturing combined stdout+stderr.
+    /// Throws on non-zero exit. Mirrors `GitStatusRefresherTests.shell`.
+    @discardableResult
+    private func shell(_ args: [String]) throws -> String {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = args
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = pipe
+        try p.run()
+        p.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let out = String(data: data, encoding: .utf8) ?? ""
+        if p.terminationStatus != 0 {
+            throw NSError(
+                domain: "shell", code: Int(p.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: out]
+            )
+        }
+        return out
+    }
+
+    /// Fresh temp git repo with one commit on `main`. Returns its working tree.
+    private func makeTempRepo() throws -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        tempURLs.append(url)
+        try FileManager.default.createDirectory(
+            at: url, withIntermediateDirectories: true
+        )
+        try shell(["git", "-C", url.path, "init", "-q", "-b", "main"])
+        try "hi".write(
+            to: url.appendingPathComponent("a.txt"),
+            atomically: true, encoding: .utf8
+        )
+        try shell(["git", "-C", url.path, "add", "."])
+        try shell([
+            "git", "-C", url.path,
+            "-c", "user.email=t@t", "-c", "user.name=T",
+            "commit", "-q", "-m", "init",
+        ])
+        return url
+    }
+
     @discardableResult
     private func insertAccount(_ db: AppDatabase, id: UUID = UUID(), login: String = "tester") throws -> UUID {
         try db.dbQueue.write { dbConn in
@@ -73,12 +118,13 @@ final class PRSyncServiceTests: XCTestCase {
         name: String = "Example",
         owner: String = "octocat",
         repo: String = "hello-world",
-        hidden: Bool = false
+        hidden: Bool = false,
+        localPath: URL? = nil
     ) async throws -> Repository {
         let r = Repository(
             id: UUID(),
             name: name,
-            localPath: URL(fileURLWithPath: "/tmp/\(name)"),
+            localPath: localPath ?? URL(fileURLWithPath: "/tmp/\(name)"),
             githubOwner: owner,
             githubRepo: repo,
             defaultBranch: "main",
@@ -90,14 +136,14 @@ final class PRSyncServiceTests: XCTestCase {
         return r
     }
 
-    private func makePR(repoId: UUID, number: Int) -> PullRequest {
+    private func makePR(repoId: UUID, number: Int, sourceBranch: String? = nil) -> PullRequest {
         PullRequest(
             id: UUID(),
             repoId: repoId,
             number: number,
             title: "PR \(number)",
             authorLogin: "ghost",
-            sourceBranch: "feat/x-\(number)",
+            sourceBranch: sourceBranch ?? "feat/x-\(number)",
             isMine: false,
             state: .open,
             ciState: .success,
@@ -119,7 +165,7 @@ final class PRSyncServiceTests: XCTestCase {
         await fetcher.setResult([makePR(repoId: repo.id, number: 1), makePR(repoId: repo.id, number: 2)], forRepo: repo.id)
         let counter = ChangeCounter()
 
-        let service = PRSyncService(db: db, api: fetcher, onChange: { await counter.bump() })
+        let service = PRSyncService(db: db, api: fetcher, git: LiveGitService(), onChange: { await counter.bump() })
         await service.sync(repoId: repo.id)
 
         // Cache now holds the fetched PRs.
@@ -135,12 +181,70 @@ final class PRSyncServiceTests: XCTestCase {
         XCTAssertEqual(changes, 1)
     }
 
+    func test_sync_computesAndCachesLocalState_forCheckedOutBranch() async throws {
+        // Repo checked out on the PR's source branch, with a dirty working tree.
+        let repoURL = try makeTempRepo()
+        try shell(["git", "-C", repoURL.path, "checkout", "-q", "-b", "feat/local"])
+        try "hi\nmore".write(
+            to: repoURL.appendingPathComponent("a.txt"),
+            atomically: true, encoding: .utf8
+        )
+
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let repo = try await insertRepo(db, accountId: acct, localPath: repoURL)
+
+        let pr = makePR(repoId: repo.id, number: 1, sourceBranch: "feat/local")
+        let fetcher = StubPRFetcher()
+        await fetcher.setResult([pr], forRepo: repo.id)
+
+        let service = PRSyncService(db: db, api: fetcher, git: LiveGitService())
+        await service.sync(repoId: repo.id)
+
+        // The sync should have resolved the branch's local state and cached it,
+        // so the PRs tab can render dirty/ahead/behind instead of a permanent
+        // muted "Not checked out locally".
+        let local = try await db.prLocalStateCache.state(forPr: pr.id)
+        let state = try XCTUnwrap(local, "sync should compute and cache the PR's local state")
+        XCTAssertTrue(state.localBranchExists)
+        XCTAssertTrue(state.isCurrentBranch)
+        XCTAssertEqual(state.dirty, true)
+    }
+
+    func test_sync_localBranchExistsButNotCheckedOut_reportsExistenceOnly() async throws {
+        // The PR's source branch exists locally but isn't checked out. Per
+        // GitService's contract we report only existence — dirty/ahead/behind
+        // stay nil because computing them would need a (destructive) worktree
+        // switch. This pins that documented behavior end-to-end through sync.
+        let repoURL = try makeTempRepo()
+        try shell(["git", "-C", repoURL.path, "branch", "feat/other"]) // create, don't switch
+
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let repo = try await insertRepo(db, accountId: acct, localPath: repoURL)
+
+        let pr = makePR(repoId: repo.id, number: 1, sourceBranch: "feat/other")
+        let fetcher = StubPRFetcher()
+        await fetcher.setResult([pr], forRepo: repo.id)
+
+        let service = PRSyncService(db: db, api: fetcher, git: LiveGitService())
+        await service.sync(repoId: repo.id)
+
+        let cached = try await db.prLocalStateCache.state(forPr: pr.id)
+        let state = try XCTUnwrap(cached)
+        XCTAssertTrue(state.localBranchExists)
+        XCTAssertFalse(state.isCurrentBranch)
+        XCTAssertNil(state.dirty)
+        XCTAssertNil(state.ahead)
+        XCTAssertNil(state.behind)
+    }
+
     func test_sync_unknownRepoId_isNoOp() async throws {
         let db = try makeDB()
         let fetcher = StubPRFetcher()
         let counter = ChangeCounter()
 
-        let service = PRSyncService(db: db, api: fetcher, onChange: { await counter.bump() })
+        let service = PRSyncService(db: db, api: fetcher, git: LiveGitService(), onChange: { await counter.bump() })
         await service.sync(repoId: UUID())
 
         let count = await fetcher.callCount()
@@ -162,7 +266,7 @@ final class PRSyncServiceTests: XCTestCase {
         await fetcher.setError(URLError(.notConnectedToInternet))
         let counter = ChangeCounter()
 
-        let service = PRSyncService(db: db, api: fetcher, onChange: { await counter.bump() })
+        let service = PRSyncService(db: db, api: fetcher, git: LiveGitService(), onChange: { await counter.bump() })
         await service.sync(repoId: repo.id)   // must not throw
 
         // A failed fetch must never wipe the previously-cached PRs.
@@ -185,7 +289,7 @@ final class PRSyncServiceTests: XCTestCase {
         await fetcher.setResult([makePR(repoId: hidden.id, number: 2)], forRepo: hidden.id)
         let counter = ChangeCounter()
 
-        let service = PRSyncService(db: db, api: fetcher, onChange: { await counter.bump() })
+        let service = PRSyncService(db: db, api: fetcher, git: LiveGitService(), onChange: { await counter.bump() })
         await service.syncAll()
 
         let visibleCached = try await db.prCache.prs(forRepo: visible.id)

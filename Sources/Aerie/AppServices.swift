@@ -134,7 +134,8 @@ final class AppServices {
         //     `.send()` isn't thread-safe) so the Repos tab re-reads.
         // Both captured values are Sendable (actors / value types), so they're
         // safe inside the scheduler's `@Sendable` closure.
-        let prSync = PRSyncService(db: db, api: multiApi, onChange: {
+        let gitService = LiveGitService()
+        let prSync = PRSyncService(db: db, api: multiApi, git: gitService, onChange: {
             await MainActor.run {
                 NotificationCenter.default.post(name: .aeriePRCacheDidChange, object: nil)
             }
@@ -144,7 +145,6 @@ final class AppServices {
                 NotificationCenter.default.post(name: .aerieIssueCacheDidChange, object: nil)
             }
         })
-        let gitService = LiveGitService()
         let refresher = GitStatusRefresher(db: db, gitService: gitService)
         let statusSubject = PassthroughSubject<Void, Never>()
         let scheduler = PollingScheduler(clock: LiveClock()) { [prSync, issueSync, refresher, statusSubject] repoId in
