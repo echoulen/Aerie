@@ -1,5 +1,6 @@
 APP_NAME   = Aerie
 BUILD_DIR  = .build/release
+DEBUG_DIR  = .build/debug
 APP_BUNDLE = $(APP_NAME).app
 CONTENTS   = $(APP_BUNDLE)/Contents
 MACOS      = $(CONTENTS)/MacOS
@@ -11,7 +12,7 @@ ZIP_NAME   = $(APP_NAME)-macOS-$(ARCH).zip
 ICON_SRC   = Sources/Aerie/Resources/Assets.xcassets/AppIcon.appiconset
 ICNS_OUT   = Resources/AppIcon.icns
 
-.PHONY: build app run clean icon install test
+.PHONY: build app run dev clean icon install test
 
 build:
 	swift build -c release
@@ -69,6 +70,52 @@ app: build icon
 	fi
 
 run: app
+	open $(APP_BUNDLE)
+
+# Fast dev loop: debug build + minimal bundle, run in place. Deliberately skips
+# everything `install` does that dev doesn't need — release optimisation, icon
+# regeneration, git-version injection, the /Applications copy, and the dist zip
+# — so the edit→see cycle is "incremental swift build + a file copy", not a full
+# release build. Reuses the same bundle id (via Info.plist) and the AerieDev
+# signing cert when present, so state (DB/prefs) and TCC grants persist across
+# rebuilds, exactly like the installed app.
+dev:
+	swift build
+	rm -rf $(APP_BUNDLE)
+	mkdir -p $(MACOS) $(RESOURCES)
+	cp $(DEBUG_DIR)/$(APP_NAME) $(MACOS)/$(APP_NAME)
+	@# Ship SwiftPM's per-target resource bundles; synthesise an Info.plist for
+	@# any that lack one so codesign --deep accepts them (same as the app rule).
+	@for b in $(DEBUG_DIR)/*.bundle; do \
+		[ -e "$$b" ] || continue; \
+		base=$$(basename "$$b"); \
+		dest="$(RESOURCES)/$$base"; \
+		cp -R "$$b" "$$dest"; \
+		if [ ! -f "$$dest/Info.plist" ]; then \
+			id="dev.echoulen.$$(echo $$base | sed 's/\.bundle$$//')"; \
+			/usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $$id" "$$dest/Info.plist" >/dev/null; \
+			/usr/libexec/PlistBuddy -c "Add :CFBundleInfoDictionaryVersion string 6.0" "$$dest/Info.plist" >/dev/null; \
+			/usr/libexec/PlistBuddy -c "Add :CFBundlePackageType string BNDL" "$$dest/Info.plist" >/dev/null; \
+		fi; \
+	done
+	cp Sources/Aerie/Resources/Info.plist $(CONTENTS)/Info.plist
+	@[ -f $(ICNS_OUT) ] && cp $(ICNS_OUT) $(RESOURCES)/AppIcon.icns || true
+	@if security find-certificate -c "$(CERT_NAME)" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1; then \
+		codesign --force --deep --sign "$(CERT_NAME)" $(APP_BUNDLE); \
+	else \
+		echo "⚠ Using ad-hoc signing (TCC permissions may not persist after rebuilds)"; \
+		codesign --force --deep --sign - $(APP_BUNDLE); \
+	fi
+	@# Stop any running instance (installed or prior dev build) so `open`
+	@# launches the fresh binary instead of re-activating the old one.
+	@echo "Stopping any running $(APP_NAME)…"
+	@osascript -e 'tell application "$(APP_NAME)" to quit' >/dev/null 2>&1 || true
+	@for i in 1 2 3 4 5; do \
+		pgrep -x $(APP_NAME) >/dev/null 2>&1 || break; \
+		sleep 1; \
+	done
+	@pkill -9 -x $(APP_NAME) 2>/dev/null || true
+	@while pgrep -x $(APP_NAME) >/dev/null 2>&1; do sleep 0.2; done
 	open $(APP_BUNDLE)
 
 install: app
