@@ -11,9 +11,9 @@ import AppKit
 /// - "Open" launches the repo's local path in Finder via `NSWorkspace`.
 ///   We prefer this over the GitHub URL because the Repos view is the
 ///   "local-first" surface — the GitHub side is exposed via PRs.
-/// - "Hard reset" leaves a TODO log line for now. The full reset
-///   confirmation dialog (`DialogReset`) lands in Phase 17.2; until then,
-///   this view emits nothing destructive.
+/// - "Hard reset" bubbles up via `onHardReset`; the shell presents
+///   `DialogReset` and runs `GitService.hardResetToOrigin` on confirm. The
+///   screen itself stays state-free and performs nothing destructive.
 struct ReposScreen: View {
     @Bindable var viewModel: ReposViewModel
     /// When provided, the page header renders the right-aligned
@@ -24,6 +24,10 @@ struct ReposScreen: View {
     var onRefresh: () async -> Void = {}
     /// Opens the add-repository flow when the header's Add button is tapped.
     var onAddRepo: () -> Void = {}
+    /// Asks the shell to present the hard-reset confirmation dialog for `row`.
+    /// The screen owns no state, so the actual `DialogReset` presentation +
+    /// `GitService.hardResetToOrigin` call live in `MainShell`.
+    var onHardReset: (RepoRow) -> Void = { _ in }
 
     var body: some View {
         switch viewModel.state {
@@ -110,7 +114,7 @@ struct ReposScreen: View {
                     RepoCard(
                         row: row,
                         onOpen: { handleOpen(row) },
-                        onHardReset: { handleHardReset(row) }
+                        onHardReset: { onHardReset(row) }
                     )
                     .padding(.bottom, AerieMetric.cardGap)
                 }
@@ -136,11 +140,5 @@ struct ReposScreen: View {
 
     private func handleOpen(_ row: RepoRow) {
         NSWorkspace.shared.open(row.repo.localPath)
-    }
-
-    private func handleHardReset(_ row: RepoRow) {
-        // TODO(phase-17.2): show DialogReset confirmation + invoke ResetService.
-        // For now, log intent only so we don't perform a destructive action.
-        print("[ReposScreen] Hard reset requested for \(row.repo.name) — DialogReset lands in Phase 17.2.")
     }
 }

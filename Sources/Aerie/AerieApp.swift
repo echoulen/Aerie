@@ -157,6 +157,10 @@ struct MainShell: View {
     @State private var issuesVM: IssuesViewModel
     @State private var reposVM: ReposViewModel
     @State private var accountVM: AccountMenuViewModel
+    /// The repo whose hard-reset confirmation dialog is currently presented
+    /// (nil = no dialog). Owned here so the `DialogReset` scrim dims the whole
+    /// window, not just the Repos content area.
+    @State private var presentedReset: RepoRow?
 
     init() {
         let db = AppServices.shared.db
@@ -198,11 +202,39 @@ struct MainShell: View {
                         onAddRepo: {
                             services.settingsNavigator.requestAddRepo()
                             openWindow(id: "settings")
-                        }
+                        },
+                        onHardReset: { presentedReset = $0 }
                     )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        // Hard-reset confirmation. `DialogReset` carries its own full-window
+        // scrim (via `DialogShell`), so overlaying it here dims the titlebar
+        // too. Confirm runs the destructive reset off the bound git service,
+        // then refreshes so the repo card reflects the new state; an error is
+        // returned to the dialog to display in place (the dialog stays open).
+        .overlay {
+            if let row = presentedReset, let status = row.status {
+                DialogReset(
+                    repo: row.repo,
+                    status: status,
+                    onConfirm: {
+                        do {
+                            _ = try await services.gitService.hardResetToOrigin(
+                                repoAt: row.repo.localPath,
+                                defaultBranch: row.repo.defaultBranch
+                            )
+                            await services.refreshNow()
+                            presentedReset = nil
+                            return nil
+                        } catch {
+                            return "Reset failed: \(error.localizedDescription)"
+                        }
+                    },
+                    onCancel: { presentedReset = nil }
+                )
+            }
         }
         .task {
             // Kick off focus-driven polling (idempotent), then paint instantly
