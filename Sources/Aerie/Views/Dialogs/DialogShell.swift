@@ -79,7 +79,7 @@ struct DialogShell<Content: View>: View {
             iconTile
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .aerieFont(AerieFont.custom(.sans, size: 17).weight(.medium))
+                    .aerieFont(AerieFont.custom(.sans, size: 15).weight(.medium))
                     .foregroundStyle(AerieColor.text1)
                 if let subtitle {
                     Text(subtitle)
@@ -137,22 +137,28 @@ struct DialogShell<Content: View>: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Spacer()
+            // Cancel — a plain text (ghost) button: no fill, no border.
             Button(action: onSecondary) {
                 Text(secondaryTitle)
                     .aerieFont(AerieFont.small())
-                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
                     .foregroundStyle(AerieColor.text2)
-                    .background(Capsule().fill(AerieColor.glass1))
-                    .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // Primary — `.btn`-style rounded rect (9pt radius, not a capsule).
             Button(action: onPrimary) {
                 Text(primaryTitle)
                     .aerieFont(AerieFont.small().weight(.medium))
                     .padding(.horizontal, 16).padding(.vertical, 8)
                     .foregroundStyle(primaryTextColor)
-                    .background(Capsule().fill(primaryFill))
-                    .overlay(Capsule().strokeBorder(primaryStroke, lineWidth: 1))
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(primaryFill)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .strokeBorder(primaryStroke, lineWidth: 1)
+                    )
             }
             .buttonStyle(.plain)
             .disabled(primaryDisabled)
