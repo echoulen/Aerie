@@ -47,9 +47,13 @@ struct DialogMerge: View {
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
             primaryDisabled: busy,
-            errorMessage: errorMessage
+            errorMessage: errorMessage,
+            iconView: AnyView(MergeGlyph(color: AerieColor.amber)),
+            primaryProminent: true,
+            headerSpacing: 7,
+            titleWeight: .regular
         ) {
-            VStack(spacing: 12) {
+            VStack(spacing: 14) {
                 preview
                 KVList(rows: [
                     KVList.Row("method", AnyView(mono("squash + merge"))),
@@ -71,18 +75,18 @@ struct DialogMerge: View {
                 .aerieFont(AerieFont.code(11))
                 .foregroundStyle(AerieColor.text4)
             Text(pr.title)
-                .aerieFont(AerieFont.custom(.sans, size: 14.5))
+                .aerieFont(AerieFont.custom(.sans, size: 14.5).weight(.light))
                 .foregroundStyle(AerieColor.text1)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 5)
+                .padding(.top, 6)
             HStack(spacing: 14) {
                 ciSummary
                 reviewSummary
             }
-            .padding(.top, 10)
+            .padding(.top, 12)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.black.opacity(0.22))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -130,5 +134,34 @@ struct DialogMerge: View {
         // nil → success (caller dismisses); non-nil → show the error, stay open.
         errorMessage = await onConfirm()
         busy = false
+    }
+}
+
+/// The design's git-merge glyph (`v2/dialogs.jsx` `MergeIcon`): two nodes on a
+/// left trunk, a third branching up on the right, and a small merge arrow at the
+/// top. Drawn from the SVG's 16×16 coordinates so it matches pixel-for-pixel
+/// rather than approximating with an SF Symbol.
+private struct MergeGlyph: View {
+    var color: Color
+
+    var body: some View {
+        Canvas { ctx, size in
+            let s = size.width / 16
+            func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * s, y: y * s) }
+            let stroke = StrokeStyle(lineWidth: 1.5 * s, lineCap: .round, lineJoin: .round)
+
+            var lines = Path()
+            lines.move(to: p(4, 4.5));   lines.addLine(to: p(4, 11.5))    // left trunk
+            lines.move(to: p(12, 7));    lines.addLine(to: p(12, 11.5))   // right branch
+            lines.move(to: p(8.5, 2.5)); lines.addLine(to: p(11.5, 5.5)); lines.addLine(to: p(8.5, 5.5)) // merge arrow
+            ctx.stroke(lines, with: .color(color), style: stroke)
+
+            for c in [p(4, 3), p(4, 13), p(12, 13)] {
+                let r = 1.5 * s
+                let dot = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
+                ctx.stroke(dot, with: .color(color), style: stroke)
+            }
+        }
+        .frame(width: 17, height: 17)
     }
 }
