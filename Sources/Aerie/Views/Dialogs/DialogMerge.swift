@@ -12,8 +12,11 @@ struct DialogMerge: View {
     let pr: PullRequest
     let repo: Repository
     let account: GitHubAccount
-    /// Closure invoked when the user confirms.
-    var onConfirm: () async -> Void
+    /// Closure invoked when the user confirms. Returns an error message to
+    /// display in-dialog on failure, or `nil` on success — in which case the
+    /// caller dismisses the dialog. Mirrors `DialogReset`'s contract so the
+    /// integration layer can flow a merge failure back into the open dialog.
+    var onConfirm: () async -> String?
     var onCancel: () -> Void
     @State private var busy: Bool = false
     @State private var errorMessage: String?
@@ -22,7 +25,7 @@ struct DialogMerge: View {
         pr: PullRequest,
         repo: Repository,
         account: GitHubAccount,
-        onConfirm: @escaping () async -> Void,
+        onConfirm: @escaping () async -> String?,
         onCancel: @escaping () -> Void,
         initialError: String? = nil
     ) {
@@ -93,7 +96,8 @@ struct DialogMerge: View {
         guard !busy else { return }
         busy = true
         errorMessage = nil
-        await onConfirm()
+        // nil → success (caller dismisses); non-nil → show the error, stay open.
+        errorMessage = await onConfirm()
         busy = false
     }
 }

@@ -63,7 +63,7 @@ final class DialogMergeTests: XCTestCase {
             pr: fixturePR(),
             repo: fixtureRepo(),
             account: fixtureAccount(),
-            onConfirm: { },
+            onConfirm: { nil },
             onCancel: { }
         )
         assertSnapshot(of: host(view), as: .image(size: CGSize(width: 1240, height: 880)))
@@ -74,7 +74,7 @@ final class DialogMergeTests: XCTestCase {
             pr: fixturePR(),
             repo: fixtureRepo(),
             account: fixtureAccount(),
-            onConfirm: { },
+            onConfirm: { nil },
             onCancel: { },
             initialError: "Merge blocked: required status check \"build\" is failing on the source branch."
         )

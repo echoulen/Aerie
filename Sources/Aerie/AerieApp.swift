@@ -161,6 +161,14 @@ struct MainShell: View {
     /// (nil = no dialog). Owned here so the `DialogReset` scrim dims the whole
     /// window, not just the Repos content area.
     @State private var presentedReset: RepoRow?
+    /// The PR whose merge confirmation dialog is currently presented (nil = no
+    /// dialog). Owned here for the same reason as `presentedReset` — the
+    /// `DialogMerge` scrim should dim the whole window.
+    @State private var presentedMerge: PRRow?
+    /// GitHub accounts indexed by id, loaded once on appear so the merge dialog
+    /// can resolve a PR's bound account (`repo.primaryAccountId`) synchronously
+    /// for display. The overlay body can't `await`, hence the cached map.
+    @State private var accountsById: [UUID: GitHubAccount] = [:]
 
     init() {
         let db = AppServices.shared.db
@@ -186,7 +194,8 @@ struct MainShell: View {
                     PRsScreen(
                         viewModel: prsVM,
                         tabSelection: $appVM.activeTab,
-                        onRefresh: { await services.refreshNow() }
+                        onRefresh: { await services.refreshNow() },
+                        onMerge: { presentedMerge = $0 }
                     )
                 case .issues:
                     IssuesScreen(
@@ -236,6 +245,36 @@ struct MainShell: View {
                 )
             }
         }
+        // Merge confirmation. Mirrors the hard-reset overlay: `DialogMerge`
+        // carries its own full-window scrim, confirm squash-merges via the
+        // GitHub API, then refreshes so the merged PR drops off the list. An
+        // error is returned to the dialog to display in place (it stays open).
+        .overlay {
+            if let row = presentedMerge {
+                DialogMerge(
+                    pr: row.pr,
+                    repo: row.repo,
+                    account: accountsById[row.repo.primaryAccountId]
+                        ?? GitHubAccount(id: row.repo.primaryAccountId, login: "unknown", host: "github.com"),
+                    onConfirm: {
+                        do {
+                            _ = try await services.multiApi.mergePR(
+                                owner: row.repo.githubOwner,
+                                repo: row.repo.githubRepo,
+                                number: row.pr.number,
+                                method: .squash
+                            )
+                            await services.refreshNow()
+                            presentedMerge = nil
+                            return nil
+                        } catch {
+                            return "Merge failed: \(error.localizedDescription)"
+                        }
+                    },
+                    onCancel: { presentedMerge = nil }
+                )
+            }
+        }
         .task {
             // Kick off focus-driven polling (idempotent), then paint instantly
             // from whatever's already cached. Fresh PRs arrive via the
@@ -248,6 +287,12 @@ struct MainShell: View {
             await issuesVM.refresh()
             await reposVM.refresh()
             await accountVM.refresh()
+            // Cache accounts by id so the merge dialog can show a PR's bound
+            // account without an await in the (synchronous) overlay body.
+            accountsById = Dictionary(
+                (await services.auth.allAccounts()).map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
         }
         // Re-read repo cards whenever a polling tick upserts fresh status.
         // Throttled so N repos in one tick don't trigger N full re-reads.
