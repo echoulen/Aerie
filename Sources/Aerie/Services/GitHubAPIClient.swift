@@ -111,6 +111,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             headRefName
             state
             mergeable
+            mergeStateStatus
             labels(first: 10) { nodes { name } }
             commits(last: 1) {
               nodes {
@@ -313,6 +314,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             let headRefName: String
             let state: String
             let mergeable: String
+            let mergeStateStatus: String?
             let labels: LabelLayer
             let commits: CommitsLayer
             let reviewDecision: String?
@@ -376,7 +378,8 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             approvedBy: node.reviews?.nodes.first?.author?.login,
             additions: node.additions,
             deletions: node.deletions,
-            changedFiles: node.changedFiles
+            changedFiles: node.changedFiles,
+            mergeStateStatus: node.mergeStateStatus
         )
     }
 

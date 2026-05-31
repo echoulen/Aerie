@@ -24,18 +24,29 @@ struct PRCard: View {
 
     private var mergeable: Bool { Self.isMergeable(row.pr) }
 
-    /// Presentation-layer heuristic for "ready to merge". The `PullRequest`
-    /// model doesn't yet carry an authoritative `mergeable` flag from
-    /// GitHub — TODO: thread that through in a later phase. Static + internal
-    /// so the heuristic is unit-testable without rendering the view.
+    /// Whether the Merge button should light up. Prefer GitHub's authoritative
+    /// `mergeStateStatus` (what the web UI gates on) over re-deriving from CI +
+    /// review — repos differ on whether reviews/checks are *required*, so
+    /// demanding an approval (or green CI) wrongly disabled mergeable PRs.
+    /// Static + internal so it's unit-testable without rendering the view.
     static func isMergeable(_ pr: PullRequest) -> Bool {
-        guard pr.state == .open, pr.reviewState == .approved else { return false }
-        // CI blocks the merge only when it's actively failing or still running.
-        // A PR with no checks configured (`.none`) is mergeable — GitHub has no
-        // required status to enforce, so the button must stay enabled.
-        switch pr.ciState {
-        case .success, .none:    return true
-        case .failure, .pending: return false
+        guard pr.state == .open else { return false }
+        switch pr.mergeStateStatus {
+        case "CLEAN", "UNSTABLE", "HAS_HOOKS", "BEHIND":
+            // GitHub will accept the merge (no branch-protection block, no
+            // conflicts). UNSTABLE = non-required checks pending/failing.
+            return true
+        case "DIRTY", "BLOCKED", "DRAFT":
+            // Conflicts, blocked by branch protection, or a draft.
+            return false
+        default:
+            // UNKNOWN, or older cached rows that predate the field: be
+            // permissive — open and not actively blocked. Approval is NOT
+            // required (many repos don't enforce reviews); only a hard failure
+            // or an explicit "changes requested" holds the button back.
+            return pr.ciState != .failure
+                && pr.ciState != .pending
+                && pr.reviewState != .changesRequested
         }
     }
 

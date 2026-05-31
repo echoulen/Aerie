@@ -42,4 +42,8 @@ struct PullRequest: Codable, Equatable, Identifiable {
     var additions: Int? = nil
     var deletions: Int? = nil
     var changedFiles: Int? = nil
+    /// GitHub's authoritative merge-state (`mergeStateStatus`): CLEAN, UNSTABLE,
+    /// BLOCKED, DIRTY, DRAFT, BEHIND, HAS_HOOKS, UNKNOWN. Drives whether the
+    /// Merge button lights up. Optional + defaulted (older cached rows lack it).
+    var mergeStateStatus: String? = nil
 }

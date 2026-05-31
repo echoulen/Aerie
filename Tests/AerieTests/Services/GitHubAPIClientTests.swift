@@ -257,6 +257,7 @@ final class GitHubAPIClientTests: XCTestCase {
                     "labels": { "nodes": [] },
                     "commits": { "nodes": [] },
                     "reviewDecision": "APPROVED",
+                    "mergeStateStatus": "CLEAN",
                     "additions": 312,
                     "deletions": 184,
                     "changedFiles": 7,
@@ -286,6 +287,7 @@ final class GitHubAPIClientTests: XCTestCase {
         XCTAssertEqual(prs[0].additions, 312)
         XCTAssertEqual(prs[0].deletions, 184)
         XCTAssertEqual(prs[0].changedFiles, 7)
+        XCTAssertEqual(prs[0].mergeStateStatus, "CLEAN")
     }
 
     func test_listOpenPRs_sendsCorrectQuery() async throws {
