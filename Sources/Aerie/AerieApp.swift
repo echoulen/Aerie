@@ -161,9 +161,8 @@ struct MainShell: View {
     /// (nil = no dialog). Owned here so the `DialogReset` scrim dims the whole
     /// window, not just the Repos content area.
     @State private var presentedReset: RepoRow?
-    /// The repo whose discard-unstaged confirmation dialog is currently
-    /// presented (nil = no dialog). Owned here for the same scrim reason as
-    /// `presentedReset`.
+    /// The repo whose discard-unstaged confirmation dialog is currently presented
+    /// (nil = no dialog). Owned here for the same scrim reason as `presentedReset`.
     @State private var presentedDiscard: RepoRow?
     /// The PR whose merge confirmation dialog is currently presented (nil = no
     /// dialog). Owned here for the same reason as `presentedReset` — the
@@ -187,9 +186,9 @@ struct MainShell: View {
     }
 
     // The active tab's screen. Extracted from `body` so the SwiftUI view-builder
-    // type-checker solves a much smaller expression (the full `body` with all the
+    // type-checker solves a smaller expression — the full `body` with all three
     // dialog overlays otherwise exceeds the "unable to type-check in reasonable
-    // time" limit).
+    // time" limit.
     @ViewBuilder
     private var tabContent: some View {
         switch appVM.activeTab {
@@ -289,14 +288,16 @@ struct MainShell: View {
         }
     }
 
-    // Merge confirmation overlay content.
+    // Merge confirmation overlay content. Confirm squash-merges via the GitHub
+    // API, then refreshes so the merged PR drops off the list.
     @ViewBuilder
     private var mergeDialog: some View {
         if let row = presentedMerge {
             DialogMerge(
                 pr: row.pr,
                 repo: row.repo,
-                account: accountForMerge(row),
+                account: accountsById[row.repo.primaryAccountId]
+                    ?? GitHubAccount(id: row.repo.primaryAccountId, login: "unknown", host: "github.com"),
                 onConfirm: {
                     do {
                         _ = try await services.multiApi.mergePR(
@@ -317,17 +318,6 @@ struct MainShell: View {
         }
     }
 
-    // MCP consent overlay content.
-    @ViewBuilder
-    private var mcpConsentDialog: some View {
-        if appVM.showMCPConsent, let req = services.pendingConsent {
-            MCPConsentDialog(
-                request: req,
-                onResponse: { approved in appVM.respondToConsent(approved) }
-            )
-        }
-    }
-
     var body: some View {
         AppFrame(
             viewModel: appVM,
@@ -337,88 +327,12 @@ struct MainShell: View {
             tabContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        // Hard-reset confirmation. `DialogReset` carries its own full-window
-        // scrim (via `DialogShell`), so overlaying it here dims the titlebar
-        // too. Confirm runs the destructive reset off the bound git service,
-        // then refreshes so the repo card reflects the new state; an error is
-        // returned to the dialog to display in place (the dialog stays open).
-        .overlay {
-            if let row = presentedReset, let status = row.status {
-                DialogReset(
-                    repo: row.repo,
-                    status: status,
-                    onConfirm: {
-                        do {
-                            _ = try await services.gitService.hardResetToOrigin(
-                                repoAt: row.repo.localPath,
-                                defaultBranch: row.repo.defaultBranch
-                            )
-                            await services.refreshNow()
-                            presentedReset = nil
-                            return nil
-                        } catch {
-                            return "Reset failed: \(error.localizedDescription)"
-                        }
-                    },
-                    onCancel: { presentedReset = nil }
-                )
-            }
-        }
-        // Discard-unstaged confirmation. Same shape as the hard-reset overlay:
-        // confirm runs `git restore .` off the bound git service, then refreshes
-        // so the card moves toward "Clean · in sync" and the Discard button (and
-        // this dialog) drop out; an error is returned to the dialog in place.
-        .overlay {
-            if let row = presentedDiscard, let status = row.status {
-                DialogDiscard(
-                    repo: row.repo,
-                    status: status,
-                    onConfirm: {
-                        do {
-                            try await services.gitService.discardUnstaged(
-                                repoAt: row.repo.localPath
-                            )
-                            await services.refreshNow()
-                            presentedDiscard = nil
-                            return nil
-                        } catch {
-                            return "Discard failed: \(error.localizedDescription)"
-                        }
-                    },
-                    onCancel: { presentedDiscard = nil }
-                )
-            }
-        }
-        // Merge confirmation. Mirrors the hard-reset overlay: `DialogMerge`
-        // carries its own full-window scrim, confirm squash-merges via the
-        // GitHub API, then refreshes so the merged PR drops off the list. An
-        // error is returned to the dialog to display in place (it stays open).
-        .overlay {
-            if let row = presentedMerge {
-                DialogMerge(
-                    pr: row.pr,
-                    repo: row.repo,
-                    account: accountsById[row.repo.primaryAccountId]
-                        ?? GitHubAccount(id: row.repo.primaryAccountId, login: "unknown", host: "github.com"),
-                    onConfirm: {
-                        do {
-                            _ = try await services.multiApi.mergePR(
-                                owner: row.repo.githubOwner,
-                                repo: row.repo.githubRepo,
-                                number: row.pr.number,
-                                method: .squash
-                            )
-                            await services.refreshNow()
-                            presentedMerge = nil
-                            return nil
-                        } catch {
-                            return "Merge failed: \(error.localizedDescription)"
-                        }
-                    },
-                    onCancel: { presentedMerge = nil }
-                )
-            }
-        }
+        // Confirmation dialogs — each carries its own full-window scrim (via
+        // `DialogShell`), so overlaying here dims the titlebar too. Content is
+        // extracted into computed properties to keep `body` type-checkable.
+        .overlay { resetDialog }
+        .overlay { discardDialog }
+        .overlay { mergeDialog }
         .task {
             // Kick off focus-driven polling (idempotent), then paint instantly
             // from whatever's already cached. Fresh PRs arrive via the
