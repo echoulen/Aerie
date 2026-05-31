@@ -121,6 +121,9 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             }
             reviewDecision
             reviews(states: [APPROVED], last: 1) { nodes { author { login } } }
+            additions
+            deletions
+            changedFiles
             updatedAt
             url
           }
@@ -314,6 +317,9 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             let commits: CommitsLayer
             let reviewDecision: String?
             let reviews: ReviewsLayer?
+            let additions: Int?
+            let deletions: Int?
+            let changedFiles: Int?
             let updatedAt: Date
             let url: URL
         }
@@ -367,7 +373,10 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             labels: node.labels.nodes.map(\.name),
             htmlUrl: node.url,
             updatedAt: node.updatedAt,
-            approvedBy: node.reviews?.nodes.first?.author?.login
+            approvedBy: node.reviews?.nodes.first?.author?.login,
+            additions: node.additions,
+            deletions: node.deletions,
+            changedFiles: node.changedFiles
         )
     }
 

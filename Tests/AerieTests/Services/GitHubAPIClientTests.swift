@@ -237,6 +237,57 @@ final class GitHubAPIClientTests: XCTestCase {
         XCTAssertNil(prs[1].approvedBy, "a PR with no approving review has no approver")
     }
 
+    func test_listOpenPRs_mapsDiffStats() async throws {
+        // The PR's diff size (additions / deletions / changed files) must flow
+        // through so the merge dialog can render "+312 -184 · 7 files".
+        let responseJSON = """
+        {
+          "data": {
+            "repository": {
+              "pullRequests": {
+                "nodes": [
+                  {
+                    "id": "PR_a",
+                    "number": 1,
+                    "title": "Big change",
+                    "author": { "login": "carlos-li" },
+                    "headRefName": "feat/a",
+                    "state": "OPEN",
+                    "mergeable": "MERGEABLE",
+                    "labels": { "nodes": [] },
+                    "commits": { "nodes": [] },
+                    "reviewDecision": "APPROVED",
+                    "additions": 312,
+                    "deletions": 184,
+                    "changedFiles": 7,
+                    "updatedAt": "2026-05-28T10:00:00Z",
+                    "url": "https://github.com/acme/widgets/pull/1"
+                  }
+                ]
+              }
+            }
+          }
+        }
+        """
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let prs = try await client.listOpenPRs(
+            owner: "acme", repo: "widgets", repoId: UUID(), token: "ghp_test"
+        )
+
+        XCTAssertEqual(prs[0].additions, 312)
+        XCTAssertEqual(prs[0].deletions, 184)
+        XCTAssertEqual(prs[0].changedFiles, 7)
+    }
+
     func test_listOpenPRs_sendsCorrectQuery() async throws {
         let responseJSON = """
         { "data": { "repository": { "pullRequests": { "nodes": [] } } } }

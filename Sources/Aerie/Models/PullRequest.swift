@@ -37,4 +37,9 @@ struct PullRequest: Codable, Equatable, Identifiable {
     /// Optional + defaulted so existing call sites and older cached rows (which
     /// predate this field) keep decoding/constructing without change.
     var approvedBy: String? = nil
+    /// Diff size from GitHub: lines added / removed and files changed. Optional
+    /// + defaulted for the same back-compat reason as `approvedBy`.
+    var additions: Int? = nil
+    var deletions: Int? = nil
+    var changedFiles: Int? = nil
 }

@@ -82,6 +82,7 @@ struct DialogMerge: View {
             HStack(spacing: 14) {
                 ciSummary
                 reviewSummary
+                diffSummary
             }
             .padding(.top, 12)
         }
@@ -123,6 +124,26 @@ struct DialogMerge: View {
             }
         case .changesRequested: statusText("Changes requested", AerieColor.err)
         case .reviewRequired:   statusText("Review requested", AerieColor.text3)
+        }
+    }
+
+    // Diff size, mirroring the design's "+312 -184 · 7 files" run: additions in
+    // ok-green, deletions in err-red, file count muted. Only shown when the
+    // fetch supplied the numbers (older cached PRs predate them).
+    @ViewBuilder
+    private var diffSummary: some View {
+        if let add = pr.additions, let del = pr.deletions, let files = pr.changedFiles {
+            HStack(spacing: 5) {
+                Text("+\(add)")
+                    .aerieFont(AerieFont.code(12))
+                    .foregroundStyle(AerieColor.ok)
+                Text("-\(del)")
+                    .aerieFont(AerieFont.code(12))
+                    .foregroundStyle(AerieColor.err)
+                Text("· \(files) \(files == 1 ? "file" : "files")")
+                    .aerieFont(AerieFont.custom(.sans, size: 12))
+                    .foregroundStyle(AerieColor.text3)
+            }
         }
     }
 

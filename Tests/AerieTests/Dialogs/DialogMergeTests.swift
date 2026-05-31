@@ -46,7 +46,10 @@ final class DialogMergeTests: XCTestCase {
             labels: ["enhancement"],
             htmlUrl: URL(string: "https://github.com/carlos-li/aerie/pull/142")!,
             updatedAt: updatedAt,
-            approvedBy: "maja-c"
+            approvedBy: "maja-c",
+            additions: 312,
+            deletions: 184,
+            changedFiles: 7
         )
     }
 
