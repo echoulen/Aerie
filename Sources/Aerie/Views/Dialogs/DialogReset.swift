@@ -41,7 +41,9 @@ struct DialogReset: View {
             onPrimary: { Task { await runConfirm() } },
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
-            primaryDisabled: busy,
+            loading: busy,
+            loadingLabel: "Resetting…",
+            progressNote: "Resetting to origin/\(repo.defaultBranch)…",
             errorMessage: errorMessage
         ) {
             KVList(rows: [
