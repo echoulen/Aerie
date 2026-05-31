@@ -188,4 +188,60 @@ final class PRCardTests: XCTestCase {
     func test_isMergeable_fallback_changesRequested_isNotMergeable() {
         XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .changesRequested)))
     }
+
+    // MARK: - Update-branch pill visibility
+
+    private func makeLocal(
+        isCurrentBranch: Bool = true,
+        ahead: Int? = 0,
+        behind: Int? = 0,
+        unpushed: Int? = 0
+    ) -> PRLocalState {
+        PRLocalState(
+            prId: UUID(),
+            sourceBranch: "feat/x",
+            localBranchExists: true,
+            isCurrentBranch: isCurrentBranch,
+            dirty: false,
+            ahead: ahead,
+            behind: behind,
+            unpushed: unpushed
+        )
+    }
+
+    func test_updateBranch_shownWhenBehind() {
+        XCTAssertTrue(PRCard.shouldShowUpdateBranch(makeLocal(behind: 2)))
+    }
+
+    func test_updateBranch_hiddenWhenLevel() {
+        XCTAssertFalse(PRCard.shouldShowUpdateBranch(makeLocal(behind: 0)))
+    }
+
+    /// When the PR's branch isn't the current checkout, `behind` is nil — the
+    /// pill (and the local merge it triggers) only make sense on the checkout.
+    func test_updateBranch_hiddenWhenNotCheckedOut() {
+        XCTAssertFalse(PRCard.shouldShowUpdateBranch(
+            makeLocal(isCurrentBranch: false, ahead: nil, behind: nil, unpushed: nil)
+        ))
+    }
+
+    func test_updateBranch_hiddenWhenNoLocalState() {
+        XCTAssertFalse(PRCard.shouldShowUpdateBranch(nil))
+    }
+
+    // MARK: - Update-branch tooltip (pluralised commit count)
+
+    func test_updateBranchTooltip_singular() {
+        XCTAssertEqual(
+            UpdateBranchButton.tooltip(behind: 1),
+            "Update this branch with 1 new commit from origin/main"
+        )
+    }
+
+    func test_updateBranchTooltip_plural() {
+        XCTAssertEqual(
+            UpdateBranchButton.tooltip(behind: 3),
+            "Update this branch with 3 new commits from origin/main"
+        )
+    }
 }
