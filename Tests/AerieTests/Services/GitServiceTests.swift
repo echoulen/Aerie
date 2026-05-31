@@ -109,6 +109,43 @@ final class GitServiceTests: XCTestCase {
 
     // MARK: - Tests
 
+    // MARK: discardUnstaged
+
+    /// The repo card's "Discard all unstaged" action runs `git restore .`:
+    /// unstaged modifications to tracked files are dropped, while STAGED changes
+    /// (and commits) are kept.
+    func test_discardUnstaged_restoresTrackedModificationsButKeepsStaged() async throws {
+        let repo = try makeTempRepo() // committed a.txt = "hi" on main
+
+        // Stage a brand-new file — this must survive the discard.
+        try "staged".write(
+            to: repo.appendingPathComponent("b.txt"),
+            atomically: true, encoding: .utf8
+        )
+        try shell(["git", "-C", repo.path, "add", "b.txt"])
+
+        // Unstaged modification to a tracked file — this must be discarded.
+        try "dirty".write(
+            to: repo.appendingPathComponent("a.txt"),
+            atomically: true, encoding: .utf8
+        )
+
+        let svc = LiveGitService()
+        try await svc.discardUnstaged(repoAt: repo)
+
+        // a.txt restored to its committed/staged content.
+        let aContents = try String(
+            contentsOf: repo.appendingPathComponent("a.txt"), encoding: .utf8
+        )
+        XCTAssertEqual(aContents, "hi")
+
+        // b.txt is still staged (kept).
+        let staged = try shell([
+            "git", "-C", repo.path, "diff", "--cached", "--name-only",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertTrue(staged.contains("b.txt"), "staged change should be kept, got: \(staged)")
+    }
+
     // MARK: updateBranchFromBase
 
     /// The PR-card "Update branch" pill calls this when the checked-out branch

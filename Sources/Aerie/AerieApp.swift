@@ -161,6 +161,10 @@ struct MainShell: View {
     /// (nil = no dialog). Owned here so the `DialogReset` scrim dims the whole
     /// window, not just the Repos content area.
     @State private var presentedReset: RepoRow?
+    /// The repo whose discard-unstaged confirmation dialog is currently
+    /// presented (nil = no dialog). Owned here for the same scrim reason as
+    /// `presentedReset`.
+    @State private var presentedDiscard: RepoRow?
     /// The PR whose merge confirmation dialog is currently presented (nil = no
     /// dialog). Owned here for the same reason as `presentedReset` — the
     /// `DialogMerge` scrim should dim the whole window.
@@ -228,7 +232,8 @@ struct MainShell: View {
                             services.settingsNavigator.requestAddRepo()
                             openWindow(id: "settings")
                         },
-                        onHardReset: { presentedReset = $0 }
+                        onHardReset: { presentedReset = $0 },
+                        onDiscard: { presentedDiscard = $0 }
                     )
                 }
             }
@@ -258,6 +263,31 @@ struct MainShell: View {
                         }
                     },
                     onCancel: { presentedReset = nil }
+                )
+            }
+        }
+        // Discard-unstaged confirmation. Same shape as the hard-reset overlay:
+        // confirm runs `git restore .` off the bound git service, then refreshes
+        // so the card moves toward "Clean · in sync" and the Discard button (and
+        // this dialog) drop out; an error is returned to the dialog in place.
+        .overlay {
+            if let row = presentedDiscard, let status = row.status {
+                DialogDiscard(
+                    repo: row.repo,
+                    status: status,
+                    onConfirm: {
+                        do {
+                            try await services.gitService.discardUnstaged(
+                                repoAt: row.repo.localPath
+                            )
+                            await services.refreshNow()
+                            presentedDiscard = nil
+                            return nil
+                        } catch {
+                            return "Discard failed: \(error.localizedDescription)"
+                        }
+                    },
+                    onCancel: { presentedDiscard = nil }
                 )
             }
         }

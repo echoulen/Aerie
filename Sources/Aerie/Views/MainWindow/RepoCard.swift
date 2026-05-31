@@ -21,8 +21,18 @@ struct RepoCard: View {
     let row: RepoRow
     var onOpen: () -> Void
     var onHardReset: () -> Void
+    /// Presents the "Discard all unstaged" confirmation. Defaulted to a no-op so
+    /// snapshot tests / previews can omit it.
+    var onDiscard: () -> Void = {}
 
     // MARK: - Derived presentation bits
+
+    /// Whether the "Discard all unstaged" button shows — only when the working
+    /// tree is dirty (there's something unstaged to discard). Static + internal
+    /// so it's unit-testable without rendering the view.
+    static func shouldShowDiscard(_ status: LocalGitStatus?) -> Bool {
+        status?.isDirty == true
+    }
 
     private var repoTitle: String { row.repo.name }
     private var owner: String { row.repo.githubOwner }
@@ -74,8 +84,18 @@ struct RepoCard: View {
             BranchTag(name: branchName, isCurrent: !isOnDefault)
             StatusPill(text: statusText, tone: statusTone, showsDot: true)
         } actions: {
-            CardOpenButton(action: onOpen)
-            DangerButton(title: "Reset to origin/\(defaultBranch)", action: onHardReset)
+            // Stack vertically: the uniform Open ↗ / Reset row stays on top so
+            // those line up across cards; the quieter, dirty-only "Discard all
+            // unstaged" sits right-aligned directly below (per the design).
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 8) {
+                    CardOpenButton(action: onOpen)
+                    DangerButton(title: "Reset to origin/\(defaultBranch)", action: onHardReset)
+                }
+                if Self.shouldShowDiscard(row.status) {
+                    DiscardButton(action: onDiscard)
+                }
+            }
         }
     }
 
@@ -118,5 +138,34 @@ private struct DangerButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+    }
+}
+
+/// `.btn.ghost.sm.discard-all-btn` — a quiet ghost button (undo curved-arrow
+/// glyph + label) that's the destructive-but-secondary affordance below the
+/// Open ↗ / Reset row. Neutral (`text3`) at rest; text + icon turn danger red
+/// (`err`) on hover — louder than a normal ghost, quieter than the always-red
+/// `Reset to origin/<b>`. Smaller than the primary actions (12pt, 5×10 padding).
+private struct DiscardButton: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Discard all unstaged")
+                    .aerieFont(AerieFont.custom(.sans, size: 12))
+            }
+            .foregroundStyle(hovering ? AerieColor.err : AerieColor.text3)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("Discard all unstaged changes in the working tree")
+        .animation(.easeOut(duration: 0.15), value: hovering)
     }
 }
