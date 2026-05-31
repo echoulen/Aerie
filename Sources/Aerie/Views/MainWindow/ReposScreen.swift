@@ -28,6 +28,10 @@ struct ReposScreen: View {
     /// The screen owns no state, so the actual `DialogReset` presentation +
     /// `GitService.hardResetToOrigin` call live in `MainShell`.
     var onHardReset: (RepoRow) -> Void = { _ in }
+    /// Asks the shell to present the discard-unstaged confirmation dialog for
+    /// `row`. Like `onHardReset`, the `DialogDiscard` presentation +
+    /// `GitService.discardUnstaged` call live in `MainShell`.
+    var onDiscard: (RepoRow) -> Void = { _ in }
 
     var body: some View {
         switch viewModel.state {
@@ -114,7 +118,8 @@ struct ReposScreen: View {
                     RepoCard(
                         row: row,
                         onOpen: { handleOpen(row) },
-                        onHardReset: { onHardReset(row) }
+                        onHardReset: { onHardReset(row) },
+                        onDiscard: { onDiscard(row) }
                     )
                     .padding(.bottom, AerieMetric.cardGap)
                 }
