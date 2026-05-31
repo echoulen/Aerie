@@ -41,6 +41,15 @@ protocol GitService: Actor {
     func hardResetToOrigin(
         repoAt url: URL, defaultBranch: String
     ) async throws -> HardResetSummary
+
+    /// Bring the repo's current checkout up to date with its base by merging
+    /// `origin/<defaultBranch>` into it. Fetches origin first so the merge
+    /// target is current. The PR card's "Update branch" pill calls this when the
+    /// checked-out branch has fallen behind; afterwards the recomputed `behind`
+    /// count is 0 and the pill drops out.
+    func updateBranchFromBase(
+        repoAt url: URL, defaultBranch: String
+    ) async throws
 }
 
 actor LiveGitService: GitService {
@@ -277,6 +286,36 @@ actor LiveGitService: GitService {
             discardedDirtyFiles: dirtyCount,
             discardedCommits: ahead
         )
+    }
+
+    // MARK: - Update branch from base
+
+    func updateBranchFromBase(
+        repoAt url: URL, defaultBranch: String
+    ) async throws {
+        // Fetch via the git CLI (NOT libgit2) for the same credential reason as
+        // `hardResetToOrigin`: the CLI uses the keychain / credential helper and
+        // ~/.ssh config, so it authenticates against private remotes.
+        guard runGit(["fetch", "origin"], at: url) != nil else {
+            throw NSError(
+                domain: "GitService", code: 2,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Couldn't fetch origin — check your network connection and git credentials."]
+            )
+        }
+
+        // Merge the freshly-fetched base into the current checkout. `--no-edit`
+        // accepts the default merge message non-interactively; a fast-forward
+        // (the common "behind only" case) just advances HEAD. A non-zero exit
+        // means conflicts or a dirty tree blocked the merge — surface it so the
+        // pill stays put and the user can resolve and retry.
+        guard runGit(["merge", "--no-edit", "origin/\(defaultBranch)"], at: url) != nil else {
+            throw NSError(
+                domain: "GitService", code: 3,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Couldn't merge origin/\(defaultBranch) — resolve conflicts or commit local changes, then retry."]
+            )
+        }
     }
 
     /// Count of dirty files (anything that isn't `.current` or `.ignored`)

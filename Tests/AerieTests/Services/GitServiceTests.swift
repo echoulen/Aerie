@@ -109,6 +109,67 @@ final class GitServiceTests: XCTestCase {
 
     // MARK: - Tests
 
+    // MARK: updateBranchFromBase
+
+    /// The PR-card "Update branch" pill calls this when the checked-out branch
+    /// has fallen behind its base. Merging `origin/<base>` in must bring the
+    /// behind count back to 0 (here a clean fast-forward), so the pill drops out.
+    func test_updateBranchFromBase_mergesOriginBaseAndClearsBehind() async throws {
+        // A bare remote, seeded with one commit on `main` via a helper clone.
+        let remoteDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString + "-remote.git")
+        try shell(["git", "init", "-q", "--bare", "-b", "main", remoteDir.path])
+
+        let seedDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(
+            at: seedDir, withIntermediateDirectories: true
+        )
+        try shell(["git", "-C", seedDir.path, "init", "-q", "-b", "main"])
+        try shell([
+            "git", "-C", seedDir.path, "remote", "add", "origin", remoteDir.path,
+        ])
+        try "hi".write(
+            to: seedDir.appendingPathComponent("a.txt"),
+            atomically: true, encoding: .utf8
+        )
+        try shell(["git", "-C", seedDir.path, "add", "."])
+        try shell([
+            "git", "-C", seedDir.path,
+            "-c", "user.email=t@t", "-c", "user.name=T",
+            "commit", "-q", "-m", "init",
+        ])
+        try shell(["git", "-C", seedDir.path, "push", "-q", "-u", "origin", "main"])
+
+        // The clone we measure — currently in sync with origin, on `main`.
+        let cloneDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try shell(["git", "clone", "-q", remoteDir.path, cloneDir.path])
+        try shell(["git", "-C", cloneDir.path, "config", "user.email", "t@t"])
+        try shell(["git", "-C", cloneDir.path, "config", "user.name", "T"])
+
+        // Advance origin/main by one commit, then fetch (but don't merge) on the
+        // clone so it sits exactly one commit behind its base.
+        try addCommit(in: seedDir, file: "seed1")
+        try shell(["git", "-C", seedDir.path, "push", "-q"])
+        try shell(["git", "-C", cloneDir.path, "fetch", "-q"])
+
+        let svc = LiveGitService()
+        let before = try await svc.readStatus(at: cloneDir, repoId: UUID())
+        XCTAssertEqual(
+            before.behindOfDefault, 1,
+            "precondition: the clone is one commit behind origin/main"
+        )
+
+        // Act — bring the checked-out branch up to date with its base.
+        try await svc.updateBranchFromBase(repoAt: cloneDir, defaultBranch: "main")
+
+        // Assert — fast-forwarded: no longer behind, nothing left ahead.
+        let after = try await svc.readStatus(at: cloneDir, repoId: UUID())
+        XCTAssertEqual(after.behindOfDefault, 0)
+        XCTAssertEqual(after.aheadOfDefault, 0)
+    }
+
     func test_readStatus_returnsCleanForFreshCommit() async throws {
         let repo = try makeTempRepo()
         let svc = LiveGitService()

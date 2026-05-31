@@ -195,7 +195,23 @@ struct MainShell: View {
                         viewModel: prsVM,
                         tabSelection: $appVM.activeTab,
                         onRefresh: { await services.refreshNow() },
-                        onMerge: { presentedMerge = $0 }
+                        onMerge: { presentedMerge = $0 },
+                        onUpdateBranch: { row in
+                            // One-click "Update branch": merge origin/<base> into
+                            // the checkout, then re-sync so the row's behind count
+                            // (and the pill) update. Mirrors the hard-reset path —
+                            // a git op off the bound service, then `refreshNow`.
+                            // No dialog: this is a forward, non-destructive step.
+                            do {
+                                try await services.gitService.updateBranchFromBase(
+                                    repoAt: row.repo.localPath,
+                                    defaultBranch: row.repo.defaultBranch
+                                )
+                            } catch {
+                                NSLog("Update branch failed for \(row.repo.name) #\(row.pr.number): \(error.localizedDescription)")
+                            }
+                            await services.refreshNow()
+                        }
                     )
                 case .issues:
                     IssuesScreen(

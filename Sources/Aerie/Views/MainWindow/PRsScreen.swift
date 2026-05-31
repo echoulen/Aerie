@@ -29,6 +29,10 @@ struct PRsScreen: View {
     /// The screen owns no state, so the actual `DialogMerge` presentation +
     /// `MultiAccountAPI.mergePR` call live in `MainShell`.
     var onMerge: (PRRow) -> Void = { _ in }
+    /// Runs the base-branch update for a PR's checkout (the status-row "Update
+    /// branch" pill). Async so the pill can spin until the row re-syncs; the
+    /// `GitService.updateBranchFromBase` call + refresh live in `MainShell`.
+    var onUpdateBranch: (PRRow) async -> Void = { _ in }
 
     var body: some View {
         switch viewModel.state {
@@ -118,6 +122,7 @@ struct PRsScreen: View {
                         row: row,
                         onMerge: { onMerge(row) },
                         onOpen: { handleOpen(row) },
+                        onUpdateBranch: { await onUpdateBranch(row) },
                         now: now
                     )
                     .padding(.bottom, AerieMetric.cardGap)
