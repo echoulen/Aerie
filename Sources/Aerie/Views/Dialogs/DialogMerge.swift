@@ -115,7 +115,12 @@ struct DialogMerge: View {
     @ViewBuilder
     private var reviewSummary: some View {
         switch pr.reviewState {
-        case .approved:         statusText("✓ Approved", AerieColor.ok)
+        case .approved:
+            if let approver = pr.approvedBy {
+                statusText("✓ approved by \(approver)", AerieColor.ok)
+            } else {
+                statusText("✓ Approved", AerieColor.ok)
+            }
         case .changesRequested: statusText("Changes requested", AerieColor.err)
         case .reviewRequired:   statusText("Review requested", AerieColor.text3)
         }

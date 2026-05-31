@@ -120,6 +120,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
               }
             }
             reviewDecision
+            reviews(states: [APPROVED], last: 1) { nodes { author { login } } }
             updatedAt
             url
           }
@@ -312,6 +313,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             let labels: LabelLayer
             let commits: CommitsLayer
             let reviewDecision: String?
+            let reviews: ReviewsLayer?
             let updatedAt: Date
             let url: URL
         }
@@ -322,6 +324,8 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         struct CommitNode: Decodable { let commit: CommitInner }
         struct CommitInner: Decodable { let statusCheckRollup: RollupOrNull? }
         struct RollupOrNull: Decodable { let state: String }
+        struct ReviewsLayer: Decodable { let nodes: [ReviewNode] }
+        struct ReviewNode: Decodable { let author: Author? }
         let data: DataLayer
     }
 
@@ -362,7 +366,8 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             reviewState: review,
             labels: node.labels.nodes.map(\.name),
             htmlUrl: node.url,
-            updatedAt: node.updatedAt
+            updatedAt: node.updatedAt,
+            approvedBy: node.reviews?.nodes.first?.author?.login
         )
     }
 

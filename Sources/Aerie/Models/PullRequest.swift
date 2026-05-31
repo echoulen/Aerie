@@ -33,4 +33,8 @@ struct PullRequest: Codable, Equatable, Identifiable {
     let labels: [String]
     let htmlUrl: URL
     let updatedAt: Date
+    /// Login of the most recent approving reviewer, when the PR is approved.
+    /// Optional + defaulted so existing call sites and older cached rows (which
+    /// predate this field) keep decoding/constructing without change.
+    var approvedBy: String? = nil
 }
