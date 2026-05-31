@@ -9,9 +9,10 @@ import AppKit
 ///
 /// Action wiring:
 /// - "Open" launches the PR's HTML URL via `NSWorkspace`.
-/// - "Merge" leaves a TODO log line for now. The full merge confirmation
-///   dialog (`DialogMerge`) lands in Phase 17; until then, this view emits
-///   nothing destructive — the placeholder closure just logs intent.
+/// - "Merge" bubbles up via `onMerge`; the shell presents `DialogMerge` and
+///   runs `MultiAccountAPI.mergePR` on confirm. The screen itself stays
+///   state-free and performs nothing destructive (mirrors `ReposScreen`'s
+///   `onHardReset`).
 struct PRsScreen: View {
     @Bindable var viewModel: PRsViewModel
     /// Fixed clock injected for deterministic snapshot tests. Production
@@ -24,6 +25,10 @@ struct PRsScreen: View {
     var tabSelection: Binding<MainTab>? = nil
     /// The real refresh to run when the header's Refresh button is tapped.
     var onRefresh: () async -> Void = {}
+    /// Asks the shell to present the merge confirmation dialog for `row`.
+    /// The screen owns no state, so the actual `DialogMerge` presentation +
+    /// `MultiAccountAPI.mergePR` call live in `MainShell`.
+    var onMerge: (PRRow) -> Void = { _ in }
 
     var body: some View {
         switch viewModel.state {
@@ -111,7 +116,7 @@ struct PRsScreen: View {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
                     PRCard(
                         row: row,
-                        onMerge: { handleMerge(row) },
+                        onMerge: { onMerge(row) },
                         onOpen: { handleOpen(row) },
                         now: now
                     )
@@ -138,11 +143,5 @@ struct PRsScreen: View {
 
     private func handleOpen(_ row: PRRow) {
         NSWorkspace.shared.open(row.pr.htmlUrl)
-    }
-
-    private func handleMerge(_ row: PRRow) {
-        // TODO(phase-17): show DialogMerge confirmation + invoke MergeService.
-        // For now, log intent only so we don't perform a destructive action.
-        print("[PRsScreen] Merge requested for \(row.repo.name) #\(row.pr.number) — DialogMerge lands in Phase 17.")
     }
 }

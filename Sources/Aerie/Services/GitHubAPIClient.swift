@@ -111,6 +111,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             headRefName
             state
             mergeable
+            mergeStateStatus
             labels(first: 10) { nodes { name } }
             commits(last: 1) {
               nodes {
@@ -120,6 +121,10 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
               }
             }
             reviewDecision
+            reviews(states: [APPROVED], last: 1) { nodes { author { login } } }
+            additions
+            deletions
+            changedFiles
             updatedAt
             url
           }
@@ -309,9 +314,14 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             let headRefName: String
             let state: String
             let mergeable: String
+            let mergeStateStatus: String?
             let labels: LabelLayer
             let commits: CommitsLayer
             let reviewDecision: String?
+            let reviews: ReviewsLayer?
+            let additions: Int?
+            let deletions: Int?
+            let changedFiles: Int?
             let updatedAt: Date
             let url: URL
         }
@@ -322,6 +332,8 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         struct CommitNode: Decodable { let commit: CommitInner }
         struct CommitInner: Decodable { let statusCheckRollup: RollupOrNull? }
         struct RollupOrNull: Decodable { let state: String }
+        struct ReviewsLayer: Decodable { let nodes: [ReviewNode] }
+        struct ReviewNode: Decodable { let author: Author? }
         let data: DataLayer
     }
 
@@ -362,7 +374,12 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             reviewState: review,
             labels: node.labels.nodes.map(\.name),
             htmlUrl: node.url,
-            updatedAt: node.updatedAt
+            updatedAt: node.updatedAt,
+            approvedBy: node.reviews?.nodes.first?.author?.login,
+            additions: node.additions,
+            deletions: node.deletions,
+            changedFiles: node.changedFiles,
+            mergeStateStatus: node.mergeStateStatus
         )
     }
 

@@ -26,6 +26,18 @@ struct DialogShell<Content: View>: View {
     var errorMessage: String? = nil
     /// SF Symbol for the header icon. Defaults to a tone-appropriate glyph.
     var icon: String? = nil
+    /// A custom header glyph that overrides `icon` when set (e.g. the git-merge
+    /// graph the merge dialog uses). Rendered inside the tone-coloured tile.
+    var iconView: AnyView? = nil
+    /// Render the primary button as the design's prominent `.btn.amber` CTA
+    /// (bright amber gradient + dark ink) instead of the flat tone fill. Used by
+    /// the merge dialog; other dialogs keep the calmer tone-tinted button.
+    var primaryProminent: Bool = false
+    /// Vertical gap between the title and the subtitle in the header.
+    var headerSpacing: CGFloat = 4
+    /// Weight of the title text. Defaults to medium (the design's 500); the
+    /// merge dialog overrides to a lighter weight.
+    var titleWeight: Font.Weight = .medium
     @ViewBuilder var content: () -> Content
 
     // Hover state for the footer buttons (the design's `.btn` family has hover
@@ -82,9 +94,9 @@ struct DialogShell<Content: View>: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 14) {
             iconTile
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: headerSpacing) {
                 Text(title)
-                    .aerieFont(AerieFont.custom(.sans, size: 15).weight(.medium))
+                    .aerieFont(AerieFont.custom(.sans, size: 15).weight(titleWeight))
                     .foregroundStyle(AerieColor.text1)
                 if let subtitle {
                     Text(subtitle)
@@ -106,11 +118,18 @@ struct DialogShell<Content: View>: View {
                     .strokeBorder(ringColor, lineWidth: 1)
             )
             .frame(width: 36, height: 36)
-            .overlay(
-                Image(systemName: icon ?? defaultIcon)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(iconColor)
-            )
+            .overlay(iconGlyph)
+    }
+
+    @ViewBuilder
+    private var iconGlyph: some View {
+        if let iconView {
+            iconView
+        } else {
+            Image(systemName: icon ?? defaultIcon)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(iconColor)
+        }
     }
 
     private var defaultIcon: String {
@@ -161,12 +180,10 @@ struct DialogShell<Content: View>: View {
             // Primary — `.btn`-family rounded rect (9pt), tone fill deepens on hover.
             Button(action: onPrimary) {
                 Text(primaryTitle)
-                    .aerieFont(AerieFont.small().weight(.medium))
+                    .aerieFont(AerieFont.small().weight(primaryProminent ? .semibold : .medium))
                     .padding(.horizontal, 16).padding(.vertical, 8)
                     .foregroundStyle(primaryTextColor)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(primaryFill)
-                    )
+                    .background(primaryButtonBackground)
                     .overlay(
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
                             .strokeBorder(primaryStroke, lineWidth: 1)
@@ -222,6 +239,37 @@ struct DialogShell<Content: View>: View {
         }
     }
 
+    // The design's prominent `.btn.amber`: a vertical amber gradient with a
+    // bright inset top edge and a subtle hover brighten. Used when
+    // `primaryProminent` is set (the merge dialog); other tones keep the flat
+    // fill below.
+    @ViewBuilder
+    private var primaryButtonBackground: some View {
+        if primaryProminent {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [AerieColor.amberFillTop, AerieColor.amberFillBot],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.40), Color.clear],
+                                startPoint: .top, endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                        .blendMode(.plusLighter)
+                )
+                .brightness(primaryHover ? 0.04 : 0)
+        } else {
+            RoundedRectangle(cornerRadius: 9, style: .continuous).fill(primaryFill)
+        }
+    }
+
     // Fill/stroke/text match the design's `.btn` tones; the fill deepens while
     // hovering (`.btn.danger:hover` → err/0.18, `.btn:hover` → glass-3).
     private var primaryFill: Color {
@@ -233,6 +281,7 @@ struct DialogShell<Content: View>: View {
     }
 
     private var primaryStroke: Color {
+        if primaryProminent { return AerieColor.amberCtaLine }
         switch tone {
         case .danger:  return AerieColor.dangerLine
         case .warning: return AerieColor.amberLine
@@ -241,6 +290,7 @@ struct DialogShell<Content: View>: View {
     }
 
     private var primaryTextColor: Color {
+        if primaryProminent { return AerieColor.amberInk }
         switch tone {
         case .danger:  return AerieColor.dangerText
         case .warning: return AerieColor.amber

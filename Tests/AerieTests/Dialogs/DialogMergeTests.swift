@@ -45,7 +45,11 @@ final class DialogMergeTests: XCTestCase {
             reviewState: review,
             labels: ["enhancement"],
             htmlUrl: URL(string: "https://github.com/carlos-li/aerie/pull/142")!,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            approvedBy: "maja-c",
+            additions: 312,
+            deletions: 184,
+            changedFiles: 7
         )
     }
 
@@ -63,7 +67,7 @@ final class DialogMergeTests: XCTestCase {
             pr: fixturePR(),
             repo: fixtureRepo(),
             account: fixtureAccount(),
-            onConfirm: { },
+            onConfirm: { nil },
             onCancel: { }
         )
         assertSnapshot(of: host(view), as: .image(size: CGSize(width: 1240, height: 880)))
@@ -74,7 +78,7 @@ final class DialogMergeTests: XCTestCase {
             pr: fixturePR(),
             repo: fixtureRepo(),
             account: fixtureAccount(),
-            onConfirm: { },
+            onConfirm: { nil },
             onCancel: { },
             initialError: "Merge blocked: required status check \"build\" is failing on the source branch."
         )

@@ -173,6 +173,123 @@ final class GitHubAPIClientTests: XCTestCase {
         XCTAssertEqual(p2.labels, [])
     }
 
+    func test_listOpenPRs_mapsApprovedBy() async throws {
+        // A PR approved by `maja-c`, and one with no reviews. The approver's
+        // login must flow through to `PullRequest.approvedBy` so the merge
+        // dialog can render "approved by maja-c".
+        let responseJSON = """
+        {
+          "data": {
+            "repository": {
+              "pullRequests": {
+                "nodes": [
+                  {
+                    "id": "PR_a",
+                    "number": 1,
+                    "title": "Approved one",
+                    "author": { "login": "carlos-li" },
+                    "headRefName": "feat/a",
+                    "state": "OPEN",
+                    "mergeable": "MERGEABLE",
+                    "labels": { "nodes": [] },
+                    "commits": { "nodes": [] },
+                    "reviewDecision": "APPROVED",
+                    "reviews": { "nodes": [ { "author": { "login": "maja-c" } } ] },
+                    "updatedAt": "2026-05-28T10:00:00Z",
+                    "url": "https://github.com/acme/widgets/pull/1"
+                  },
+                  {
+                    "id": "PR_b",
+                    "number": 2,
+                    "title": "No reviews",
+                    "author": { "login": "octocat" },
+                    "headRefName": "feat/b",
+                    "state": "OPEN",
+                    "mergeable": "UNKNOWN",
+                    "labels": { "nodes": [] },
+                    "commits": { "nodes": [] },
+                    "reviewDecision": null,
+                    "reviews": { "nodes": [] },
+                    "updatedAt": "2026-05-28T09:00:00Z",
+                    "url": "https://github.com/acme/widgets/pull/2"
+                  }
+                ]
+              }
+            }
+          }
+        }
+        """
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let prs = try await client.listOpenPRs(
+            owner: "acme", repo: "widgets", repoId: UUID(), token: "ghp_test"
+        )
+
+        XCTAssertEqual(prs[0].approvedBy, "maja-c")
+        XCTAssertNil(prs[1].approvedBy, "a PR with no approving review has no approver")
+    }
+
+    func test_listOpenPRs_mapsDiffStats() async throws {
+        // The PR's diff size (additions / deletions / changed files) must flow
+        // through so the merge dialog can render "+312 -184 · 7 files".
+        let responseJSON = """
+        {
+          "data": {
+            "repository": {
+              "pullRequests": {
+                "nodes": [
+                  {
+                    "id": "PR_a",
+                    "number": 1,
+                    "title": "Big change",
+                    "author": { "login": "carlos-li" },
+                    "headRefName": "feat/a",
+                    "state": "OPEN",
+                    "mergeable": "MERGEABLE",
+                    "labels": { "nodes": [] },
+                    "commits": { "nodes": [] },
+                    "reviewDecision": "APPROVED",
+                    "mergeStateStatus": "CLEAN",
+                    "additions": 312,
+                    "deletions": 184,
+                    "changedFiles": 7,
+                    "updatedAt": "2026-05-28T10:00:00Z",
+                    "url": "https://github.com/acme/widgets/pull/1"
+                  }
+                ]
+              }
+            }
+          }
+        }
+        """
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let prs = try await client.listOpenPRs(
+            owner: "acme", repo: "widgets", repoId: UUID(), token: "ghp_test"
+        )
+
+        XCTAssertEqual(prs[0].additions, 312)
+        XCTAssertEqual(prs[0].deletions, 184)
+        XCTAssertEqual(prs[0].changedFiles, 7)
+        XCTAssertEqual(prs[0].mergeStateStatus, "CLEAN")
+    }
+
     func test_listOpenPRs_sendsCorrectQuery() async throws {
         let responseJSON = """
         { "data": { "repository": { "pullRequests": { "nodes": [] } } } }

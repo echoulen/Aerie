@@ -36,7 +36,8 @@ final class PRCardTests: XCTestCase {
         isMine: Bool = true,
         ci: CIState = .success,
         review: ReviewState = .approved,
-        sourceBranch: String = "feat/phase9-prs-view"
+        sourceBranch: String = "feat/phase9-prs-view",
+        mergeStateStatus: String? = nil
     ) -> PullRequest {
         PullRequest(
             id: UUID(uuidString: "00000000-0000-0000-0000-0000000000cc")!,
@@ -51,7 +52,8 @@ final class PRCardTests: XCTestCase {
             reviewState: review,
             labels: ["enhancement"],
             htmlUrl: URL(string: "https://github.com/carlos-li/aerie/pull/\(number)")!,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            mergeStateStatus: mergeStateStatus
         )
     }
 
@@ -133,5 +135,57 @@ final class PRCardTests: XCTestCase {
             localState: nil
         )
         assertSnapshot(of: host(row), as: .image(size: CGSize(width: 980, height: 240)))
+    }
+
+    // MARK: - isMergeable heuristic
+
+    // Authoritative path — trust GitHub's `mergeStateStatus` when present.
+
+    /// The reported bug: GitHub reports the PR CLEAN (nothing blocking the
+    /// merge), but the button rendered disabled because the heuristic demanded
+    /// an explicit approval. Repos without required reviews merge fine, so a
+    /// CLEAN state must light the button regardless of review state.
+    func test_isMergeable_cleanMergeState_isMergeable() {
+        XCTAssertTrue(PRCard.isMergeable(makePR(ci: .none, review: .reviewRequired, mergeStateStatus: "CLEAN")))
+    }
+
+    func test_isMergeable_unstableMergeState_isMergeable() {
+        // Non-required checks still running, but GitHub allows the merge.
+        XCTAssertTrue(PRCard.isMergeable(makePR(ci: .pending, review: .reviewRequired, mergeStateStatus: "UNSTABLE")))
+    }
+
+    func test_isMergeable_blockedMergeState_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .approved, mergeStateStatus: "BLOCKED")))
+    }
+
+    func test_isMergeable_dirtyConflicts_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .approved, mergeStateStatus: "DIRTY")))
+    }
+
+    func test_isMergeable_draft_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .approved, mergeStateStatus: "DRAFT")))
+    }
+
+    // Fallback path — no `mergeStateStatus` yet (older cache / still computing):
+    // open and not actively blocked. Approval is NOT required.
+
+    func test_isMergeable_fallback_notApprovedNoChecks_isMergeable() {
+        XCTAssertTrue(PRCard.isMergeable(makePR(ci: .none, review: .reviewRequired)))
+    }
+
+    func test_isMergeable_fallback_approvedPassingCI_isMergeable() {
+        XCTAssertTrue(PRCard.isMergeable(makePR(ci: .success, review: .approved)))
+    }
+
+    func test_isMergeable_fallback_failingCI_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .failure, review: .approved)))
+    }
+
+    func test_isMergeable_fallback_pendingCI_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .pending, review: .approved)))
+    }
+
+    func test_isMergeable_fallback_changesRequested_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .changesRequested)))
     }
 }
