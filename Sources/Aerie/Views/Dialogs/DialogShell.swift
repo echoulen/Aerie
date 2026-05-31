@@ -22,6 +22,20 @@ struct DialogShell<Content: View>: View {
     let onSecondary: () -> Void
     /// Disable the primary button while an action is in-flight.
     var primaryDisabled: Bool = false
+    /// Drives the shared loading state. The Reset and Merge dialogs set it; Sign
+    /// out and Remove leave it off (and keep the plain `primaryDisabled` footer).
+    /// While true: the primary button shows a spinner + `loadingLabel` (keeping
+    /// its danger/amber colour) and disables; Cancel dims + disables; an
+    /// indeterminate progress bar sweeps along the footer's top edge; and a
+    /// spinner + `progressNote` appear at the footer's leading edge. The body is
+    /// untouched. The accent derives from `tone` (the design's `primaryVariant`).
+    var loading: Bool = false
+    /// Primary-button label while `loading` (e.g. "Resetting…" / "Merging…").
+    /// Falls back to `primaryTitle` when nil.
+    var loadingLabel: String? = nil
+    /// Status text beside the footer's leading spinner while `loading`. Nil hides
+    /// the leading group, leaving the buttons trailing-aligned.
+    var progressNote: String? = nil
     /// Error banner shown above the buttons; nil hides it.
     var errorMessage: String? = nil
     /// SF Symbol for the header icon. Defaults to a tone-appropriate glyph.
@@ -44,6 +58,25 @@ struct DialogShell<Content: View>: View {
     // styles: ghost → glass-2 + text-1; danger → deeper err fill).
     @State private var secondaryHover = false
     @State private var primaryHover = false
+
+    // MARK: - Loading presentation (pure, unit-testable)
+
+    /// The primary button's label: while loading, the `loadingLabel` (falling
+    /// back to the idle `primaryTitle` when nil); otherwise `primaryTitle`.
+    /// Static so it's testable without rendering the view.
+    static func primaryLabel(
+        loading: Bool, loadingLabel: String?, primaryTitle: String
+    ) -> String {
+        loading ? (loadingLabel ?? primaryTitle) : primaryTitle
+    }
+
+    /// Accent tinting the footer progress bar + footer-leading spinner — the
+    /// design's `primaryColor` derived from the tone: danger reads red, every
+    /// other tone reads amber (mirrors the `primaryVariant` default). Static +
+    /// testable.
+    static func loadingAccent(for tone: DialogTone) -> Color {
+        tone == .danger ? AerieColor.err : AerieColor.amber
+    }
 
     var body: some View {
         ZStack {
@@ -157,44 +190,27 @@ struct DialogShell<Content: View>: View {
     }
 
     // Footer — a recessed band (dark fill + top hairline) per the design, so it
-    // reads as distinct from the body now that the middle divider is gone.
+    // reads as distinct from the body now that the middle divider is gone. While
+    // `loading` it also carries a leading spinner + `progressNote` and a
+    // top-edge indeterminate progress bar pinned over the hairline.
     private var footer: some View {
         HStack(spacing: 8) {
-            Spacer()
-            // Cancel — `.btn.ghost`: transparent at rest (a text button), and
-            // on hover gains a glass-2 fill + text-1 (per the design).
-            Button(action: onSecondary) {
-                Text(secondaryTitle)
-                    .aerieFont(AerieFont.small())
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .foregroundStyle(secondaryHover ? AerieColor.text1 : AerieColor.text3)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(secondaryHover ? AerieColor.glass2 : Color.clear)
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            // Footer-leading status (the design's space-between layout): a spinner
+            // + a calm progress note, only while loading. The `Spacer` then
+            // pushes the buttons to the trailing edge.
+            if loading, let progressNote {
+                HStack(spacing: 9) {
+                    DialogSpinner(stroke: loadingAccentColor)
+                    Text(progressNote)
+                        .aerieFont(AerieFont.custom(.sans, size: 12.5))
+                        .foregroundStyle(AerieColor.text3)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
-            .buttonStyle(.plain)
-            .onHover { secondaryHover = $0 }
-            .animation(.easeOut(duration: 0.18), value: secondaryHover)
-            // Primary — `.btn`-family rounded rect (9pt), tone fill deepens on hover.
-            Button(action: onPrimary) {
-                Text(primaryTitle)
-                    .aerieFont(AerieFont.small().weight(primaryProminent ? .semibold : .medium))
-                    .padding(.horizontal, 16).padding(.vertical, 8)
-                    .foregroundStyle(primaryTextColor)
-                    .background(primaryButtonBackground)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .strokeBorder(primaryStroke, lineWidth: 1)
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(primaryDisabled)
-            .opacity(primaryDisabled ? 0.5 : 1)
-            .onHover { primaryHover = primaryDisabled ? false : $0 }
-            .animation(.easeOut(duration: 0.18), value: primaryHover)
+            Spacer(minLength: 8)
+            cancelButton
+            primaryButton
         }
         .padding(.horizontal, 20).padding(.vertical, 14)
         .background(AerieColor.dialogFooter)
@@ -204,6 +220,69 @@ struct DialogShell<Content: View>: View {
                 .frame(height: 1),
             alignment: .top
         )
+        .overlay(alignment: .top) {
+            if loading {
+                DialogProgressBar(color: loadingAccentColor)
+            }
+        }
+    }
+
+    private var loadingAccentColor: Color { Self.loadingAccent(for: tone) }
+
+    // Cancel — `.btn.ghost`: transparent at rest (a text button), and on hover
+    // gains a glass-2 fill + text-1 (per the design). While loading it dims and
+    // disables so the operation can't be dismissed mid-flight.
+    private var cancelButton: some View {
+        Button(action: onSecondary) {
+            Text(secondaryTitle)
+                .aerieFont(AerieFont.small())
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .foregroundStyle(secondaryHover ? AerieColor.text1 : AerieColor.text3)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(secondaryHover ? AerieColor.glass2 : Color.clear)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(loading)
+        .opacity(loading ? 0.4 : 1)
+        .onHover { secondaryHover = loading ? false : $0 }
+        .animation(.easeOut(duration: 0.18), value: secondaryHover)
+    }
+
+    // Primary — `.btn`-family rounded rect (9pt), tone fill deepens on hover.
+    // While loading it prepends a spinner (tinted to the button's own text
+    // colour) and swaps the label for `loadingLabel`, keeping the tone/amber
+    // fill; it disables (also honouring the standalone `primaryDisabled`).
+    private var primaryButton: some View {
+        let disabled = primaryDisabled || loading
+        return Button(action: onPrimary) {
+            HStack(spacing: 8) {
+                if loading {
+                    DialogSpinner(stroke: primaryTextColor)
+                }
+                Text(Self.primaryLabel(
+                    loading: loading, loadingLabel: loadingLabel, primaryTitle: primaryTitle
+                ))
+                .aerieFont(AerieFont.small().weight(primaryProminent ? .semibold : .medium))
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .foregroundStyle(primaryTextColor)
+            .background(primaryButtonBackground)
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(primaryStroke, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        // Loading reads as "working" (0.85), plain-disabled as "blocked" (0.5),
+        // fully enabled otherwise.
+        .opacity(loading ? 0.85 : (primaryDisabled ? 0.5 : 1))
+        .onHover { primaryHover = disabled ? false : $0 }
+        .animation(.easeOut(duration: 0.18), value: primaryHover)
     }
 
     // A contained, inset error box (rounded, err-tinted) — not a full-width
@@ -296,5 +375,64 @@ struct DialogShell<Content: View>: View {
         case .warning: return AerieColor.amber
         case .neutral: return AerieColor.text1
         }
+    }
+}
+
+/// Small inline loading spinner — the design's `.spinner` (`styles.css`): a 2pt
+/// ring with a transparent quadrant, rotating continuously. Matches the shared
+/// `aerie-spin` keyframe (0.7s linear, infinite), expressed as the SwiftUI
+/// `rotationEffect` + `repeatForever` used elsewhere (e.g. `RefreshButton`).
+struct DialogSpinner: View {
+    var stroke: Color
+    var size: CGFloat = 13
+
+    @State private var spinning = false
+
+    var body: some View {
+        // A full ring at low opacity with a brighter 3/4 arc on top reads as the
+        // design's "ring with one quadrant cut away" once it's rotating.
+        ZStack {
+            Circle()
+                .stroke(stroke.opacity(0.25), lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: 0.75)
+                .stroke(stroke, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+        }
+        .frame(width: size, height: size)
+        .rotationEffect(.degrees(spinning ? 360 : 0))
+        .animation(
+            .linear(duration: 0.7).repeatForever(autoreverses: false),
+            value: spinning
+        )
+        .onAppear { spinning = true }
+    }
+}
+
+/// The footer's top-edge indeterminate progress bar — the design's
+/// `.progress-track > span` (`@keyframes aerie-sweep`): a short segment that
+/// sweeps left→right across a 2pt-tall clipped track. CSS runs
+/// `translateX(-100% → 400%)` of the segment's own width over 1.1s ease-in-out,
+/// infinite; reproduced here with an offset animation.
+struct DialogProgressBar: View {
+    var color: Color
+
+    @State private var sweeping = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let barWidth = geo.size.width * 0.3
+            Capsule()
+                .fill(color)
+                .frame(width: barWidth, height: 2)
+                // CSS translateX is relative to the segment's own width.
+                .offset(x: sweeping ? barWidth * 4 : -barWidth)
+                .animation(
+                    .easeInOut(duration: 1.1).repeatForever(autoreverses: false),
+                    value: sweeping
+                )
+        }
+        .frame(height: 2)
+        .clipped()
+        .onAppear { sweeping = true }
     }
 }

@@ -77,4 +77,45 @@ final class DialogShellTests: XCTestCase {
         }
         assertSnapshot(of: snapshot(view), as: .image(size: CGSize(width: 1240, height: 880)))
     }
+
+    // MARK: - Loading state (pure logic)
+
+    func test_primaryLabel_loadingUsesLoadingLabel() {
+        XCTAssertEqual(
+            DialogShell<Text>.primaryLabel(
+                loading: true, loadingLabel: "Resetting…", primaryTitle: "Reset to origin/main"
+            ),
+            "Resetting…"
+        )
+    }
+
+    func test_primaryLabel_loadingFallsBackToPrimaryTitle() {
+        XCTAssertEqual(
+            DialogShell<Text>.primaryLabel(
+                loading: true, loadingLabel: nil, primaryTitle: "Merge"
+            ),
+            "Merge"
+        )
+    }
+
+    func test_primaryLabel_idleUsesPrimaryTitle() {
+        XCTAssertEqual(
+            DialogShell<Text>.primaryLabel(
+                loading: false, loadingLabel: "Merging…", primaryTitle: "Merge"
+            ),
+            "Merge"
+        )
+    }
+
+    func test_loadingAccent_dangerIsErr() {
+        XCTAssertEqual(DialogShell<Text>.loadingAccent(for: .danger), AerieColor.err)
+    }
+
+    func test_loadingAccent_warningIsAmber() {
+        XCTAssertEqual(DialogShell<Text>.loadingAccent(for: .warning), AerieColor.amber)
+    }
+
+    func test_loadingAccent_neutralIsAmber() {
+        XCTAssertEqual(DialogShell<Text>.loadingAccent(for: .neutral), AerieColor.amber)
+    }
 }
