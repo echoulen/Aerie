@@ -50,6 +50,12 @@ protocol GitService: Actor {
     func updateBranchFromBase(
         repoAt url: URL, defaultBranch: String
     ) async throws
+
+    /// Discard all UNSTAGED changes in the working tree (`git restore .`):
+    /// drops working-tree modifications to tracked files that haven't been
+    /// staged. Staged changes and commits are kept. Destructive; the repo
+    /// card gates it behind a confirmation dialog.
+    func discardUnstaged(repoAt url: URL) async throws
 }
 
 actor LiveGitService: GitService {
@@ -286,6 +292,22 @@ actor LiveGitService: GitService {
             discardedDirtyFiles: dirtyCount,
             discardedCommits: ahead
         )
+    }
+
+    // MARK: - Discard unstaged
+
+    func discardUnstaged(repoAt url: URL) async throws {
+        // `git restore .` reverts working-tree modifications of tracked files
+        // back to the index — dropping unstaged edits while keeping staged
+        // changes and commits. Use the git CLI (not libgit2) for parity with the
+        // other mutating ops here. A non-zero exit means git refused; surface it.
+        guard runGit(["restore", "."], at: url) != nil else {
+            throw NSError(
+                domain: "GitService", code: 4,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Couldn't discard unstaged changes (git restore . failed)."]
+            )
+        }
     }
 
     // MARK: - Update branch from base
