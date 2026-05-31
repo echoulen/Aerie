@@ -186,58 +186,156 @@ struct MainShell: View {
         ))
     }
 
+    // The active tab's screen. Extracted from `body` so the SwiftUI view-builder
+    // type-checker solves a much smaller expression (the full `body` with all the
+    // dialog overlays otherwise exceeds the "unable to type-check in reasonable
+    // time" limit).
+    @ViewBuilder
+    private var tabContent: some View {
+        switch appVM.activeTab {
+        case .prs:
+            PRsScreen(
+                viewModel: prsVM,
+                tabSelection: $appVM.activeTab,
+                onRefresh: { await services.refreshNow() },
+                onMerge: { presentedMerge = $0 },
+                onUpdateBranch: { row in
+                    // One-click "Update branch": merge origin/<base> into
+                    // the checkout, then re-sync so the row's behind count
+                    // (and the pill) update. Mirrors the hard-reset path —
+                    // a git op off the bound service, then `refreshNow`.
+                    // No dialog: this is a forward, non-destructive step.
+                    do {
+                        try await services.gitService.updateBranchFromBase(
+                            repoAt: row.repo.localPath,
+                            defaultBranch: row.repo.defaultBranch
+                        )
+                    } catch {
+                        NSLog("Update branch failed for \(row.repo.name) #\(row.pr.number): \(error.localizedDescription)")
+                    }
+                    await services.refreshNow()
+                }
+            )
+        case .issues:
+            IssuesScreen(
+                viewModel: issuesVM,
+                tabSelection: $appVM.activeTab,
+                onRefresh: { await services.refreshNow() }
+            )
+        case .repos:
+            ReposScreen(
+                viewModel: reposVM,
+                tabSelection: $appVM.activeTab,
+                onRefresh: { await services.refreshNow() },
+                onAddRepo: {
+                    services.settingsNavigator.requestAddRepo()
+                    openWindow(id: "settings")
+                },
+                onHardReset: { presentedReset = $0 },
+                onDiscard: { presentedDiscard = $0 }
+            )
+        }
+    }
+
+    // Hard-reset confirmation overlay content. Extracted (like the other dialogs)
+    // to keep `body` within the type-checker's complexity budget.
+    @ViewBuilder
+    private var resetDialog: some View {
+        if let row = presentedReset, let status = row.status {
+            DialogReset(
+                repo: row.repo,
+                status: status,
+                onConfirm: {
+                    do {
+                        _ = try await services.gitService.hardResetToOrigin(
+                            repoAt: row.repo.localPath,
+                            defaultBranch: row.repo.defaultBranch
+                        )
+                        await services.refreshNow()
+                        presentedReset = nil
+                        return nil
+                    } catch {
+                        return "Reset failed: \(error.localizedDescription)"
+                    }
+                },
+                onCancel: { presentedReset = nil }
+            )
+        }
+    }
+
+    // Discard-unstaged confirmation overlay content. Confirm runs `git restore .`
+    // off the bound git service, then refreshes so the card moves toward
+    // "Clean · in sync" and the Discard button (and this dialog) drop out.
+    @ViewBuilder
+    private var discardDialog: some View {
+        if let row = presentedDiscard, let status = row.status {
+            DialogDiscard(
+                repo: row.repo,
+                status: status,
+                onConfirm: {
+                    do {
+                        try await services.gitService.discardUnstaged(
+                            repoAt: row.repo.localPath
+                        )
+                        await services.refreshNow()
+                        presentedDiscard = nil
+                        return nil
+                    } catch {
+                        return "Discard failed: \(error.localizedDescription)"
+                    }
+                },
+                onCancel: { presentedDiscard = nil }
+            )
+        }
+    }
+
+    // Merge confirmation overlay content.
+    @ViewBuilder
+    private var mergeDialog: some View {
+        if let row = presentedMerge {
+            DialogMerge(
+                pr: row.pr,
+                repo: row.repo,
+                account: accountForMerge(row),
+                onConfirm: {
+                    do {
+                        _ = try await services.multiApi.mergePR(
+                            owner: row.repo.githubOwner,
+                            repo: row.repo.githubRepo,
+                            number: row.pr.number,
+                            method: .squash
+                        )
+                        await services.refreshNow()
+                        presentedMerge = nil
+                        return nil
+                    } catch {
+                        return "Merge failed: \(error.localizedDescription)"
+                    }
+                },
+                onCancel: { presentedMerge = nil }
+            )
+        }
+    }
+
+    // MCP consent overlay content.
+    @ViewBuilder
+    private var mcpConsentDialog: some View {
+        if appVM.showMCPConsent, let req = services.pendingConsent {
+            MCPConsentDialog(
+                request: req,
+                onResponse: { approved in appVM.respondToConsent(approved) }
+            )
+        }
+    }
+
     var body: some View {
         AppFrame(
             viewModel: appVM,
             accountMenu: accountVM,
             onOpenSettings: { openWindow(id: "settings") }
         ) {
-            Group {
-                switch appVM.activeTab {
-                case .prs:
-                    PRsScreen(
-                        viewModel: prsVM,
-                        tabSelection: $appVM.activeTab,
-                        onRefresh: { await services.refreshNow() },
-                        onMerge: { presentedMerge = $0 },
-                        onUpdateBranch: { row in
-                            // One-click "Update branch": merge origin/<base> into
-                            // the checkout, then re-sync so the row's behind count
-                            // (and the pill) update. Mirrors the hard-reset path —
-                            // a git op off the bound service, then `refreshNow`.
-                            // No dialog: this is a forward, non-destructive step.
-                            do {
-                                try await services.gitService.updateBranchFromBase(
-                                    repoAt: row.repo.localPath,
-                                    defaultBranch: row.repo.defaultBranch
-                                )
-                            } catch {
-                                NSLog("Update branch failed for \(row.repo.name) #\(row.pr.number): \(error.localizedDescription)")
-                            }
-                            await services.refreshNow()
-                        }
-                    )
-                case .issues:
-                    IssuesScreen(
-                        viewModel: issuesVM,
-                        tabSelection: $appVM.activeTab,
-                        onRefresh: { await services.refreshNow() }
-                    )
-                case .repos:
-                    ReposScreen(
-                        viewModel: reposVM,
-                        tabSelection: $appVM.activeTab,
-                        onRefresh: { await services.refreshNow() },
-                        onAddRepo: {
-                            services.settingsNavigator.requestAddRepo()
-                            openWindow(id: "settings")
-                        },
-                        onHardReset: { presentedReset = $0 },
-                        onDiscard: { presentedDiscard = $0 }
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            tabContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         // Hard-reset confirmation. `DialogReset` carries its own full-window
         // scrim (via `DialogShell`), so overlaying it here dims the titlebar
