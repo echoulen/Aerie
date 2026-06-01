@@ -48,8 +48,39 @@ struct AerieApp: App {
         let server = services.mcpServer
         let discovery = services.discovery
         let delegate = appDelegate
+        // Snapshot the services the wiring needs — the Task below is @Sendable
+        // and must not capture the @MainActor `services`/`self`.
+        let registry = services.mcpRegistry
+        let router = services.mcpRouter
+        let db = services.db
+        let git = services.gitService
+        let api = services.multiApi
+        let scheduler = services.scheduler
+        let auth = services.auth
+        let configWriter = services.configWriter
         Task {
             do {
+                // Wire the MCP protocol methods + tool roster BEFORE the listener
+                // accepts requests — without handlers, every call (including the
+                // `initialize` handshake) is -32601 and clients can't connect.
+                await MCPToolset.registerAll(
+                    into: registry,
+                    db: db,
+                    git: git,
+                    api: api,
+                    refresh: { repoId in
+                        await scheduler.refreshNow(repoIds: [repoId], now: Date())
+                    },
+                    accountToken: { accountId in await auth.token(for: accountId) }
+                )
+                let appVersion = Bundle.main
+                    .infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+                await MCPMethods.install(
+                    on: router,
+                    registry: registry,
+                    serverInfo: .init(name: "Aerie", version: appVersion)
+                )
+
                 try await server.start()
                 guard let endpoint = await server.endpoint,
                       let token = await server.token
@@ -65,7 +96,15 @@ struct AerieApp: App {
                     delegate.attach(server: server, discovery: discovery)
                 }
                 try discovery.write(endpoint: endpoint.absoluteString, token: token)
-                // TODO(Phase 20): also write ~/.claude/.mcp.json (with consent UI).
+                // Keep Claude Code's ~/.claude.json entry pointed at THIS launch's
+                // endpoint/token when auto-register is on (both are fresh each
+                // launch). The writer's no-op guard makes a repeat call cheap.
+                let autoOn = (try? await db.settings.getBool("mcp.auto_register_claude_code")) ?? nil
+                if autoOn == true {
+                    try? configWriter.upsertAerie(
+                        endpoint: endpoint.absoluteString, token: token
+                    )
+                }
             } catch {
                 // Phase 20 will surface this in the MCP settings card. For now
                 // log it — the rest of the app still works without MCP.

@@ -1,9 +1,13 @@
 import Foundation
 
-/// Writes/removes Aerie's entry inside `~/.claude/.mcp.json` so Claude Code can
+/// Writes/removes Aerie's entry inside `~/.claude.json` (Claude Code's
+/// user-scope config — the "User MCPs" list in `/mcp`) so Claude Code can
 /// auto-discover the local MCP server. Phase 20 supersedes the discovery file
 /// for the Claude Code integration — though `DiscoveryFileWriter` is still kept
 /// for other MCP clients.
+///
+/// NOTE: the target is `~/.claude.json`, NOT `~/.claude/.mcp.json`. Claude Code
+/// does not read the latter, so writing there made auto-register a silent no-op.
 ///
 /// **Preservation:** all top-level keys outside `mcpServers` are copied
 /// verbatim, and the rest of `mcpServers` (entries other than `aerie`) is left
@@ -19,11 +23,12 @@ import Foundation
 struct ClaudeCodeConfigWriter {
     let path: URL
 
-    /// `~/.claude/.mcp.json`. Parent directory is created on demand by the
-    /// upsert path; we don't pre-create it here so tests can use temp URLs.
+    /// `~/.claude.json` — Claude Code's user-scope config. Parent directory
+    /// (the home dir) always exists; the upsert path still creates intermediate
+    /// dirs defensively so tests can point at nested temp URLs.
     static func defaultPath() -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".claude/.mcp.json")
+        return home.appendingPathComponent(".claude.json")
     }
 
     init(path: URL = ClaudeCodeConfigWriter.defaultPath()) {
@@ -40,11 +45,22 @@ struct ClaudeCodeConfigWriter {
         )
         var root: [String: Any] = readOrEmpty()
         var servers = (root["mcpServers"] as? [String: Any]) ?? [:]
-        servers["aerie"] = [
+        let desired: [String: Any] = [
             "type": "http",
             "url": endpoint,
             "headers": ["Authorization": "Bearer \(token)"]
-        ] as [String: Any]
+        ]
+        // No-op guard: skip the rewrite when our entry is already current.
+        // Reserializing ~/.claude.json reformats every float to full IEEE-754
+        // precision, so we only touch the file when aerie actually changes.
+        if let existing = servers["aerie"] as? [String: Any],
+           existing["type"] as? String == "http",
+           existing["url"] as? String == endpoint,
+           (existing["headers"] as? [String: Any])?["Authorization"] as? String
+            == "Bearer \(token)" {
+            return
+        }
+        servers["aerie"] = desired
         root["mcpServers"] = servers
         try atomicWrite(root)
     }
@@ -56,6 +72,8 @@ struct ClaudeCodeConfigWriter {
         guard FileManager.default.fileExists(atPath: path.path) else { return }
         var root: [String: Any] = readOrEmpty()
         guard var servers = root["mcpServers"] as? [String: Any] else { return }
+        // No-op guard: nothing to remove → don't rewrite (and reformat) the file.
+        guard servers["aerie"] != nil else { return }
         servers.removeValue(forKey: "aerie")
         root["mcpServers"] = servers
         try atomicWrite(root)
@@ -79,9 +97,14 @@ struct ClaudeCodeConfigWriter {
             try FileManager.default.removeItem(at: tmp)
         }
         try data.write(to: tmp, options: [.atomic])
+        // ~/.claude.json is Claude Code's own config — never leave it missing.
+        // `replaceItemAt` swaps atomically (the original survives until the
+        // replacement is in place); `moveItem` only handles the first-write case
+        // where there's nothing to replace yet.
         if FileManager.default.fileExists(atPath: path.path) {
-            try FileManager.default.removeItem(at: path)
+            _ = try FileManager.default.replaceItemAt(path, withItemAt: tmp)
+        } else {
+            try FileManager.default.moveItem(at: tmp, to: path)
         }
-        try FileManager.default.moveItem(at: tmp, to: path)
     }
 }
