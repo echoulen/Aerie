@@ -9,13 +9,20 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macos-15 ships Xcode 16 / Swift 6 by default. The older macos-14 image
+    # defaults to Swift 5.x, which can't resolve SwiftGitX 0.4.0 (its
+    # Package.swift declares swift-tools-version 6.0): the build failed at
+    # dependency resolution with "incompatible tools version (6.0.0)".
+    runs-on: macos-15
     env:
       TAG: ${{ github.event.release.tag_name }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Show toolchain
+        run: swift --version
 
       - name: Sync release tag into CFBundleShortVersionString
         run: |
