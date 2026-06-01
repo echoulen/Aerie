@@ -119,6 +119,56 @@ final class RepoDAOTests: XCTestCase {
         XCTAssertNil(found)
     }
 
+    func test_delete_removesDependentCacheRows() async throws {
+        // A tracked repo accumulates cache rows in tables that REFERENCE
+        // repos(id) (pr_cache, pr_local_state_cache, git_status_cache,
+        // issue_cache). With `PRAGMA foreign_keys = ON` and no ON DELETE
+        // CASCADE, deleting the repo would raise a FOREIGN KEY constraint
+        // failure unless `delete` clears the children in the same transaction.
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let r = makeRepo(accountId: acct)
+        try await db.repos.insert(r)
+
+        // Seed one row in each child table for this repo.
+        try await db.dbQueue.write { dbConn in
+            try dbConn.execute(
+                sql: "INSERT INTO pr_cache (repo_id, number, payload_json, fetched_at) VALUES (?, ?, ?, ?)",
+                arguments: [r.id.uuidString, 1, "{}", 0.0]
+            )
+            try dbConn.execute(
+                sql: "INSERT INTO pr_local_state_cache (pr_id, repo_id, payload_json, fetched_at) VALUES (?, ?, ?, ?)",
+                arguments: [UUID().uuidString, r.id.uuidString, "{}", 0.0]
+            )
+            try dbConn.execute(
+                sql: "INSERT INTO git_status_cache (repo_id, payload_json, fetched_at) VALUES (?, ?, ?)",
+                arguments: [r.id.uuidString, "{}", 0.0]
+            )
+            try dbConn.execute(
+                sql: "INSERT INTO issue_cache (repo_id, number, payload_json, fetched_at) VALUES (?, ?, ?, ?)",
+                arguments: [r.id.uuidString, 1, "{}", 0.0]
+            )
+        }
+
+        // Must not throw on the FK constraint.
+        try await db.repos.delete(id: r.id)
+
+        let all = try await db.repos.all()
+        XCTAssertTrue(all.isEmpty)
+
+        // Child rows are gone too — no orphaned cache.
+        let childCounts: [Int] = try await db.dbQueue.read { dbConn in
+            try ["pr_cache", "pr_local_state_cache", "git_status_cache", "issue_cache"].map { table in
+                try Int.fetchOne(
+                    dbConn,
+                    sql: "SELECT COUNT(*) FROM \(table) WHERE repo_id = ?",
+                    arguments: [r.id.uuidString]
+                ) ?? -1
+            }
+        }
+        XCTAssertEqual(childCounts, [0, 0, 0, 0])
+    }
+
     func test_setHidden_togglesFlag() async throws {
         let db = try makeDB()
         let acct = try insertAccount(db)

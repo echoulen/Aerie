@@ -146,6 +146,44 @@ final class RepositoriesViewModelTests: XCTestCase {
         XCTAssertNil(found)
     }
 
+    func test_remove_deletesRepoThatHasCachedRows() async throws {
+        // Reproduces the reported "[x] does nothing" bug: once the sync
+        // services have populated a repo's caches, deleting it tripped a
+        // FOREIGN KEY constraint that `remove`'s `try?` silently swallowed,
+        // leaving the row in place. The repo must vanish regardless.
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let a = try await insertRepo(db, accountId: acct, name: "Alpha", repo: "alpha", sortOrder: 0)
+        let b = try await insertRepo(db, accountId: acct, name: "Bravo", repo: "bravo", sortOrder: 1)
+
+        // Seed a cache row in each child table for the repo we'll remove.
+        try await db.dbQueue.write { dbConn in
+            try dbConn.execute(
+                sql: "INSERT INTO pr_cache (repo_id, number, payload_json, fetched_at) VALUES (?, ?, ?, ?)",
+                arguments: [a.id.uuidString, 1, "{}", 0.0]
+            )
+            try dbConn.execute(
+                sql: "INSERT INTO git_status_cache (repo_id, payload_json, fetched_at) VALUES (?, ?, ?)",
+                arguments: [a.id.uuidString, "{}", 0.0]
+            )
+            try dbConn.execute(
+                sql: "INSERT INTO issue_cache (repo_id, number, payload_json, fetched_at) VALUES (?, ?, ?, ?)",
+                arguments: [a.id.uuidString, 1, "{}", 0.0]
+            )
+        }
+
+        let vm = RepositoriesViewModel(db: db)
+        await vm.refresh()
+        XCTAssertEqual(vm.repos.count, 2)
+
+        await vm.remove(id: a.id)
+
+        XCTAssertEqual(vm.repos.count, 1)
+        XCTAssertEqual(vm.repos.first?.id, b.id)
+        let found = try await db.repos.find(id: a.id)
+        XCTAssertNil(found)
+    }
+
     func test_setAccount_validatesAccountExists() async throws {
         let db = try makeDB()
         let acct = try insertAccount(db)
@@ -211,6 +249,23 @@ final class RepositoriesViewModelTests: XCTestCase {
         let ok = await vm.add(detected(suggestedAccountId: nil))
         XCTAssertTrue(ok)
         XCTAssertEqual(vm.repos.first?.primaryAccountId, first)
+    }
+
+    func test_add_usesExplicitAccountId_overSuggestionAndFirst() async throws {
+        // The add-repo sheet resolves/lets the user pick a specific account;
+        // that choice must win over both the detector's host suggestion and the
+        // first-account fallback.
+        let db = try makeDB()
+        _ = try insertAccount(db, login: "aaa-first")     // first fallback
+        let suggested = try insertAccount(db, login: "suggested")
+        let chosen = try insertAccount(db, login: "chosen")
+
+        let vm = RepositoriesViewModel(db: db)
+        await vm.refresh()
+
+        let ok = await vm.add(detected(suggestedAccountId: suggested), accountId: chosen)
+        XCTAssertTrue(ok)
+        XCTAssertEqual(vm.repos.first?.primaryAccountId, chosen)
     }
 
     func test_add_assignsNextSortOrder() async throws {

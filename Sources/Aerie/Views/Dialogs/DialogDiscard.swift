@@ -38,7 +38,7 @@ struct DialogDiscard: View {
         DialogShell(
             tone: .danger,
             title: "Discard all unstaged changes in \(repo.name)?",
-            subtitle: "This will run git restore . — every unstaged modification in the working tree is permanently dropped. Staged changes and commits are kept.",
+            subtitle: "This runs git restore . + git clean -fd — every unstaged modification and untracked (new) file in the working tree is permanently dropped. Staged changes, commits, and ignored files are kept.",
             primaryTitle: "Discard changes",
             onPrimary: { Task { await runConfirm() } },
             secondaryTitle: "Cancel",

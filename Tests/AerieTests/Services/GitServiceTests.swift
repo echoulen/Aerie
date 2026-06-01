@@ -146,6 +146,72 @@ final class GitServiceTests: XCTestCase {
         XCTAssertTrue(staged.contains("b.txt"), "staged change should be kept, got: \(staged)")
     }
 
+    /// "Discard all unstaged" must also remove UNTRACKED (new) files — they are
+    /// unstaged changes from the user's point of view, and the dialog counts
+    /// them in `dirtyFileCount`. Staged-new files and ignored files must survive.
+    func test_discardUnstaged_removesUntrackedFilesButKeepsStagedAndIgnored() async throws {
+        let repo = try makeTempRepo() // committed a.txt on main
+        let fm = FileManager.default
+
+        // Untracked new file + untracked directory — must be removed.
+        try "new".write(
+            to: repo.appendingPathComponent("untracked.txt"),
+            atomically: true, encoding: .utf8
+        )
+        try fm.createDirectory(
+            at: repo.appendingPathComponent("newdir"), withIntermediateDirectories: true
+        )
+        try "deep".write(
+            to: repo.appendingPathComponent("newdir/inner.txt"),
+            atomically: true, encoding: .utf8
+        )
+
+        // A staged new file — staged changes survive the discard.
+        try "staged".write(
+            to: repo.appendingPathComponent("staged.txt"),
+            atomically: true, encoding: .utf8
+        )
+        try shell(["git", "-C", repo.path, "add", "staged.txt"])
+
+        // An ignored file — ignored paths are NOT "unstaged changes" and must
+        // not be wiped (build artifacts, .env, etc.).
+        try "build/\n".write(
+            to: repo.appendingPathComponent(".gitignore"),
+            atomically: true, encoding: .utf8
+        )
+        try shell(["git", "-C", repo.path, "add", ".gitignore"])
+        try fm.createDirectory(
+            at: repo.appendingPathComponent("build"), withIntermediateDirectories: true
+        )
+        try "artifact".write(
+            to: repo.appendingPathComponent("build/out.o"),
+            atomically: true, encoding: .utf8
+        )
+
+        let svc = LiveGitService()
+        try await svc.discardUnstaged(repoAt: repo)
+
+        // Untracked file + dir gone.
+        XCTAssertFalse(
+            fm.fileExists(atPath: repo.appendingPathComponent("untracked.txt").path),
+            "untracked file should be discarded"
+        )
+        XCTAssertFalse(
+            fm.fileExists(atPath: repo.appendingPathComponent("newdir").path),
+            "untracked directory should be discarded"
+        )
+        // Staged new file kept.
+        XCTAssertTrue(
+            fm.fileExists(atPath: repo.appendingPathComponent("staged.txt").path),
+            "staged file should be kept"
+        )
+        // Ignored file kept.
+        XCTAssertTrue(
+            fm.fileExists(atPath: repo.appendingPathComponent("build/out.o").path),
+            "ignored file should be kept"
+        )
+    }
+
     // MARK: updateBranchFromBase
 
     /// The PR-card "Update branch" pill calls this when the checked-out branch

@@ -145,6 +145,11 @@ struct RepoSettingsRow: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        // A borderless `Menu` on macOS draws its label with the system control
+        // text colour and ignores the label's own `.foregroundStyle`, so in
+        // this force-dark window the login rendered near-black. `.tint` is the
+        // knob the borderless menu actually reads for its label colour.
+        .tint(color)
         .fixedSize()
     }
 
