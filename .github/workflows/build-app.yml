@@ -1,0 +1,38 @@
+name: Build App
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync release tag into CFBundleShortVersionString
+        run: |
+          VERSION="${TAG#v}"
+          PLIST="Sources/Aerie/Resources/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
+          echo "CFBundleShortVersionString set to $VERSION"
+
+      - name: Build .app
+        run: make app
+
+      - name: Package as zip
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent Aerie.app dist/Aerie-macOS-arm64.zip
+
+      - name: Upload asset to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/Aerie-macOS-arm64.zip --clobber
