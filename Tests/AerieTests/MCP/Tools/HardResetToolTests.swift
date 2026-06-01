@@ -138,7 +138,7 @@ final class HardResetToolTests: XCTestCase {
 
         let git = LiveGitService()
         let spy = RefreshSpy()
-        let tool = HardResetTool(db: db, git: git, refresh: { id in spy.record(id) })
+        let tool = HardResetTool(db: db, git: git, refresh: { id in spy.record(id) }, accountToken: { _ in nil })
 
         let result = try await tool.handle(
             params: .object(["repo_id": .string(repo.id.uuidString)])
@@ -173,7 +173,7 @@ final class HardResetToolTests: XCTestCase {
 
     func test_handle_unknownRepo_throwsInvalidParams() async throws {
         let db = try makeDB()
-        let tool = HardResetTool(db: db, git: LiveGitService(), refresh: { _ in })
+        let tool = HardResetTool(db: db, git: LiveGitService(), refresh: { _ in }, accountToken: { _ in nil })
         do {
             _ = try await tool.handle(
                 params: .object(["repo_id": .string(UUID().uuidString)])
@@ -200,7 +200,7 @@ final class HardResetToolTests: XCTestCase {
         )
         try await db.repos.insert(repo)
 
-        let tool = HardResetTool(db: db, git: LiveGitService(), refresh: { _ in })
+        let tool = HardResetTool(db: db, git: LiveGitService(), refresh: { _ in }, accountToken: { _ in nil })
         do {
             _ = try await tool.handle(
                 params: .object(["repo_id": .string(repo.id.uuidString)])
@@ -215,7 +215,7 @@ final class HardResetToolTests: XCTestCase {
         let url = URL(fileURLWithPath: NSTemporaryDirectory() + UUID().uuidString + ".sqlite")
         tempURLs.append(url)
         let db = try! AppDatabase(url: url)
-        let tool = HardResetTool(db: db, git: LiveGitService(), refresh: { _ in })
+        let tool = HardResetTool(db: db, git: LiveGitService(), refresh: { _ in }, accountToken: { _ in nil })
         XCTAssertTrue(tool.isWrite)
         XCTAssertEqual(tool.name, "aerie_hard_reset_to_default")
     }

@@ -27,6 +27,11 @@ struct HardResetTool: MCPTool {
     /// Invoked detached after a successful reset so the rest of the app
     /// can refresh its git/PR state. Tests pass a spy.
     let refresh: @Sendable (UUID) async -> Void
+    /// Resolves a gh account id → its token. Used to authenticate the fetch as
+    /// the repo's bound account (`Repository.primaryAccountId`) instead of gh's
+    /// globally-active account, so a private remote resolves. Returns nil when
+    /// no token is cached (falls back to the active account).
+    let accountToken: @Sendable (UUID) async -> String?
 
     func handle(params: JSONValue?) async throws -> JSONValue {
         let repoId = try uuidParam(params, key: "repo_id")
@@ -34,14 +39,13 @@ struct HardResetTool: MCPTool {
             throw JSONRPCError(code: -32602, message: "Unknown repo_id", data: nil)
         }
         do {
-            // token: nil — this tool has no AuthService dependency, so the fetch
-            // uses gh's active account. Acceptable for now: the tool isn't wired
-            // into the live MCP server. Thread the repo's bound-account token
-            // here (like the app's reset path) if/when it ships.
+            // Authenticate the fetch as the repo's bound account so private
+            // remotes resolve (mirrors the app's reset/checkout path).
+            let token = await accountToken(repo.primaryAccountId)
             let summary = try await git.hardResetToOrigin(
                 repoAt: repo.localPath,
                 defaultBranch: repo.defaultBranch,
-                token: nil
+                token: token
             )
             Task { await refresh(repoId) }
             return .object([

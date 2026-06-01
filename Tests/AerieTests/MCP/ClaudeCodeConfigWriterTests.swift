@@ -32,6 +32,20 @@ final class ClaudeCodeConfigWriterTests: XCTestCase {
 
     // MARK: - Tests
 
+    func test_defaultPath_targetsClaudeCodeUserConfig() {
+        // Claude Code reads user-scope MCP servers from ~/.claude.json (the file
+        // shown as "User MCPs" in /mcp). It does NOT read ~/.claude/.mcp.json, so
+        // writing there made auto-register a no-op.
+        let path = ClaudeCodeConfigWriter.defaultPath()
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        XCTAssertEqual(path, home.appendingPathComponent(".claude.json"))
+        XCTAssertEqual(path.lastPathComponent, ".claude.json")
+        XCTAssertFalse(
+            path.path.contains("/.claude/.mcp.json"),
+            "must not target the path Claude Code ignores"
+        )
+    }
+
     func test_upsertAerie_addsEntry_withoutDisturbingOthers() throws {
         try writeRaw([
             "mcpServers": [
@@ -58,6 +72,32 @@ final class ClaudeCodeConfigWriterTests: XCTestCase {
         XCTAssertEqual(linear["url"] as? String, "http://example.com/linear")
         let github = try XCTUnwrap(servers["github"] as? [String: Any])
         XCTAssertEqual(github["url"] as? String, "http://example.com/github")
+    }
+
+    func test_removeAerie_skipsWrite_whenAerieAbsent() throws {
+        // Hand-written JSON whose float (0.2) and key spacing would change if
+        // the file were reserialized through JSONSerialization. With no aerie to
+        // remove, the writer must leave the bytes untouched.
+        let raw = #"{"mcpServers":{"linear":{"url":"http://example.com","weight":0.2}}}"#
+        try raw.data(using: .utf8)!.write(to: tmpPath)
+        let before = try Data(contentsOf: tmpPath)
+
+        try ClaudeCodeConfigWriter(path: tmpPath).removeAerie()
+
+        let after = try Data(contentsOf: tmpPath)
+        XCTAssertEqual(before, after, "no aerie to remove → file left byte-identical")
+    }
+
+    func test_upsertAerie_skipsWrite_whenEntryUnchanged() throws {
+        let writer = ClaudeCodeConfigWriter(path: tmpPath)
+        try writer.upsertAerie(endpoint: "http://127.0.0.1:5/mcp", token: "t1")
+        let before = try Data(contentsOf: tmpPath)
+
+        // Identical endpoint + token → no-op, must not rewrite the file.
+        try writer.upsertAerie(endpoint: "http://127.0.0.1:5/mcp", token: "t1")
+
+        let after = try Data(contentsOf: tmpPath)
+        XCTAssertEqual(before, after, "unchanged aerie entry → no rewrite")
     }
 
     func test_upsertAerie_replacesExistingAerie() throws {
