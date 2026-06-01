@@ -38,8 +38,12 @@ protocol GitService: Actor {
     /// Destructively reset the working tree to `origin/<defaultBranch>`:
     /// fetches origin, switches to the default branch, then `reset --hard`.
     /// Returns a summary of what was discarded (captured before the reset).
+    ///
+    /// `token` is the repo's bound account's gh token, used to authenticate the
+    /// fetch (see `forceCheckout`). Pass `nil` to fall back to gh's active
+    /// account.
     func hardResetToOrigin(
-        repoAt url: URL, defaultBranch: String
+        repoAt url: URL, defaultBranch: String, token: String?
     ) async throws -> HardResetSummary
 
     /// Bring the repo's current checkout up to date with its base by merging
@@ -47,8 +51,12 @@ protocol GitService: Actor {
     /// target is current. The PR card's "Update branch" pill calls this when the
     /// checked-out branch has fallen behind; afterwards the recomputed `behind`
     /// count is 0 and the pill drops out.
+    ///
+    /// `token` is the repo's bound account's gh token, used to authenticate the
+    /// fetch (see `forceCheckout`). Pass `nil` to fall back to gh's active
+    /// account.
     func updateBranchFromBase(
-        repoAt url: URL, defaultBranch: String
+        repoAt url: URL, defaultBranch: String, token: String?
     ) async throws
 
     /// Discard all UNSTAGED changes in the working tree: `git restore .` drops
@@ -64,7 +72,13 @@ protocol GitService: Actor {
     /// working tree and any divergent local commits. Destructive when the local
     /// branch has uncommitted or unpushed work; the PR card gates it behind a
     /// confirmation dialog.
-    func forceCheckout(repoAt url: URL, branch: String) async throws
+    ///
+    /// `token` is the repo's bound account's gh token (`Repository
+    /// .primaryAccountId` → `AuthService.token(for:)`). It's exported as
+    /// `GH_TOKEN` for the fetch so a private remote authenticates as the
+    /// account that can actually see it, not gh's globally-active account. Pass
+    /// `nil` to fall back to the active account.
+    func forceCheckout(repoAt url: URL, branch: String, token: String?) async throws
 }
 
 actor LiveGitService: GitService {
@@ -229,7 +243,7 @@ actor LiveGitService: GitService {
     // MARK: - Hard reset to origin
 
     func hardResetToOrigin(
-        repoAt url: URL, defaultBranch: String
+        repoAt url: URL, defaultBranch: String, token: String? = nil
     ) async throws -> HardResetSummary {
         // Capture pre-reset summary BEFORE we mutate anything — once we
         // switch branches and reset --hard, the dirty count and the
@@ -254,8 +268,10 @@ actor LiveGitService: GitService {
         // credential helper / keychain (HTTPS tokens) or ~/.ssh/config host
         // aliases, so its fetch fails to authenticate against a private remote
         // — which surfaced as `SwiftGitXError error 1` on a private HTTPS repo.
-        // The CLI authenticates exactly as a manual `git fetch` would.
-        guard runGit(["fetch", "origin"], at: url) != nil else {
+        // The CLI authenticates exactly as a manual `git fetch` would — and
+        // `token` (the repo's bound account) selects which account, so a private
+        // remote the active account can't see still authenticates.
+        guard runGit(["fetch", "origin"], at: url, token: token) != nil else {
             throw NSError(
                 domain: "GitService", code: 2,
                 userInfo: [NSLocalizedDescriptionKey:
@@ -334,12 +350,13 @@ actor LiveGitService: GitService {
 
     // MARK: - Force checkout
 
-    func forceCheckout(repoAt url: URL, branch: String) async throws {
+    func forceCheckout(repoAt url: URL, branch: String, token: String? = nil) async throws {
         // Fetch via the git CLI (NOT libgit2) for the same credential reason as
         // `hardResetToOrigin`/`updateBranchFromBase`: the CLI uses the keychain /
         // credential helper and ~/.ssh config, so it authenticates against
-        // private remotes.
-        guard runGit(["fetch", "origin"], at: url) != nil else {
+        // private remotes. `token` picks the repo's bound gh account so the
+        // helper doesn't fall back to gh's active (possibly unauthorized) account.
+        guard runGit(["fetch", "origin"], at: url, token: token) != nil else {
             throw NSError(
                 domain: "GitService", code: 6,
                 userInfo: [NSLocalizedDescriptionKey:
@@ -365,12 +382,13 @@ actor LiveGitService: GitService {
     // MARK: - Update branch from base
 
     func updateBranchFromBase(
-        repoAt url: URL, defaultBranch: String
+        repoAt url: URL, defaultBranch: String, token: String? = nil
     ) async throws {
         // Fetch via the git CLI (NOT libgit2) for the same credential reason as
         // `hardResetToOrigin`: the CLI uses the keychain / credential helper and
-        // ~/.ssh config, so it authenticates against private remotes.
-        guard runGit(["fetch", "origin"], at: url) != nil else {
+        // ~/.ssh config, so it authenticates against private remotes. `token`
+        // picks the repo's bound gh account rather than gh's active account.
+        guard runGit(["fetch", "origin"], at: url, token: token) != nil else {
             throw NSError(
                 domain: "GitService", code: 2,
                 userInfo: [NSLocalizedDescriptionKey:
@@ -478,13 +496,22 @@ actor LiveGitService: GitService {
     /// stdout on success, nil on any error (missing ref, no remote, etc.).
     /// This is intentionally lossy: most callers in this file treat absence
     /// as "zero" rather than propagating the error.
-    private func runGit(_ args: [String], at cwd: URL) -> String? {
+    ///
+    /// `token`, when non-nil, is exported as `GH_TOKEN` so the `gh auth
+    /// git-credential` helper authenticates as the repo's bound account rather
+    /// than gh's globally-active account — required for network operations
+    /// (`fetch`) against a private remote that the active account can't see.
+    private func runGit(_ args: [String], at cwd: URL, token: String? = nil) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = ["git", "-C", cwd.path] + args
         // Finder-launched GUI apps inherit only the minimal launchd PATH; add
         // Homebrew dirs so a Homebrew-only `git` still resolves. See SubprocessPATH.
-        p.environment = SubprocessPATH.environment()
+        // A non-nil token is injected as GH_TOKEN so the credential helper picks
+        // the right account.
+        p.environment = SubprocessPATH.environment(
+            extra: token.map { ["GH_TOKEN": $0] } ?? [:]
+        )
         let outPipe = Pipe()
         let errPipe = Pipe()
         p.standardOutput = outPipe
