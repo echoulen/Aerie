@@ -5,11 +5,44 @@ protocol SubprocessRunner: Sendable {
     func run(_ command: String, _ args: [String]) async throws -> (String, String, Int32)
 }
 
+/// Builds the `PATH` used for subprocesses (we shell out via `/usr/bin/env`,
+/// which resolves the command against `PATH`).
+///
+/// A GUI app launched from Finder / LaunchServices inherits only the minimal
+/// launchd `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`) — it does NOT source the
+/// user's shell profile, so Homebrew's `/opt/homebrew/bin` (Apple Silicon) or
+/// `/usr/local/bin` (Intel) is absent. `gh` lives there, so `which gh` failed
+/// and Aerie wrongly showed "Install GitHub CLI" even when `gh` was installed.
+/// Prepending the common CLI install dirs makes tools resolve regardless of how
+/// the app was launched (Finder vs Terminal).
+enum SubprocessPATH {
+    private static let toolDirs = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"]
+    private static let systemDirs = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+
+    static func augmented(base: String) -> String {
+        let baseDirs = base.split(separator: ":").map(String.init)
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for dir in toolDirs + baseDirs + systemDirs where !dir.isEmpty && seen.insert(dir).inserted {
+            ordered.append(dir)
+        }
+        return ordered.joined(separator: ":")
+    }
+
+    /// The current process environment with `PATH` augmented as above.
+    static func environment() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = augmented(base: env["PATH"] ?? "")
+        return env
+    }
+}
+
 struct LiveSubprocessRunner: SubprocessRunner {
     func run(_ command: String, _ args: [String]) async throws -> (String, String, Int32) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = [command] + args
+        p.environment = SubprocessPATH.environment()
         let outPipe = Pipe(); p.standardOutput = outPipe
         let errPipe = Pipe(); p.standardError  = errPipe
         try p.run()
