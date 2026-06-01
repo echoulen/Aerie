@@ -482,6 +482,9 @@ actor LiveGitService: GitService {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = ["git", "-C", cwd.path] + args
+        // Finder-launched GUI apps inherit only the minimal launchd PATH; add
+        // Homebrew dirs so a Homebrew-only `git` still resolves. See SubprocessPATH.
+        p.environment = SubprocessPATH.environment()
         let outPipe = Pipe()
         let errPipe = Pipe()
         p.standardOutput = outPipe
