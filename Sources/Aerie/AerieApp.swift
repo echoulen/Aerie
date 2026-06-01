@@ -168,6 +168,9 @@ struct MainShell: View {
     /// dialog). Owned here for the same reason as `presentedReset` — the
     /// `DialogMerge` scrim should dim the whole window.
     @State private var presentedMerge: PRRow?
+    /// The PR whose force-checkout confirmation dialog is currently presented
+    /// (nil = no dialog). Owned here for the same scrim reason as the others.
+    @State private var presentedCheckout: PRRow?
     /// GitHub accounts indexed by id, loaded once on appear so the merge dialog
     /// can resolve a PR's bound account (`repo.primaryAccountId`) synchronously
     /// for display. The overlay body can't `await`, hence the cached map.
@@ -213,7 +216,8 @@ struct MainShell: View {
                         NSLog("Update branch failed for \(row.repo.name) #\(row.pr.number): \(error.localizedDescription)")
                     }
                     await services.refreshNow()
-                }
+                },
+                onCheckout: { presentedCheckout = $0 }
             )
         case .issues:
             IssuesScreen(
@@ -318,6 +322,34 @@ struct MainShell: View {
         }
     }
 
+    // Force-checkout confirmation overlay content. Confirm runs the bound git
+    // service's `forceCheckout`, then refreshes so the PR's local-state pill
+    // settles to "clean & in sync" (the branch is now checked out at origin).
+    @ViewBuilder
+    private var checkoutDialog: some View {
+        if let row = presentedCheckout {
+            DialogCheckout(
+                repo: row.repo,
+                pr: row.pr,
+                local: row.localState,
+                onConfirm: {
+                    do {
+                        try await services.gitService.forceCheckout(
+                            repoAt: row.repo.localPath,
+                            branch: row.pr.sourceBranch
+                        )
+                        await services.refreshNow()
+                        presentedCheckout = nil
+                        return nil
+                    } catch {
+                        return "Checkout failed: \(error.localizedDescription)"
+                    }
+                },
+                onCancel: { presentedCheckout = nil }
+            )
+        }
+    }
+
     var body: some View {
         AppFrame(
             viewModel: appVM,
@@ -333,6 +365,7 @@ struct MainShell: View {
         .overlay { resetDialog }
         .overlay { discardDialog }
         .overlay { mergeDialog }
+        .overlay { checkoutDialog }
         .task {
             // Kick off focus-driven polling (idempotent), then paint instantly
             // from whatever's already cached. Fresh PRs arrive via the

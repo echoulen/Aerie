@@ -52,6 +52,12 @@ struct DialogShell<Content: View>: View {
     /// Weight of the title text. Defaults to medium (the design's 500); the
     /// merge dialog overrides to a lighter weight.
     var titleWeight: Font.Weight = .medium
+    /// Opt-in light-dismiss: when set, a click on the scrim or the Esc key calls
+    /// this (the checkout dialog wires it to Cancel). Automatically ignored while
+    /// `loading` so an in-flight op can't be dismissed. Nil (the default) leaves
+    /// the dialog modal — clicking outside / Esc do nothing, matching the other
+    /// confirmation dialogs.
+    var onBackgroundDismiss: (() -> Void)? = nil
     @ViewBuilder var content: () -> Content
 
     // Hover state for the footer buttons (the design's `.btn` family has hover
@@ -84,13 +90,25 @@ struct DialogShell<Content: View>: View {
             card
         }
         .ignoresSafeArea()
+        // Esc closes the dialog when light-dismiss is enabled and nothing is
+        // in flight. No-op otherwise (keeps the other dialogs modal).
+        .onExitCommand { if let onBackgroundDismiss, !loading { onBackgroundDismiss() } }
     }
 
     // Pure dark scrim — `.ultraThinMaterial` brightens the area in dark mode
     // (the "dialog looks too white" symptom), so we drop it and rely on the
-    // parent's natural darkness. 0.45 matches design `rgba(0,0,0,0.45)`.
+    // parent's natural darkness. 0.45 matches design `rgba(0,0,0,0.45)`. When
+    // light-dismiss is enabled, a click on the scrim closes the dialog (unless
+    // an op is in flight).
+    @ViewBuilder
     private var scrim: some View {
-        Color.black.opacity(0.45)
+        if let onBackgroundDismiss {
+            Color.black.opacity(0.45)
+                .contentShape(Rectangle())
+                .onTapGesture { if !loading { onBackgroundDismiss() } }
+        } else {
+            Color.black.opacity(0.45)
+        }
     }
 
     private var card: some View {

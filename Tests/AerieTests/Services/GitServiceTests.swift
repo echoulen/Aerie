@@ -212,6 +212,55 @@ final class GitServiceTests: XCTestCase {
         )
     }
 
+    // MARK: forceCheckout
+
+    /// The PR card's "Checkout" action runs
+    /// `git fetch origin && git checkout -f -B <branch> origin/<branch>`. From a
+    /// different branch with a dirty tree and a divergent local commit, it must
+    /// land on the PR branch, clean, reset to the origin tip.
+    func test_forceCheckout_landsOnOriginBranchDiscardingLocalWork() async throws {
+        let repo = try makeTempRepoWithOrigin() // on main, a.txt committed + pushed
+
+        // Create feat/x off main with its own commit, push it to origin.
+        try shell(["git", "-C", repo.path, "checkout", "-q", "-b", "feat/x"])
+        try addCommit(in: repo, file: "feat-file")
+        try shell(["git", "-C", repo.path, "push", "-q", "-u", "origin", "feat/x"])
+        let originFeatSha = try shell([
+            "git", "-C", repo.path, "rev-parse", "origin/feat/x",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Diverge: a local commit on feat/x that was never pushed.
+        try addCommit(in: repo, file: "local-divergent")
+
+        // Move off feat/x, then dirty a tracked file — both must be discarded.
+        try shell(["git", "-C", repo.path, "checkout", "-q", "main"])
+        try "dirty".write(
+            to: repo.appendingPathComponent("a.txt"),
+            atomically: true, encoding: .utf8
+        )
+
+        let svc = LiveGitService()
+        try await svc.forceCheckout(repoAt: repo, branch: "feat/x")
+
+        // On feat/x now.
+        let branch = try shell([
+            "git", "-C", repo.path, "symbolic-ref", "--short", "HEAD",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(branch, "feat/x")
+
+        // Clean working tree (dirty a.txt discarded).
+        let porcelain = try shell([
+            "git", "-C", repo.path, "status", "--porcelain",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(porcelain, "")
+
+        // HEAD reset to origin/feat/x (the divergent local commit discarded).
+        let head = try shell([
+            "git", "-C", repo.path, "rev-parse", "HEAD",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(head, originFeatSha)
+    }
+
     // MARK: updateBranchFromBase
 
     /// The PR-card "Update branch" pill calls this when the checked-out branch

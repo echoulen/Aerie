@@ -57,6 +57,14 @@ protocol GitService: Actor {
     /// .gitignore'd paths are kept. Destructive; the repo card gates it behind a
     /// confirmation dialog.
     func discardUnstaged(repoAt url: URL) async throws
+
+    /// Force-checkout the repo onto a PR's origin branch:
+    /// `git fetch origin` then `git checkout -f -B <branch> origin/<branch>`.
+    /// This resets the local branch to the origin tip, discarding any dirty
+    /// working tree and any divergent local commits. Destructive when the local
+    /// branch has uncommitted or unpushed work; the PR card gates it behind a
+    /// confirmation dialog.
+    func forceCheckout(repoAt url: URL, branch: String) async throws
 }
 
 actor LiveGitService: GitService {
@@ -320,6 +328,36 @@ actor LiveGitService: GitService {
                 domain: "GitService", code: 5,
                 userInfo: [NSLocalizedDescriptionKey:
                     "Couldn't remove untracked files (git clean -fd failed)."]
+            )
+        }
+    }
+
+    // MARK: - Force checkout
+
+    func forceCheckout(repoAt url: URL, branch: String) async throws {
+        // Fetch via the git CLI (NOT libgit2) for the same credential reason as
+        // `hardResetToOrigin`/`updateBranchFromBase`: the CLI uses the keychain /
+        // credential helper and ~/.ssh config, so it authenticates against
+        // private remotes.
+        guard runGit(["fetch", "origin"], at: url) != nil else {
+            throw NSError(
+                domain: "GitService", code: 6,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Couldn't fetch origin — check your network connection and git credentials."]
+            )
+        }
+
+        // `checkout -f -B <branch> origin/<branch>`: -f drops the dirty working
+        // tree, -B resets (or creates) the local branch to the origin tip. The
+        // combination switches to the PR's branch and discards any divergent
+        // local commits in one step.
+        guard runGit(
+            ["checkout", "-f", "-B", branch, "origin/\(branch)"], at: url
+        ) != nil else {
+            throw NSError(
+                domain: "GitService", code: 7,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Couldn't check out origin/\(branch) — the branch may not exist on origin."]
             )
         }
     }
