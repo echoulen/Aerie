@@ -9,7 +9,7 @@ final class MCPMethodsTests: XCTestCase {
         let description = "stub"
         let isWrite = false
         let inputSchema = JSONSchema(type: "object", properties: [:], required: [])
-        func handle(params: JSONValue?) async throws -> JSONValue { .string("ok") }
+        func handle(params: JSONValue?) async throws -> JSONValue { .object(["ok": .bool(true)]) }
     }
 
     private func makeRouter(withStub: Bool = false) async -> JSONRPCRouter {
@@ -59,14 +59,22 @@ final class MCPMethodsTests: XCTestCase {
         XCTAssertEqual(tools.count, 1)
     }
 
-    func test_toolsCall_routesToTool() async {
+    func test_toolsCall_wrapsResultInMCPContentEnvelope() async {
         let router = await makeRouter(withStub: true)
         let res = await router.dispatch(JSONRPCRequest(
             id: .int(1), method: "tools/call",
             params: .object(["name": .string("stub_tool"), "arguments": .object([:])])
         ))
         XCTAssertNil(res.error)
-        XCTAssertEqual(res.result, .string("ok"))
+        guard case let .object(obj)? = res.result else { return XCTFail("no result") }
+        // MCP CallToolResult: content array + isError, plus structuredContent.
+        XCTAssertEqual(obj["isError"], .bool(false))
+        XCTAssertEqual(obj["structuredContent"], .object(["ok": .bool(true)]))
+        guard case let .array(content)? = obj["content"], content.count == 1,
+              case let .object(item) = content[0] else { return XCTFail("no content item") }
+        XCTAssertEqual(item["type"], .string("text"))
+        guard case let .string(text)? = item["text"] else { return XCTFail("no text") }
+        XCTAssertTrue(text.contains("\"ok\""), "text content carries the JSON output")
     }
 
     func test_toolsCall_unknownTool_returnsMinus32601() async {
