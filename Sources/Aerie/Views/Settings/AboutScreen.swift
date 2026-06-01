@@ -54,7 +54,7 @@ struct AboutScreen: View {
     @ViewBuilder
     private var appIcon: some View {
         let size: CGFloat = 112
-        if let url = Bundle.module.url(forResource: "app-icon", withExtension: "png"),
+        if let url = Bundle.aerieResources.url(forResource: "app-icon", withExtension: "png"),
            let image = NSImage(contentsOf: url) {
             Image(nsImage: image)
                 .resizable()

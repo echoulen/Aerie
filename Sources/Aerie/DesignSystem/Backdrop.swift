@@ -49,7 +49,7 @@ struct Backdrop: View {
                 )
 
                 // Noise overlay
-                Image("noise", bundle: .module)
+                Image("noise", bundle: .aerieResources)
                     .resizable()
                     .interpolation(.none)
                     .blendMode(.overlay)
