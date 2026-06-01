@@ -56,7 +56,33 @@ enum MCPMethods {
         await router.register("tools/list") { _ in await registry.list() }
 
         await router.register("tools/call") { params in
-            try await registry.dispatch(params: params)
+            let raw = try await registry.dispatch(params: params)
+            // MCP clients read tool output from `result.content` (a
+            // `CallToolResult`), NOT the bare object. Returning the raw value
+            // makes the call "succeed" while the client finds no content and
+            // renders it as empty. Wrap it: a text content item carrying the
+            // JSON for universal compatibility, plus `structuredContent` (the
+            // raw object) for clients that consume it.
+            return .object([
+                "content": .array([
+                    .object([
+                        "type": .string("text"),
+                        "text": .string(Self.jsonText(raw)),
+                    ])
+                ]),
+                "structuredContent": raw,
+                "isError": .bool(false),
+            ])
         }
+    }
+
+    /// Serialize a `JSONValue` to a compact JSON string (deterministic key
+    /// order) for embedding as MCP text content.
+    private static func jsonText(_ value: JSONValue) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(value),
+              let str = String(data: data, encoding: .utf8) else { return "" }
+        return str
     }
 }
