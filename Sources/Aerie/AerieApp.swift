@@ -208,9 +208,16 @@ struct MainShell: View {
                     // a git op off the bound service, then `refreshNow`.
                     // No dialog: this is a forward, non-destructive step.
                     do {
+                        // Authenticate the fetch as the repo's bound account,
+                        // not gh's globally-active account (which may not have
+                        // access to a private remote).
+                        let token = await services.auth.token(
+                            for: row.repo.primaryAccountId
+                        )
                         try await services.gitService.updateBranchFromBase(
                             repoAt: row.repo.localPath,
-                            defaultBranch: row.repo.defaultBranch
+                            defaultBranch: row.repo.defaultBranch,
+                            token: token
                         )
                     } catch {
                         NSLog("Update branch failed for \(row.repo.name) #\(row.pr.number): \(error.localizedDescription)")
@@ -250,9 +257,13 @@ struct MainShell: View {
                 status: status,
                 onConfirm: {
                     do {
+                        let token = await services.auth.token(
+                            for: row.repo.primaryAccountId
+                        )
                         _ = try await services.gitService.hardResetToOrigin(
                             repoAt: row.repo.localPath,
-                            defaultBranch: row.repo.defaultBranch
+                            defaultBranch: row.repo.defaultBranch,
+                            token: token
                         )
                         await services.refreshNow()
                         presentedReset = nil
@@ -334,9 +345,13 @@ struct MainShell: View {
                 local: row.localState,
                 onConfirm: {
                     do {
+                        let token = await services.auth.token(
+                            for: row.repo.primaryAccountId
+                        )
                         try await services.gitService.forceCheckout(
                             repoAt: row.repo.localPath,
-                            branch: row.pr.sourceBranch
+                            branch: row.pr.sourceBranch,
+                            token: token
                         )
                         await services.refreshNow()
                         presentedCheckout = nil

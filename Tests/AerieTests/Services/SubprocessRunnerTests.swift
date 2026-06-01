@@ -36,4 +36,31 @@ final class SubprocessRunnerTests: XCTestCase {
         XCTAssertTrue(parts.contains("/opt/homebrew/bin"))
         XCTAssertTrue(parts.contains("/usr/bin"))
     }
+
+    // MARK: - extra-env injection
+    //
+    // Git operations against a private remote must authenticate as the account
+    // bound to that repo, not gh's globally-active account. We achieve that by
+    // injecting `GH_TOKEN` into the `git` subprocess environment so the
+    // `gh auth git-credential` helper serves that account's token. The merge
+    // must not clobber the augmented PATH.
+
+    func test_environment_mergesExtraEntriesOverProcessEnv() {
+        let env = SubprocessPATH.environment(extra: ["GH_TOKEN": "tok-123"])
+        XCTAssertEqual(env["GH_TOKEN"], "tok-123", "extra entries are injected")
+        let pathDirs = (env["PATH"] ?? "").split(separator: ":").map(String.init)
+        XCTAssertTrue(
+            pathDirs.contains("/opt/homebrew/bin"),
+            "PATH stays augmented when extra env is supplied"
+        )
+    }
+
+    func test_environment_noExtraDoesNotInventKeys() {
+        let env = SubprocessPATH.environment()
+        XCTAssertNil(
+            env["AERIE_NONEXISTENT_VAR_XYZ"],
+            "environment() must not invent keys that weren't asked for"
+        )
+        XCTAssertFalse((env["PATH"] ?? "").isEmpty, "PATH is always present")
+    }
 }

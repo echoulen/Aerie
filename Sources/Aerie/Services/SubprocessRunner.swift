@@ -29,10 +29,19 @@ enum SubprocessPATH {
         return ordered.joined(separator: ":")
     }
 
-    /// The current process environment with `PATH` augmented as above.
-    static func environment() -> [String: String] {
+    /// The current process environment with `PATH` augmented as above, plus any
+    /// `extra` entries merged in (overriding inherited values).
+    ///
+    /// `extra` exists so git operations can inject `GH_TOKEN`: the repo's
+    /// credential helper is `gh auth git-credential`, which serves gh's
+    /// *globally-active* account by default. When fetching a private remote
+    /// that only a *different* account can see, that yields a misleading
+    /// "Repository not found". Setting `GH_TOKEN` to the repo's bound account's
+    /// token makes the helper authenticate as that account instead.
+    static func environment(extra: [String: String] = [:]) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = augmented(base: env["PATH"] ?? "")
+        for (key, value) in extra { env[key] = value }
         return env
     }
 }

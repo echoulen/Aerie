@@ -34,9 +34,14 @@ struct HardResetTool: MCPTool {
             throw JSONRPCError(code: -32602, message: "Unknown repo_id", data: nil)
         }
         do {
+            // token: nil — this tool has no AuthService dependency, so the fetch
+            // uses gh's active account. Acceptable for now: the tool isn't wired
+            // into the live MCP server. Thread the repo's bound-account token
+            // here (like the app's reset path) if/when it ships.
             let summary = try await git.hardResetToOrigin(
                 repoAt: repo.localPath,
-                defaultBranch: repo.defaultBranch
+                defaultBranch: repo.defaultBranch,
+                token: nil
             )
             Task { await refresh(repoId) }
             return .object([
