@@ -34,20 +34,20 @@ final class RepositoriesViewModel {
     /// Persists a freshly-detected repo, then refreshes so it appears in
     /// the list and the sidebar count.
     ///
-    /// `DetectedRepo.suggestedAccountId` is the account matched on host —
-    /// it's nil when nothing matched. The `repos.account_id` column is
-    /// `NOT NULL REFERENCES accounts(id)`, so we fall back to the first
-    /// known account; the user can reassign via the row's account dropdown.
-    /// With no accounts at all there's nothing valid to satisfy the FK, so
-    /// we surface an error and write nothing.
+    /// Account binding precedence: an explicit `accountId` (the add-repo
+    /// sheet's resolved/user-picked choice) wins; otherwise the detector's
+    /// `suggestedAccountId` (host/login match); otherwise the first known
+    /// account. The `repos.account_id` column is `NOT NULL REFERENCES
+    /// accounts(id)`, so with no accounts at all there's nothing valid to
+    /// satisfy the FK — we surface an error and write nothing.
     ///
     /// Returns whether the repo was persisted.
     @discardableResult
-    func add(_ detected: DetectedRepo) async -> Bool {
+    func add(_ detected: DetectedRepo, accountId: UUID? = nil) async -> Bool {
         if accounts.isEmpty {
             accounts = (try? await db.accounts.all()) ?? []
         }
-        guard let accountId = detected.suggestedAccountId ?? accounts.first?.id else {
+        guard let accountId = accountId ?? detected.suggestedAccountId ?? accounts.first?.id else {
             error = "Add a GitHub account before adding a repository."
             return false
         }

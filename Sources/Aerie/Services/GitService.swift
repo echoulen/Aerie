@@ -51,10 +51,11 @@ protocol GitService: Actor {
         repoAt url: URL, defaultBranch: String
     ) async throws
 
-    /// Discard all UNSTAGED changes in the working tree (`git restore .`):
-    /// drops working-tree modifications to tracked files that haven't been
-    /// staged. Staged changes and commits are kept. Destructive; the repo
-    /// card gates it behind a confirmation dialog.
+    /// Discard all UNSTAGED changes in the working tree: `git restore .` drops
+    /// unstaged modifications to tracked files, and `git clean -fd` removes
+    /// untracked (new) files and directories. Staged changes, commits, and
+    /// .gitignore'd paths are kept. Destructive; the repo card gates it behind a
+    /// confirmation dialog.
     func discardUnstaged(repoAt url: URL) async throws
 }
 
@@ -297,15 +298,28 @@ actor LiveGitService: GitService {
     // MARK: - Discard unstaged
 
     func discardUnstaged(repoAt url: URL) async throws {
-        // `git restore .` reverts working-tree modifications of tracked files
-        // back to the index — dropping unstaged edits while keeping staged
-        // changes and commits. Use the git CLI (not libgit2) for parity with the
-        // other mutating ops here. A non-zero exit means git refused; surface it.
+        // Two steps, because "unstaged changes" spans two git notions:
+        //   1. `git restore .` reverts working-tree modifications of *tracked*
+        //      files back to the index (dropping unstaged edits, keeping staged
+        //      changes and commits).
+        //   2. `git clean -fd` removes *untracked* files and directories — new
+        //      files are unstaged changes too, and the confirmation dialog
+        //      counts them in `dirtyFileCount`, so `restore` alone left them
+        //      behind. No `-x`, so .gitignore'd paths (build artifacts, .env)
+        //      are preserved; staged-new files stay too (they're in the index).
+        // Use the git CLI (not libgit2) for parity with the other mutating ops.
         guard runGit(["restore", "."], at: url) != nil else {
             throw NSError(
                 domain: "GitService", code: 4,
                 userInfo: [NSLocalizedDescriptionKey:
                     "Couldn't discard unstaged changes (git restore . failed)."]
+            )
+        }
+        guard runGit(["clean", "-fd"], at: url) != nil else {
+            throw NSError(
+                domain: "GitService", code: 5,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Couldn't remove untracked files (git clean -fd failed)."]
             )
         }
     }

@@ -62,6 +62,30 @@ protocol GitHubAPIClient: Sendable {
     /// Synchronous + nonisolated so it stays cheap on the hot path (the polling
     /// pipeline, settings view, etc).
     func lastRateLimit(token: String) -> RateLimitSnapshot?
+
+    /// Whether `token` can see `owner/repo`. Used by the add-repo flow to bind
+    /// an account that can actually reach the repo (an org repo whose owner
+    /// doesn't match any account login can't be picked by host/login alone).
+    /// Declared on the protocol — not just the extension — so the live override
+    /// is dynamically dispatched when called through the `GitHubAPIClient`
+    /// existential in `MultiAccountAPI`.
+    func repoIsVisible(owner: String, repo: String, token: String) async -> Bool
+}
+
+extension GitHubAPIClient {
+    /// Default probe: list the repo's open PRs and treat 401/403/404 (the
+    /// client maps an invisible private repo to 404) as "not visible". Any
+    /// other failure (network, decode) also reads as not-visible so the caller
+    /// falls back to its heuristic rather than binding a wrong account.
+    /// `LiveGitHubAPIClient` overrides this with a cheap id-only query.
+    func repoIsVisible(owner: String, repo: String, token: String) async -> Bool {
+        do {
+            _ = try await listOpenPRs(owner: owner, repo: repo, repoId: UUID(), token: token)
+            return true
+        } catch {
+            return false
+        }
+    }
 }
 
 // MARK: - Rate-limit store (lock-protected, nonisolated read/write)
@@ -231,6 +255,48 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         return repository.issues.nodes.map {
             Self.map($0, repoId: repoId, viewerLogin: viewerLogin)
         }
+    }
+
+    // MARK: repoIsVisible
+
+    private static let repoVisibleQuery: String = """
+    query($owner: String!, $repo: String!) {
+      repository(owner: $owner, name: $repo) { id }
+    }
+    """
+
+    /// Cheap visibility probe: ask only for the repo's node id. A non-null
+    /// `repository` means this token can see it. Any error (auth, network,
+    /// decode) reads as not-visible — the add-repo probe is best-effort and
+    /// falls back to its heuristic when it can't confirm.
+    func repoIsVisible(owner: String, repo: String, token: String) async -> Bool {
+        var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+        let payload: [String: Any] = [
+            "query": Self.repoVisibleQuery,
+            "variables": ["owner": owner, "repo": repo],
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return false }
+        request.httpBody = body
+
+        guard let (data, response) = try? await session.data(for: request) else { return false }
+        let http = response as? HTTPURLResponse
+        recordRateLimit(token: token, response: http)
+        guard let status = http?.statusCode, (200...299).contains(status) else { return false }
+
+        struct Resp: Decodable {
+            struct DataLayer: Decodable {
+                struct Repo: Decodable { let id: String }
+                let repository: Repo?
+            }
+            let data: DataLayer
+        }
+        guard let decoded = try? JSONDecoder().decode(Resp.self, from: data) else { return false }
+        return decoded.data.repository != nil
     }
 
     // MARK: mergePR

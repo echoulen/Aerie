@@ -39,9 +39,21 @@ final class AddRepoSheetViewModel {
     private(set) var candidates: [RepoCandidate] = []
 
     /// Accounts in the system. Used by detection to suggest a primary
-    /// account by host. The integration layer refreshes this when the
-    /// sheet opens; tests inject directly.
+    /// account by host, and rendered as the selectable account list in the
+    /// detected state. The integration layer refreshes this when the sheet
+    /// opens; tests inject directly.
     var accounts: [GitHubAccount] = []
+
+    /// The account that will be bound to the repo on "Add to fleet". Seeded
+    /// from the detector's host/login suggestion, refined by `resolveAccount`'s
+    /// API probe, and overridable by the user via `selectAccount`.
+    private(set) var selectedAccountId: UUID?
+
+    /// API probe that returns the account which can actually see the repo, or
+    /// nil if it can't tell. Injected by the integration layer (wired to
+    /// `MultiAccountAPI.resolveAccount`); defaults to a no-op so previews and
+    /// snapshot tests don't hit the network.
+    var resolveAccount: (DetectedRepo) async -> UUID? = { _ in nil }
 
     private let detector: RepoDetector
 
@@ -50,7 +62,10 @@ final class AddRepoSheetViewModel {
         self.accounts = accounts
     }
 
-    func reset() { state = .empty }
+    func reset() {
+        state = .empty
+        selectedAccountId = nil
+    }
 
     /// Move to `.detecting` immediately so the UI flips, then run the
     /// detector. The intermediate state is preserved on cancellation
@@ -64,12 +79,31 @@ final class AddRepoSheetViewModel {
     func runDetection(at url: URL) async {
         do {
             let detected = try await detector.detect(at: url, accounts: accounts)
-            self.state = .detected(detected)
+            await applyDetected(detected)
         } catch let err as RepoDetector.DetectionError {
             self.state = .error(url, err.message)
         } catch {
             self.state = .error(url, error.localizedDescription)
         }
+    }
+
+    /// Publishes the detected state and resolves which account to bind. The
+    /// detector's host/login heuristic is the instant default; the injected
+    /// `resolveAccount` probe then refines it to an account that can actually
+    /// see the repo (so an org repo whose owner matches no account login no
+    /// longer silently binds the wrong same-host account). Split out from
+    /// `runDetection` so the selection logic is testable without a real folder.
+    func applyDetected(_ detected: DetectedRepo) async {
+        state = .detected(detected)
+        selectedAccountId = detected.suggestedAccountId
+        if let probed = await resolveAccount(detected) {
+            selectedAccountId = probed
+        }
+    }
+
+    /// User override of the bound account from the detected-state picker.
+    func selectAccount(_ id: UUID) {
+        selectedAccountId = id
     }
 
     /// Phase 13.6 wires this from the scanner; exposed now so tests
@@ -100,7 +134,9 @@ struct AddRepoSheet: View {
     // Read for the concatenated-Text intro line, which can't use `.aerieFont`.
     @Environment(\.interfaceFontScale) private var fontScale
     var onCancel: () -> Void
-    var onAdd: (DetectedRepo) -> Void
+    /// Called with the detected repo and the account the user resolved/picked
+    /// in the sheet (nil falls through to the detector suggestion in `add`).
+    var onAdd: (DetectedRepo, UUID?) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -318,7 +354,7 @@ struct AddRepoSheet: View {
                 .padding(.vertical, 8)
 
             if case .detected(let d) = viewModel.state {
-                Button("Add to fleet") { onAdd(d) }
+                Button("Add to fleet") { onAdd(d, viewModel.selectedAccountId) }
                     .buttonStyle(.plain)
                     .aerieFont(AerieFont.small().weight(.semibold))
                     .foregroundStyle(Color(red: 0.20, green: 0.18, blue: 0.10))
@@ -415,11 +451,7 @@ struct AddRepoSheet: View {
                 kvRow("host", d.host)
                 kvRow("default branch", d.defaultBranch)
                 kvRow("current branch", d.currentBranch.isEmpty ? "(none)" : d.currentBranch)
-                kvRow("working tree", d.isDirty ? "● dirty" : "clean", isLast: d.suggestedAccountId == nil)
-                if let suggested = d.suggestedAccountId {
-                    let short = suggested.uuidString.prefix(8)
-                    kvRow("account", "suggested · \(short)", isLast: true)
-                }
+                kvRow("working tree", d.isDirty ? "● dirty" : "clean", isLast: true)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 2)
@@ -431,6 +463,8 @@ struct AddRepoSheet: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(AerieColor.glassLine, lineWidth: 1)
             )
+
+            accountPicker
 
             Text("polling starts within 30s after adding.")
                 .aerieFont(AerieFont.code(11))
@@ -462,6 +496,71 @@ struct AddRepoSheet: View {
                     .frame(height: 1)
             }
         }
+    }
+
+    // MARK: - Account picker
+
+    /// Selectable list of connected accounts. The selection is seeded by the
+    /// detector's host suggestion, refined by the API probe (`resolveAccount`),
+    /// and the user can override it here before adding. Built from selectable
+    /// rows rather than a `Menu` so the choice is always visible (and so it
+    /// dodges the borderless-menu label-colour issue on macOS).
+    @ViewBuilder
+    private var accountPicker: some View {
+        if !viewModel.accounts.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ACCOUNT")
+                    .aerieFont(AerieFont.eyebrow())
+                    .tracking(2.0)
+                    .foregroundStyle(AerieColor.text4)
+                VStack(spacing: 0) {
+                    ForEach(Array(viewModel.accounts.enumerated()), id: \.element.id) { idx, account in
+                        if idx > 0 {
+                            Rectangle()
+                                .fill(AerieColor.glassLine)
+                                .frame(height: 1)
+                        }
+                        accountRow(account)
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.black.opacity(0.16))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(AerieColor.glassLine, lineWidth: 1)
+                )
+            }
+        }
+    }
+
+    private func accountRow(_ account: GitHubAccount) -> some View {
+        let selected = viewModel.selectedAccountId == account.id
+        return Button {
+            viewModel.selectAccount(account.id)
+        } label: {
+            HStack(spacing: 11) {
+                AccountAvatar(login: account.login, size: 22)
+                Text(account.login)
+                    .aerieFont(AerieFont.body().weight(.medium))
+                    .foregroundStyle(AerieColor.text1)
+                Text("@\(account.host)")
+                    .aerieFont(AerieFont.code(11))
+                    .foregroundStyle(AerieColor.text4)
+                Spacer()
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AerieColor.amber)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(selected ? AerieColor.amberSoft : Color.clear)
     }
 
     private func errorState(_ url: URL, _ msg: String) -> some View {

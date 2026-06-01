@@ -113,9 +113,9 @@ struct SettingsWindow: View {
                         AddRepoSheet(
                             viewModel: addRepoVM,
                             onCancel: { showAddRepo = false },
-                            onAdd: { detected in
+                            onAdd: { detected, accountId in
                                 showAddRepo = false
-                                Task { await reposVM.add(detected) }
+                                Task { await reposVM.add(detected, accountId: accountId) }
                             }
                         )
                         .frame(maxWidth: 640)
@@ -175,7 +175,18 @@ struct SettingsWindow: View {
             await reposVM.refresh()
             addRepoVM.reset()
             addRepoVM.accounts = reposVM.accounts
+            configureAccountProbe()
             showAddRepo = true
+        }
+    }
+
+    /// Wires the add-repo sheet's account probe to the live API so detection
+    /// can pick the account that can actually see the repo (an org repo whose
+    /// owner matches no account login can't be resolved by host alone).
+    private func configureAccountProbe() {
+        let api = services.multiApi
+        addRepoVM.resolveAccount = { detected in
+            await api.resolveAccount(owner: detected.githubOwner, repo: detected.githubRepo)
         }
     }
 
@@ -215,6 +226,7 @@ struct SettingsWindow: View {
                     // Feed the loaded accounts in so RepoDetector can match a
                     // primary account by host (otherwise suggestion is always nil).
                     addRepoVM.accounts = reposVM.accounts
+                    configureAccountProbe()
                     showAddRepo = true
                 }
             )

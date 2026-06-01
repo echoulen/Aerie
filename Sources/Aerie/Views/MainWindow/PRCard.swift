@@ -35,6 +35,15 @@ struct PRCard: View {
     /// Static + internal so it's unit-testable without rendering the view.
     static func isMergeable(_ pr: PullRequest) -> Bool {
         guard pr.state == .open else { return false }
+        // A failing CI rollup hard-blocks the button, even when GitHub would
+        // technically allow the merge: `UNSTABLE` (and occasionally `CLEAN`)
+        // means the failing checks aren't branch-protection-required, so the web
+        // UI keeps its merge button live. Aerie deliberately won't offer a
+        // one-click merge over red CI — override from the web if you must.
+        // (Note: only a *failure* blocks; `.pending`/`.none` still defer to
+        // `mergeStateStatus`, so an UNSTABLE PR with non-required checks merely
+        // *running* stays mergeable.)
+        if pr.ciState == .failure { return false }
         switch pr.mergeStateStatus {
         case "CLEAN", "UNSTABLE", "HAS_HOOKS", "BEHIND":
             // GitHub will accept the merge (no branch-protection block, no

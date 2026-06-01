@@ -385,6 +385,74 @@ final class MultiAccountAPITests: XCTestCase {
         XCTAssertEqual(count, 0, "no token → no network call")
     }
 
+    // MARK: resolveAccount — probe which account can see a repo
+
+    func test_resolveAccount_returnsFirstAccountThatCanSeeRepo() async throws {
+        // The first account can't see the (private org) repo — GraphQL surfaces
+        // that as a 404 — so the probe must advance to the account that can.
+        let first = UUID()
+        let second = UUID()
+        let firstToken = "cant_see"
+        let secondToken = "can_see"
+
+        let stub = StubGitHubAPIClient()
+        await stub.enqueue(.apiError(GitHubAPIError(status: 404, message: "repository not visible")), forToken: firstToken)
+        await stub.enqueue(.prs([]), forToken: secondToken)
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [first: firstToken, second: secondToken] },
+            accountsInOrder: { [first, second] }
+        )
+
+        let resolved = await api.resolveAccount(owner: "nextDriveIoE", repo: "ioe-portal-ui")
+        XCTAssertEqual(resolved, second)
+        let tokensUsed = await stub.tokensUsed
+        XCTAssertEqual(tokensUsed, [firstToken, secondToken])
+    }
+
+    func test_resolveAccount_stopsAtFirstVisibleAccount() async throws {
+        // The first account can see it → no need to probe the rest.
+        let first = UUID()
+        let second = UUID()
+        let firstToken = "can_see"
+        let secondToken = "unused"
+
+        let stub = StubGitHubAPIClient()
+        await stub.enqueue(.prs([]), forToken: firstToken)
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [first: firstToken, second: secondToken] },
+            accountsInOrder: { [first, second] }
+        )
+
+        let resolved = await api.resolveAccount(owner: "acme", repo: "widgets")
+        XCTAssertEqual(resolved, first)
+        let count = await stub.callCount
+        XCTAssertEqual(count, 1, "should stop probing once an account can see the repo")
+    }
+
+    func test_resolveAccount_returnsNilWhenNoAccountCanSee() async throws {
+        let first = UUID()
+        let second = UUID()
+        let firstToken = "no1"
+        let secondToken = "no2"
+
+        let stub = StubGitHubAPIClient()
+        await stub.enqueue(.apiError(GitHubAPIError(status: 404, message: "nope")), forToken: firstToken)
+        await stub.enqueue(.apiError(GitHubAPIError(status: 404, message: "nope")), forToken: secondToken)
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [first: firstToken, second: secondToken] },
+            accountsInOrder: { [first, second] }
+        )
+
+        let resolved = await api.resolveAccount(owner: "acme", repo: "secret")
+        XCTAssertNil(resolved)
+    }
+
     // MARK: rate-limit
 
     func test_multiAccount_rateLimitForAccount_returnsSnapshot() async throws {

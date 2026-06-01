@@ -154,6 +154,29 @@ actor MultiAccountAPI {
         lastUsedByAccount[accountId]
     }
 
+    // MARK: Account resolution
+
+    /// Probes the configured accounts in order and returns the id of the first
+    /// whose token can actually see `owner/repo`. The add-repo flow uses this to
+    /// bind an account that can reach the repo, instead of guessing by host —
+    /// an org repo (e.g. `nextDriveIoE/ioe-portal-ui`) has no account whose
+    /// login equals the owner, so host/login matching would bind whichever
+    /// same-host account happened to be first, which may not have access.
+    ///
+    /// Returns nil when no account can see it (or none are configured), so the
+    /// caller can fall back to its heuristic suggestion.
+    func resolveAccount(owner: String, repo: String) async -> UUID? {
+        let order = await accountsInOrder()
+        let tokens = await tokensByAccount()
+        for accountId in order {
+            guard let token = tokens[accountId] else { continue }
+            if await client.repoIsVisible(owner: owner, repo: repo, token: token) {
+                return accountId
+            }
+        }
+        return nil
+    }
+
     // MARK: Fallback loop
 
     /// HTTP statuses that mean "this token can't see/authorize the resource, so

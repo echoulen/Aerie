@@ -154,6 +154,19 @@ final class PRCardTests: XCTestCase {
         XCTAssertTrue(PRCard.isMergeable(makePR(ci: .pending, review: .reviewRequired, mergeStateStatus: "UNSTABLE")))
     }
 
+    /// Reported bug: a PR with a *failing* CI rollup still lit the Merge button
+    /// when GitHub reported UNSTABLE (the failing checks aren't
+    /// branch-protection-required, so GitHub itself would allow the merge).
+    /// Aerie deliberately refuses to offer a one-click merge over red CI — a
+    /// hard failure blocks the button regardless of `mergeStateStatus`.
+    func test_isMergeable_unstableButFailingCI_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .failure, review: .approved, mergeStateStatus: "UNSTABLE")))
+    }
+
+    func test_isMergeable_cleanButFailingCI_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .failure, review: .approved, mergeStateStatus: "CLEAN")))
+    }
+
     func test_isMergeable_blockedMergeState_isNotMergeable() {
         XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .approved, mergeStateStatus: "BLOCKED")))
     }
