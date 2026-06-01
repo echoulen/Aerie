@@ -117,4 +117,4 @@ handoff (a dark glass system with a single amber accent).
 
 ## License
 
-© 2026 echoulen. All rights reserved.
+[MIT](LICENSE) © 2026 echoulen
