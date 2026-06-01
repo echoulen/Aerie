@@ -16,6 +16,9 @@ struct PRCard: View {
     let row: PRRow
     var onMerge: () -> Void
     var onOpen: () -> Void
+    /// Asks the shell to present the force-checkout confirmation dialog for this
+    /// PR. Defaulted to a no-op for snapshot tests and previews.
+    var onCheckout: () -> Void = {}
     /// Runs the base-branch update for this PR's checkout. Awaited by the
     /// status-row "Update branch" pill so it can spin until the row's sync
     /// settles. Defaulted to a no-op for snapshot tests and previews.
@@ -93,9 +96,74 @@ struct PRCard: View {
                 )
             }
         } actions: {
-            CardOpenButton(action: onOpen)
-            mergeButton
+            actionColumn
         }
+    }
+
+    // MARK: - Actions column
+    //
+    // Open · Merge · Checkout stacked top→bottom, equal width and centred — the
+    // design's `PRCard` right column (`v2/app.jsx`: "actions, stacked top →
+    // bottom"). All three are `.btn.sm` (12pt) sized; Open is ghost (borderless),
+    // Merge/Checkout carry the glass/amber `.btn` chrome. A fixed column width
+    // keeps the three equal and the cards' action columns aligned down the list.
+
+    private static let actionColumnWidth: CGFloat = 108
+
+    private var actionColumn: some View {
+        VStack(spacing: 8) {
+            openButton
+            mergeButton
+            checkoutButton
+        }
+        .frame(width: Self.actionColumnWidth)
+    }
+
+    private var openButton: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 6) {
+                Text("Open")
+                Text("↗")
+            }
+            .aerieFont(AerieFont.custom(.sans, size: 12))
+            .foregroundStyle(AerieColor.text2)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var checkoutButton: some View {
+        let plan = CheckoutPlan.make(for: row.localState)
+        // Destructive checkouts hint with red label text (design: `color:
+        // destructive ? red : text-1`); the nuance otherwise lives in the dialog.
+        let tint = plan.destructive ? AerieColor.err : AerieColor.text1
+        return Button(action: onCheckout) {
+            HStack(spacing: 6) {
+                CheckoutGlyphShape()
+                    .stroke(tint, style: StrokeStyle(lineWidth: 1.6 * 11 / 16, lineCap: .round, lineJoin: .round))
+                    .frame(width: 11, height: 11)
+                Text("Checkout")
+            }
+            .aerieFont(AerieFont.custom(.sans, size: 12))
+            .foregroundStyle(tint)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(AerieColor.glass2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(plan.current
+            ? "Local repo is already on origin/\(row.pr.sourceBranch)"
+            : "Force checkout \(row.repo.name) to origin/\(row.pr.sourceBranch)")
     }
 
     // MARK: - Local state → one sentence pill
@@ -127,10 +195,10 @@ struct PRCard: View {
     private var mergeButton: some View {
         Button(action: onMerge) {
             Text("Merge")
-                .aerieFont(AerieFont.custom(.sans, size: 13).weight(mergeable ? .semibold : .medium))
+                .aerieFont(AerieFont.custom(.sans, size: 12).weight(mergeable ? .semibold : .medium))
                 .foregroundStyle(mergeable ? AerieColor.amberInk : AerieColor.text2)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
                 .background(mergeBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -141,7 +209,6 @@ struct PRCard: View {
         .buttonStyle(.plain)
         .opacity(mergeable ? 1 : 0.45)
         .disabled(!mergeable)
-        .fixedSize()
     }
 
     @ViewBuilder

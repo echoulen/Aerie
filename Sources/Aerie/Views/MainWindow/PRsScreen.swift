@@ -33,6 +33,10 @@ struct PRsScreen: View {
     /// branch" pill). Async so the pill can spin until the row re-syncs; the
     /// `GitService.updateBranchFromBase` call + refresh live in `MainShell`.
     var onUpdateBranch: (PRRow) async -> Void = { _ in }
+    /// Asks the shell to present the force-checkout confirmation dialog for
+    /// `row`. The screen owns no state, so the `DialogCheckout` presentation +
+    /// `GitService.forceCheckout` call live in `MainShell` (mirrors `onMerge`).
+    var onCheckout: (PRRow) -> Void = { _ in }
 
     var body: some View {
         switch viewModel.state {
@@ -122,6 +126,7 @@ struct PRsScreen: View {
                         row: row,
                         onMerge: { onMerge(row) },
                         onOpen: { handleOpen(row) },
+                        onCheckout: { onCheckout(row) },
                         onUpdateBranch: { await onUpdateBranch(row) },
                         now: now
                     )
