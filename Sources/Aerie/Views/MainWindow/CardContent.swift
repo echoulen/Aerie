@@ -1,5 +1,29 @@
 import SwiftUI
 
+/// The card meta row's trailing "updated …" relative-time label.
+///
+/// Two things to get right:
+///   * With the default `.numeric` style, `RelativeDateTimeFormatter` renders a
+///     zero delta in the *future* tense — "in 0 sec." / "0秒後" — which was the
+///     source of the odd "0秒後" string. `.named` instead renders it as the
+///     localized "now" / "現在".
+///   * An update is always logically in the past, but a server/client clock
+///     skew can put `updatedAt` a few seconds ahead of `now` and surface a
+///     "5秒後" string. Clamping the formatted instant down to `now`
+///     (`min(updatedAt, now)`) collapses that case to "now" / "現在" too.
+///
+/// `locale` is injectable purely so the behaviour is unit-testable without
+/// depending on the host machine's region.
+enum CardRelativeTime {
+    static func label(for updatedAt: Date, now: Date, locale: Locale = .current) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = locale
+        formatter.dateTimeStyle = .named
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: min(updatedAt, now), relativeTo: now)
+    }
+}
+
 /// The shared card skeleton for every main-window list row — PRs, Issues, and
 /// Repos all render through this so they read identically. Standardised on the
 /// **Issue card layout**:
@@ -36,12 +60,7 @@ struct CardContent<Meta: View, Chips: View, Actions: View>: View {
 
     private var updatedAgo: String? {
         guard let updatedAt else { return nil }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        // An update is always in the past; clamp the reference so a few seconds
-        // of clock skew never renders a future "in 9s" string.
-        let reference = max(now, updatedAt)
-        return formatter.localizedString(for: updatedAt, relativeTo: reference)
+        return CardRelativeTime.label(for: updatedAt, now: now)
     }
 
     var body: some View {

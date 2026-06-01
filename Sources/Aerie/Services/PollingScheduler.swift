@@ -119,7 +119,13 @@ actor PollingScheduler {
         return repoIds.filter { id in
             let last = fetchedAt[id] ?? .distantPast
             let elapsed = now.timeIntervalSince(last)
-            let cadence = (id == activeRepoId) ? active : background
+            // When no repo is singled out as active (the production case — the
+            // main window shows every repo in one flat list, so nothing calls
+            // `setActive`), every repo uses the *active* cadence. Falling back to
+            // `background` here would silently pin the whole list to the 5-minute
+            // cadence and make auto-refresh feel broken next to the manual button.
+            let isActive = (activeRepoId == nil) || (id == activeRepoId)
+            let cadence = isActive ? active : background
             return elapsed >= cadence
         }
     }

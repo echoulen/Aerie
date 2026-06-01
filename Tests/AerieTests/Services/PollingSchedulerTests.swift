@@ -196,6 +196,38 @@ final class PollingSchedulerTests: XCTestCase {
         XCTAssertEqual(peak, 5, "should saturate the in-flight cap")
     }
 
+    /// In production nothing ever designates an "active" repo — the main window
+    /// shows every repo in one flat list, so `activeRepoId` stays nil. When it
+    /// is nil, every repo must poll on the *active* cadence; otherwise the list
+    /// you're looking at silently falls back to the 5-minute background cadence
+    /// and only the manual Refresh button (which bypasses the gate) feels live.
+    func test_tickOnce_withNoActiveRepo_usesActiveCadenceForAllRepos() async throws {
+        let recorder = RefreshRecorder()
+        let a = UUID()
+        let b = UUID()
+        let scheduler = PollingScheduler(clock: VirtualClock()) { i in
+            await recorder.record(i)
+        }
+        // Deliberately never call setActive — mirrors production.
+
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        await scheduler.tickOnce(repoIds: [a, b], now: t0)
+        let afterT0 = await recorder.snapshot()
+        XCTAssertEqual(afterT0.count, 2, "both repos due on first tick")
+
+        // At t0 + 29s (< active cadence 30): nothing new.
+        await scheduler.tickOnce(repoIds: [a, b], now: t0.addingTimeInterval(29))
+        let after29 = await recorder.snapshot()
+        XCTAssertEqual(after29.count, 2, "no repo due before the active cadence")
+
+        // At t0 + 30s: BOTH repos due on the active cadence — NOT stuck on the
+        // 300s background cadence.
+        await scheduler.tickOnce(repoIds: [a, b], now: t0.addingTimeInterval(30))
+        let after30 = await recorder.snapshot()
+        XCTAssertEqual(after30.count, 4,
+                       "with no active repo, all repos refresh on the active cadence")
+    }
+
     func test_setActive_changesWhichRepoUsesActiveCadence() async throws {
         let recorder = RefreshRecorder()
         let a = UUID()
