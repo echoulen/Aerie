@@ -39,9 +39,9 @@ final class AddRepoSheetTests: XCTestCase {
 
     private func makeDetected(suggested: UUID?) -> DetectedRepo {
         DetectedRepo(
-            url: URL(fileURLWithPath: "/opt/repos/ioe-portal-ui"),
-            githubOwner: "nextDriveIoE",
-            githubRepo: "ioe-portal-ui",
+            url: URL(fileURLWithPath: "/opt/repos/web-portal"),
+            githubOwner: "acme-co",
+            githubRepo: "web-portal",
             host: "github.com",
             defaultBranch: "main",
             currentBranch: "main",

@@ -405,7 +405,7 @@ final class MultiAccountAPITests: XCTestCase {
             accountsInOrder: { [first, second] }
         )
 
-        let resolved = await api.resolveAccount(owner: "nextDriveIoE", repo: "ioe-portal-ui")
+        let resolved = await api.resolveAccount(owner: "acme-co", repo: "web-portal")
         XCTAssertEqual(resolved, second)
         let tokensUsed = await stub.tokensUsed
         XCTAssertEqual(tokensUsed, [firstToken, secondToken])

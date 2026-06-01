@@ -80,10 +80,10 @@ final class DialogCheckoutTests: XCTestCase {
     private func fixtureRepo() -> Repository {
         Repository(
             id: UUID(uuidString: "22222222-0000-0000-0000-000000000001")!,
-            name: "ioe-portal-ui",
-            localPath: URL(fileURLWithPath: "/Users/dev/work/ioe-portal-ui"),
-            githubOwner: "nextDriveIoE",
-            githubRepo: "ioe-portal-ui",
+            name: "web-portal",
+            localPath: URL(fileURLWithPath: "/Users/dev/work/web-portal"),
+            githubOwner: "acme-co",
+            githubRepo: "web-portal",
             defaultBranch: "main",
             primaryAccountId: UUID(uuidString: "22222222-0000-0000-0000-000000000002")!,
             sortOrder: 0,
@@ -95,16 +95,16 @@ final class DialogCheckoutTests: XCTestCase {
         PullRequest(
             id: UUID(uuidString: "22222222-0000-0000-0000-000000000003")!,
             repoId: UUID(uuidString: "22222222-0000-0000-0000-000000000001")!,
-            number: 797,
-            title: "feat: [R26.6B] migrate two-step verification flow resolve [IOE-3325]",
-            authorLogin: "Nextdrive-CarlosLi",
-            sourceBranch: "feat/two-step-verification",
+            number: 42,
+            title: "feat: add SSO login to the web portal",
+            authorLogin: "octocat",
+            sourceBranch: "feat/sso-login",
             isMine: true,
             state: .open,
             ciState: .failure,
             reviewState: .approved,
             labels: [],
-            htmlUrl: URL(string: "https://github.com/nextDriveIoE/ioe-portal-ui/pull/797")!,
+            htmlUrl: URL(string: "https://github.com/acme-co/web-portal/pull/42")!,
             updatedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
     }

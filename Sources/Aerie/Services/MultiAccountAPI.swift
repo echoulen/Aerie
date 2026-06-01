@@ -159,7 +159,7 @@ actor MultiAccountAPI {
     /// Probes the configured accounts in order and returns the id of the first
     /// whose token can actually see `owner/repo`. The add-repo flow uses this to
     /// bind an account that can reach the repo, instead of guessing by host —
-    /// an org repo (e.g. `nextDriveIoE/ioe-portal-ui`) has no account whose
+    /// an org repo (e.g. `acme-co/web-portal`) has no account whose
     /// login equals the owner, so host/login matching would bind whichever
     /// same-host account happened to be first, which may not have access.
     ///
