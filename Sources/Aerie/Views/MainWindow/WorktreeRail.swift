@@ -6,7 +6,9 @@ import SwiftUI
 struct WorktreeRail: View {
     let worktrees: [WorktreeRow]
     let defaultBranch: String
-    var onMerge: (WorktreeRow) -> Void
+    /// Returns nil on success, or an error message on failure. Async so the
+    /// row's Merge state machine can show idle → Merging… → Up to date / Retry.
+    var onMerge: (WorktreeRow) async -> String?
     var onDiscard: (WorktreeRow) -> Void
     var onDelete: (WorktreeRow) -> Void
 
@@ -34,7 +36,8 @@ struct WorktreeRail: View {
             .padding(.top, 16)
             .padding(.bottom, 10)
 
-            // Amber rail + rows (divider between rows)
+            // Amber rail + row-blocks (divider between blocks, so a row's
+            // conflict strip stays grouped with its row).
             VStack(spacing: 0) {
                 ForEach(Array(worktrees.enumerated()), id: \.element.id) { index, wt in
                     if index > 0 {
@@ -43,7 +46,7 @@ struct WorktreeRail: View {
                     WorktreeRowView(
                         worktree: wt,
                         defaultBranch: defaultBranch,
-                        onMerge: { onMerge(wt) },
+                        onMerge: { await onMerge(wt) },
                         onDiscard: { onDiscard(wt) },
                         onDelete: { onDelete(wt) })
                 }
@@ -57,6 +60,11 @@ struct WorktreeRail: View {
         }
     }
 }
+
+/// The Merge button's feedback phases. Owned by `WorktreeRowView` (the row) so
+/// a conflict can surface an inline strip below the row — per spec: report the
+/// error, leave the worktree unchanged.
+private enum MergePhase: Equatable { case idle, running, done, error }
 
 // MARK: - Branch chip
 
@@ -157,55 +165,85 @@ private struct WorktreePathView: View {
     }
 }
 
-// MARK: - Row
+// MARK: - Row block (row + optional conflict strip)
 
-/// One worktree row: `[branch · status · path]` on the left, the action cluster
-/// on the right (design grid `minmax(0,1fr) auto`, column-gap 18, padding 11×0).
+/// One worktree row plus, on a merge conflict, an inline error strip below it.
+/// Owns the merge state machine: idle → Merging… → Up to date (auto-resets) on
+/// success; → Retry merge + conflict strip (stays) on failure. The strip is why
+/// the state lives here and not inside the button.
 struct WorktreeRowView: View {
     let worktree: WorktreeRow
     let defaultBranch: String
-    var onMerge: () -> Void
+    var onMerge: () async -> String?
     var onDiscard: () -> Void
     var onDelete: () -> Void
 
-    var body: some View {
-        HStack(spacing: 18) {
-            HStack(spacing: 14) {
-                WorktreeBranchChip(worktree: worktree)
-                WorktreeStatusView(worktree: worktree)
-                WorktreePathView(worktree: worktree)
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    @State private var phase: MergePhase = .idle
 
-            WorktreeActions(
-                worktree: worktree,
-                defaultBranch: defaultBranch,
-                onMerge: onMerge, onDiscard: onDiscard, onDelete: onDelete)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 18) {
+                HStack(spacing: 14) {
+                    WorktreeBranchChip(worktree: worktree)
+                    WorktreeStatusView(worktree: worktree)
+                    WorktreePathView(worktree: worktree)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                WorktreeActions(
+                    worktree: worktree,
+                    defaultBranch: defaultBranch,
+                    mergePhase: phase,
+                    onMerge: runMerge,
+                    onDiscard: onDiscard,
+                    onDelete: onDelete)
+            }
+            .padding(.vertical, 11)
+            .opacity(worktree.prunable ? 0.5 : 1)
+
+            if phase == .error {
+                WorktreeMergeErrorStrip(
+                    defaultBranch: defaultBranch,
+                    onDismiss: { phase = .idle })
+            }
         }
-        .padding(.vertical, 11)
-        .opacity(worktree.prunable ? 0.5 : 1)
+        .animation(.easeOut(duration: 0.15), value: phase)
+    }
+
+    private func runMerge() {
+        guard phase != .running else { return }
+        phase = .running
+        Task {
+            let error = await onMerge()
+            if error == nil {
+                phase = .done
+                try? await Task.sleep(nanoseconds: 1_900_000_000)
+                if phase == .done { phase = .idle }
+            } else {
+                // Conflict / failure: hold the Retry state + strip until the
+                // user retries or dismisses. The worktree is left unchanged.
+                phase = .error
+            }
+        }
     }
 }
 
 // MARK: - Actions
 
-/// Merge (everyday) · Discard (dirty only, warns on hover) · separator ·
-/// Delete (destructive, icon-only, 28×28). No Open — worktrees have no remote.
+/// Merge (stateful, everyday) · Discard (dirty only, warns on hover) · separator
+/// · Delete (destructive, icon-only, 28×28). No Open — worktrees have no remote.
 private struct WorktreeActions: View {
     let worktree: WorktreeRow
     let defaultBranch: String
+    let mergePhase: MergePhase
     var onMerge: () -> Void
     var onDiscard: () -> Void
     var onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            WtActionButton(
-                systemImage: "arrow.triangle.merge",
-                title: "Merge from origin/\(defaultBranch)",
-                hoverTone: .neutral, action: onMerge)
-                .help("Fetch and merge origin/\(defaultBranch) into this worktree")
+            WtMergeButton(defaultBranch: defaultBranch, phase: mergePhase, onTap: onMerge)
 
             if worktree.isDirty {
                 WtActionButton(
@@ -227,8 +265,189 @@ private struct WorktreeActions: View {
     }
 }
 
-/// `.wt-action` — labeled pill button. `hoverTone: .danger` turns it red on
-/// hover (the Discard affordance); `.neutral` lifts to glass3 (Merge).
+// MARK: - Merge button (stateless; driven by the row's phase)
+
+/// `.wt-action` with phase-driven feedback. idle → Merging… (spinner, disabled)
+/// → Up to date ✓ (ok-green, disabled) on success; → Retry merge (`is-error`,
+/// danger-tinted, clickable) on conflict. `minWidth` pins the width so the row
+/// never jumps between states.
+private struct WtMergeButton: View {
+    let defaultBranch: String
+    let phase: MergePhase
+    var onTap: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                icon
+                Text(label)
+                    .aerieFont(AerieFont.custom(.sans, size: 12).weight(.medium))
+            }
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5)
+            .frame(minWidth: 172)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(fill))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(border, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(WtPressStyle())
+        .disabled(phase == .running || phase == .done)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: phase)
+        .animation(.easeOut(duration: 0.15), value: hovering)
+        .help(helpText)
+    }
+
+    @ViewBuilder private var icon: some View {
+        switch phase {
+        case .running:
+            SpinnerView(size: 11).foregroundStyle(AerieColor.text2)
+        case .done:
+            Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold))
+        case .idle, .error:
+            Image(systemName: "arrow.triangle.merge").font(.system(size: 12, weight: .medium))
+        }
+    }
+
+    private var label: String {
+        switch phase {
+        case .running: return "Merging…"
+        case .done:    return "Up to date"
+        case .error:   return "Retry merge"
+        case .idle:    return "Merge from origin/\(defaultBranch)"
+        }
+    }
+
+    private var helpText: String {
+        phase == .error
+            ? "Try the merge again"
+            : "Fetch and merge origin/\(defaultBranch) into this worktree"
+    }
+
+    private var foreground: Color {
+        switch phase {
+        case .done:    return AerieColor.ok
+        case .error:   return AerieColor.dangerText
+        case .running: return AerieColor.text2
+        case .idle:    return hovering ? AerieColor.text1 : AerieColor.text2
+        }
+    }
+    private var fill: Color {
+        switch phase {
+        case .done:    return AerieColor.ok.opacity(0.12)
+        case .error:   return AerieColor.err.opacity(hovering ? 0.22 : 0.14)
+        case .running: return AerieColor.glass2
+        case .idle:    return hovering ? AerieColor.glass3 : AerieColor.glass2
+        }
+    }
+    private var border: Color {
+        switch phase {
+        case .done:    return AerieColor.ok.opacity(0.35)
+        case .error:   return AerieColor.err.opacity(0.45)
+        case .running: return AerieColor.glassLine
+        case .idle:    return hovering ? AerieColor.glassLine2 : AerieColor.glassLine
+        }
+    }
+}
+
+// MARK: - Conflict strip
+
+/// Inline merge-conflict strip under the row (`wt-merge-error`): a warning
+/// triangle, a reassuring "nothing changed" message, and a Dismiss control.
+private struct WorktreeMergeErrorStrip: View {
+    let defaultBranch: String
+    var onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 12))
+                .foregroundStyle(AerieColor.dangerText)
+                .padding(.top, 1)
+            message
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            DismissButton(action: onDismiss)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(AerieColor.err.opacity(0.12)))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(AerieColor.err.opacity(0.4), lineWidth: 1))
+        .padding(.bottom, 9)
+    }
+
+    private var message: Text {
+        Text("Merge conflict. ")
+            .font(.custom(AerieFont.sans, size: 12).weight(.semibold))
+            .foregroundColor(AerieColor.dangerText)
+        + Text("origin/\(defaultBranch)")
+            .font(.custom(AerieFont.mono, size: 12))
+            .foregroundColor(AerieColor.text2)
+        + Text(" couldn't be merged cleanly — the merge was aborted and this worktree is unchanged. Resolve it in a terminal, then retry.")
+            .font(.custom(AerieFont.sans, size: 12))
+            .foregroundColor(AerieColor.text2)
+    }
+}
+
+/// `.wt-err-dismiss` — a quiet ghost control that clears the conflict strip.
+private struct DismissButton: View {
+    var action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text("Dismiss")
+                .font(.custom(AerieFont.sans, size: 11.5).weight(.medium))
+                .foregroundStyle(hovering ? AerieColor.text1 : AerieColor.text3)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(hovering ? AerieColor.glass3 : Color.clear))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(hovering ? AerieColor.glassLine2 : AerieColor.glassLine, lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
+    }
+}
+
+/// Ring with a transparent quadrant that spins continuously — the design's
+/// `.spinner` (2px stroke, top/right transparent, 0.7s linear infinite). Tint
+/// it from the caller with `.foregroundStyle(_:)`.
+private struct SpinnerView: View {
+    var size: CGFloat = 11
+    @State private var spinning = false
+
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.6)
+            .stroke(style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(spinning ? 360 : 0))
+            .onAppear {
+                withAnimation(.linear(duration: 0.7).repeatForever(autoreverses: false)) {
+                    spinning = true
+                }
+            }
+    }
+}
+
+/// `.wt-action` — labeled pill button (used by Discard). `hoverTone: .danger`
+/// turns it red on hover; `.neutral` lifts to glass3. Presses sink 0.5px.
 private struct WtActionButton: View {
     enum HoverTone { case neutral, danger }
     let systemImage: String
@@ -253,7 +472,7 @@ private struct WtActionButton: View {
                     .strokeBorder(border, lineWidth: 1))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WtPressStyle())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: hovering)
     }
@@ -272,7 +491,8 @@ private struct WtActionButton: View {
     }
 }
 
-/// `.wt-del` — destructive icon-only button, 28×28, neutral at rest, red on hover.
+/// `.wt-del` — destructive icon-only button, 28×28, neutral at rest, red on
+/// hover, sinks 0.5px on press.
 private struct WtDeleteButton: View {
     let action: () -> Void
     @State private var hovering = false
@@ -293,8 +513,18 @@ private struct WtDeleteButton: View {
                             lineWidth: 1))
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WtPressStyle())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: hovering)
+    }
+}
+
+/// Shared press affordance for the worktree action buttons: the label sinks
+/// 0.5px while held (the design's `:active { transform: translateY(0.5px) }`).
+private struct WtPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .offset(y: configuration.isPressed ? 0.5 : 0)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }

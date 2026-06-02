@@ -303,19 +303,21 @@ struct MainShell: View {
                     // No dialog: a forward, non-destructive step. Mirrors the
                     // PR card's onUpdateBranch — merge origin/<default> into the
                     // worktree, authenticated as the repo's bound account, then
-                    // re-project so the row's dirty/clean state settles.
-                    Task {
-                        do {
-                            let token = await services.auth.token(
-                                for: row.repo.primaryAccountId)
-                            try await services.gitService.updateBranchFromBase(
-                                repoAt: wt.path,
-                                defaultBranch: row.repo.defaultBranch,
-                                token: token)
-                        } catch {
-                            NSLog("Worktree merge failed for \(row.repo.name) @ \(wt.branchLabel): \(error.localizedDescription)")
-                        }
+                    // re-project so the row's dirty/clean state settles. Returns
+                    // nil on success / an error string on failure so the Merge
+                    // button can drive its idle → Merging… → Up to date loop.
+                    do {
+                        let token = await services.auth.token(
+                            for: row.repo.primaryAccountId)
+                        try await services.gitService.updateBranchFromBase(
+                            repoAt: wt.path,
+                            defaultBranch: row.repo.defaultBranch,
+                            token: token)
                         await reposVM.refresh()
+                        return nil
+                    } catch {
+                        NSLog("Worktree merge failed for \(row.repo.name) @ \(wt.branchLabel): \(error.localizedDescription)")
+                        return error.localizedDescription
                     }
                 },
                 onDiscardWorktree: { row, wt in
