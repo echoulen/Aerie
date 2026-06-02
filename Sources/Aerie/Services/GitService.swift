@@ -79,6 +79,12 @@ protocol GitService: Actor {
     /// account that can actually see it, not gh's globally-active account. Pass
     /// `nil` to fall back to the active account.
     func forceCheckout(repoAt url: URL, branch: String, token: String?) async throws
+
+    /// List the repo's **extra** git worktrees (the main checkout is filtered
+    /// out). Runs `git worktree list --porcelain` against `url` (the main
+    /// worktree path) and reads each extra worktree's dirty state via libgit2.
+    /// Live, non-persisted, error-tolerant: returns `[]` if git can't be run.
+    func worktrees(mainWorktreeAt url: URL) async -> [WorktreeRow]
 }
 
 actor LiveGitService: GitService {
@@ -376,6 +382,48 @@ actor LiveGitService: GitService {
                 userInfo: [NSLocalizedDescriptionKey:
                     "Couldn't check out origin/\(branch) — the branch may not exist on origin."]
             )
+        }
+    }
+
+    // MARK: - Worktrees
+
+    func worktrees(mainWorktreeAt url: URL) async -> [WorktreeRow] {
+        guard let porcelain = runGit(
+            ["worktree", "list", "--porcelain"], at: url
+        ) else { return [] }
+
+        let parsed = WorktreeParsing.parse(porcelain: porcelain, mainWorktreePath: url)
+        return parsed.map { wt in
+            let (dirty, count) = wt.prunable ? (false, 0) : worktreeDirtiness(at: wt.path)
+            return WorktreeRow(
+                path: wt.path,
+                branchLabel: wt.branchLabel,
+                isDetached: wt.isDetached,
+                isDirty: dirty,
+                dirtyFileCount: count,
+                prunable: wt.prunable
+            )
+        }
+    }
+
+    /// Dirty file count for a worktree path, mirroring `readStatus`'s notion of
+    /// dirty (anything not `.current`/`.ignored`). Returns `(false, 0)` if the
+    /// path can't be opened (e.g. it vanished between listing and reading).
+    private func worktreeDirtiness(at url: URL) -> (isDirty: Bool, count: Int) {
+        do {
+            let repo = try SwiftGitX.Repository(at: url, createIfNotExists: false)
+            let entries = try repo.status(options: SwiftGitX.StatusOption.default)
+            let n = entries.filter { entry in
+                entry.status.contains { status in
+                    switch status {
+                    case .current, .ignored: return false
+                    default: return true
+                    }
+                }
+            }.count
+            return (n > 0, n)
+        } catch {
+            return (false, 0)
         }
     }
 
