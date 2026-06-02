@@ -103,6 +103,7 @@ struct RepoCard: View {
             if !row.worktrees.isEmpty {
                 WorktreeRail(
                     worktrees: row.worktrees,
+                    defaultBranch: row.repo.defaultBranch,
                     onMerge: onMergeWorktree,
                     onDiscard: onDiscardWorktree,
                     onDelete: onDeleteWorktree)

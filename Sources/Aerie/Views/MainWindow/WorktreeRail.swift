@@ -5,6 +5,7 @@ import SwiftUI
 /// worktrees" eyebrow, then an amber-railed list of `WorktreeRowView`s.
 struct WorktreeRail: View {
     let worktrees: [WorktreeRow]
+    let defaultBranch: String
     var onMerge: (WorktreeRow) -> Void
     var onDiscard: (WorktreeRow) -> Void
     var onDelete: (WorktreeRow) -> Void
@@ -41,6 +42,7 @@ struct WorktreeRail: View {
                     }
                     WorktreeRowView(
                         worktree: wt,
+                        defaultBranch: defaultBranch,
                         onMerge: { onMerge(wt) },
                         onDiscard: { onDiscard(wt) },
                         onDelete: { onDelete(wt) })
@@ -161,6 +163,7 @@ private struct WorktreePathView: View {
 /// on the right (design grid `minmax(0,1fr) auto`, column-gap 18, padding 11×0).
 struct WorktreeRowView: View {
     let worktree: WorktreeRow
+    let defaultBranch: String
     var onMerge: () -> Void
     var onDiscard: () -> Void
     var onDelete: () -> Void
@@ -177,6 +180,7 @@ struct WorktreeRowView: View {
 
             WorktreeActions(
                 worktree: worktree,
+                defaultBranch: defaultBranch,
                 onMerge: onMerge, onDiscard: onDiscard, onDelete: onDelete)
         }
         .padding(.vertical, 11)
@@ -190,6 +194,7 @@ struct WorktreeRowView: View {
 /// Delete (destructive, icon-only, 28×28). No Open — worktrees have no remote.
 private struct WorktreeActions: View {
     let worktree: WorktreeRow
+    let defaultBranch: String
     var onMerge: () -> Void
     var onDiscard: () -> Void
     var onDelete: () -> Void
@@ -198,9 +203,9 @@ private struct WorktreeActions: View {
         HStack(spacing: 8) {
             WtActionButton(
                 systemImage: "arrow.triangle.merge",
-                title: "Merge from origin/main",
+                title: "Merge from origin/\(defaultBranch)",
                 hoverTone: .neutral, action: onMerge)
-                .help("Fetch and merge origin/main into this worktree")
+                .help("Fetch and merge origin/\(defaultBranch) into this worktree")
 
             if worktree.isDirty {
                 WtActionButton(
