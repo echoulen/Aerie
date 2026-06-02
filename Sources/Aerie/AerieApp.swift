@@ -181,6 +181,18 @@ private struct AppRoot: View {
     }
 }
 
+/// Pairs a worktree with its repo for the worktree dialogs' `@State`.
+struct WorktreeContext: Identifiable, Equatable {
+    let id: String           // worktree path — unique per repo
+    let repo: Repository
+    let worktree: WorktreeRow
+    init(repo: Repository, worktree: WorktreeRow) {
+        self.id = worktree.id
+        self.repo = repo
+        self.worktree = worktree
+    }
+}
+
 /// The composed main window shell — Backdrop + Titlebar (centred brand) + the
 /// currently-selected primary screen (PRs or Repos). The view switcher lives
 /// in the active screen's page header.
@@ -210,6 +222,8 @@ struct MainShell: View {
     /// The PR whose force-checkout confirmation dialog is currently presented
     /// (nil = no dialog). Owned here for the same scrim reason as the others.
     @State private var presentedCheckout: PRRow?
+    /// The (repo, worktree) whose delete confirmation is presented (nil = none).
+    @State private var presentedDeleteWorktree: WorktreeContext?
     /// GitHub accounts indexed by id, loaded once on appear so the merge dialog
     /// can resolve a PR's bound account (`repo.primaryAccountId`) synchronously
     /// for display. The overlay body can't `await`, hence the cached map.
@@ -282,7 +296,10 @@ struct MainShell: View {
                     openWindow(id: "settings")
                 },
                 onHardReset: { presentedReset = $0 },
-                onDiscard: { presentedDiscard = $0 }
+                onDiscard: { presentedDiscard = $0 },
+                onDeleteWorktree: { row, wt in
+                    presentedDeleteWorktree = WorktreeContext(repo: row.repo, worktree: wt)
+                }
             )
         }
     }
@@ -405,6 +422,34 @@ struct MainShell: View {
         }
     }
 
+    // Delete-worktree confirmation overlay content. Confirm runs `git worktree
+    // remove` off the bound git service (force when the worktree is dirty), then
+    // refreshes the ReposViewModel so the worktree rail updates immediately.
+    // Worktrees are recomputed by the VM (not the DB/polling layer), so we call
+    // `reposVM.refresh()` rather than `services.refreshNow()`.
+    @ViewBuilder
+    private var deleteWorktreeDialog: some View {
+        if let ctx = presentedDeleteWorktree {
+            DialogDeleteWorktree(
+                repo: ctx.repo,
+                worktree: ctx.worktree,
+                onConfirm: {
+                    do {
+                        try await services.gitService.removeWorktree(
+                            ctx.worktree.path,
+                            mainWorktreeAt: ctx.repo.localPath,
+                            force: ctx.worktree.isDirty)
+                        await reposVM.refresh()
+                        presentedDeleteWorktree = nil
+                        return nil
+                    } catch {
+                        return "Delete failed: \(error.localizedDescription)"
+                    }
+                },
+                onCancel: { presentedDeleteWorktree = nil })
+        }
+    }
+
     var body: some View {
         AppFrame(
             viewModel: appVM,
@@ -421,6 +466,7 @@ struct MainShell: View {
         .overlay { discardDialog }
         .overlay { mergeDialog }
         .overlay { checkoutDialog }
+        .overlay { deleteWorktreeDialog }
         .task {
             // Kick off focus-driven polling (idempotent), then paint instantly
             // from whatever's already cached. Fresh PRs arrive via the
