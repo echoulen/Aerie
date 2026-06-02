@@ -24,6 +24,9 @@ struct RepoCard: View {
     /// Presents the "Discard all unstaged" confirmation. Defaulted to a no-op so
     /// snapshot tests / previews can omit it.
     var onDiscard: () -> Void = {}
+    var onMergeWorktree: (WorktreeRow) -> Void = { _ in }
+    var onDiscardWorktree: (WorktreeRow) -> Void = { _ in }
+    var onDeleteWorktree: (WorktreeRow) -> Void = { _ in }
 
     // MARK: - Derived presentation bits
 
@@ -95,6 +98,14 @@ struct RepoCard: View {
                 if Self.shouldShowDiscard(row.status) {
                     DiscardButton(action: onDiscard)
                 }
+            }
+        } footer: {
+            if !row.worktrees.isEmpty {
+                WorktreeRail(
+                    worktrees: row.worktrees,
+                    onMerge: onMergeWorktree,
+                    onDiscard: onDiscardWorktree,
+                    onDelete: onDeleteWorktree)
             }
         }
     }
