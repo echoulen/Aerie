@@ -46,7 +46,7 @@ enum CardRelativeTime {
 /// the shared "Open ↗" control by ``CardOpenButton``.
 ///
 /// Visual contract: `docs/superpowers/design/v2/app.jsx` (the card body).
-struct CardContent<Meta: View, Chips: View, Actions: View>: View {
+struct CardContent<Meta: View, Chips: View, Actions: View, Footer: View>: View {
     let title: String
     /// When set, the meta row shows a trailing clamped relative-time string.
     /// Repos omit it (no meaningful "updated" timestamp on the row).
@@ -57,6 +57,7 @@ struct CardContent<Meta: View, Chips: View, Actions: View>: View {
     @ViewBuilder var meta: () -> Meta
     @ViewBuilder var chips: () -> Chips
     @ViewBuilder var actions: () -> Actions
+    @ViewBuilder var footer: () -> Footer
 
     private var updatedAgo: String? {
         guard let updatedAt else { return nil }
@@ -64,38 +65,58 @@ struct CardContent<Meta: View, Chips: View, Actions: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 28) {
-            // Leading content column — uniform 12pt rhythm between meta · title
-            // · chips (the design's `col { gap: 12 }`).
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    meta()
-                    Spacer(minLength: 0)
-                    if let updatedAgo {
-                        Text(updatedAgo)
-                            .aerieFont(AerieFont.code(11))
-                            .foregroundStyle(AerieColor.text4)
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 28) {
+                // Leading content column — uniform 12pt rhythm between meta · title
+                // · chips (the design's `col { gap: 12 }`).
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        meta()
+                        Spacer(minLength: 0)
+                        if let updatedAgo {
+                            Text(updatedAgo)
+                                .aerieFont(AerieFont.code(11))
+                                .foregroundStyle(AerieColor.text4)
+                        }
                     }
-                }
 
-                Text(title)
-                    .aerieFont(AerieFont.custom(.sans, size: 20).weight(.medium))
-                    .foregroundStyle(AerieColor.text1)
-                    .lineLimit(2)
+                    Text(title)
+                        .aerieFont(AerieFont.custom(.sans, size: 20).weight(.medium))
+                        .foregroundStyle(AerieColor.text1)
+                        .lineLimit(2)
 
-                HStack(spacing: 10) {
-                    chips()
-                    Spacer(minLength: 0)
+                    HStack(spacing: 10) {
+                        chips()
+                        Spacer(minLength: 0)
+                    }
+                    .frame(minHeight: 24, alignment: .leading)
                 }
-                .frame(minHeight: 24, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                actions()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            actions()
+            footer()
         }
         .padding(.vertical, 24)
         .padding(.horizontal, 28)
         .glass(.card)
+    }
+}
+
+extension CardContent where Footer == EmptyView {
+    init(
+        title: String,
+        updatedAt: Date? = nil,
+        now: Date = Date(),
+        @ViewBuilder meta: @escaping () -> Meta,
+        @ViewBuilder chips: @escaping () -> Chips,
+        @ViewBuilder actions: @escaping () -> Actions
+    ) {
+        self.init(
+            title: title, updatedAt: updatedAt, now: now,
+            meta: meta, chips: chips, actions: actions,
+            footer: { EmptyView() })
     }
 }
 
