@@ -32,8 +32,10 @@ struct ReposScreen: View {
     /// `row`. Like `onHardReset`, the `DialogDiscard` presentation +
     /// `GitService.discardUnstaged` call live in `MainShell`.
     var onDiscard: (RepoRow) -> Void = { _ in }
-    /// Asks the shell to merge the specified worktree for `row`.
-    var onMergeWorktree: (RepoRow, WorktreeRow) -> Void = { _, _ in }
+    /// Asks the shell to merge the specified worktree for `row`. Returns nil on
+    /// success or an error message on failure, so the Merge button can run its
+    /// idle → Merging… → Up to date feedback loop.
+    var onMergeWorktree: (RepoRow, WorktreeRow) async -> String? = { _, _ in nil }
     /// Asks the shell to discard the specified worktree for `row`.
     var onDiscardWorktree: (RepoRow, WorktreeRow) -> Void = { _, _ in }
     /// Asks the shell to delete the specified worktree for `row`.
@@ -126,7 +128,7 @@ struct ReposScreen: View {
                         onOpen: { handleOpen(row) },
                         onHardReset: { onHardReset(row) },
                         onDiscard: { onDiscard(row) },
-                        onMergeWorktree: { onMergeWorktree(row, $0) },
+                        onMergeWorktree: { await onMergeWorktree(row, $0) },
                         onDiscardWorktree: { onDiscardWorktree(row, $0) },
                         onDeleteWorktree: { onDeleteWorktree(row, $0) }
                     )

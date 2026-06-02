@@ -24,7 +24,7 @@ struct RepoCard: View {
     /// Presents the "Discard all unstaged" confirmation. Defaulted to a no-op so
     /// snapshot tests / previews can omit it.
     var onDiscard: () -> Void = {}
-    var onMergeWorktree: (WorktreeRow) -> Void = { _ in }
+    var onMergeWorktree: (WorktreeRow) async -> String? = { _ in nil }
     var onDiscardWorktree: (WorktreeRow) -> Void = { _ in }
     var onDeleteWorktree: (WorktreeRow) -> Void = { _ in }
 
