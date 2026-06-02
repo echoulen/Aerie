@@ -108,4 +108,34 @@ extension WorktreeParsingTests {
         XCTAssertEqual(rows.map(\.branchLabel), ["feature"])
         XCTAssertFalse(rows[0].isDirty)
     }
+
+    func testRemoveWorktreeDropsItFromListing() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("aerie-wtrm-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        func git(_ args: [String], in dir: URL) throws {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            p.arguments = ["git", "-C", dir.path] + args
+            p.standardOutput = Pipe(); p.standardError = Pipe()
+            try p.run(); p.waitUntilExit()
+        }
+
+        let mainRepo = root.appendingPathComponent("main")
+        try fm.createDirectory(at: mainRepo, withIntermediateDirectories: true)
+        try git(["init", "-q", "-b", "main"], in: mainRepo)
+        try git(["-c", "user.email=t@t", "-c", "user.name=t",
+                 "commit", "-q", "--allow-empty", "-m", "init"], in: mainRepo)
+        let wt = root.appendingPathComponent("feature")
+        try git(["worktree", "add", "-q", "-b", "feature", wt.path], in: mainRepo)
+
+        let svc = LiveGitService()
+        let beforeCount = (await svc.worktrees(mainWorktreeAt: mainRepo)).count
+        XCTAssertEqual(beforeCount, 1)
+        try await svc.removeWorktree(wt, mainWorktreeAt: mainRepo, force: false)
+        let afterCount = (await svc.worktrees(mainWorktreeAt: mainRepo)).count
+        XCTAssertEqual(afterCount, 0)
+    }
 }

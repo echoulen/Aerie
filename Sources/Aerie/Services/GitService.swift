@@ -85,6 +85,11 @@ protocol GitService: Actor {
     /// worktree path) and reads each extra worktree's dirty state via libgit2.
     /// Live, non-persisted, error-tolerant: returns `[]` if git can't be run.
     func worktrees(mainWorktreeAt url: URL) async -> [WorktreeRow]
+
+    /// Remove a worktree: `git worktree remove [--force] <path>`, run from the
+    /// main worktree so the checkout deleting itself can't break the command.
+    /// `force` deletes even when the worktree has uncommitted changes.
+    func removeWorktree(_ worktreePath: URL, mainWorktreeAt mainURL: URL, force: Bool) async throws
 }
 
 actor LiveGitService: GitService {
@@ -402,6 +407,21 @@ actor LiveGitService: GitService {
                 isDirty: dirty,
                 dirtyFileCount: count,
                 prunable: wt.prunable
+            )
+        }
+    }
+
+    func removeWorktree(
+        _ worktreePath: URL, mainWorktreeAt mainURL: URL, force: Bool
+    ) async throws {
+        var args = ["worktree", "remove"]
+        if force { args.append("--force") }
+        args.append(worktreePath.path)
+        guard runGit(args, at: mainURL) != nil else {
+            throw NSError(
+                domain: "GitService", code: 8,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Couldn't remove the worktree — it may have uncommitted changes."]
             )
         }
     }
