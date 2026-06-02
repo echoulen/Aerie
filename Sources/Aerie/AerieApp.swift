@@ -219,7 +219,8 @@ struct MainShell: View {
         let db = AppServices.shared.db
         _prsVM = State(initialValue: PRsViewModel(db: db))
         _issuesVM = State(initialValue: IssuesViewModel(db: db))
-        _reposVM = State(initialValue: ReposViewModel(db: db))
+        _reposVM = State(initialValue: ReposViewModel(
+            db: db, gitService: AppServices.shared.gitService))
         let auth = AppServices.shared.auth
         _accountVM = State(initialValue: AccountMenuViewModel(
             accounts: { await auth.allAccounts() },

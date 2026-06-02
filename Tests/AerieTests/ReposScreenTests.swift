@@ -3,6 +3,18 @@ import SwiftUI
 import SnapshotTesting
 @testable import Aerie
 
+// Minimal fake that returns no worktrees so snapshot tests stay stable.
+private actor NoOpGitServiceForScreenTests: GitService {
+    func worktrees(mainWorktreeAt url: URL) async -> [WorktreeRow] { [] }
+    func removeWorktree(_ p: URL, mainWorktreeAt m: URL, force: Bool) async throws {}
+    func readStatus(at url: URL, repoId: UUID) async throws -> LocalGitStatus { fatalError("unused") }
+    func prLocalState(repoAt url: URL, prId: UUID, sourceBranch: String) async throws -> PRLocalState { fatalError("unused") }
+    func hardResetToOrigin(repoAt url: URL, defaultBranch: String, token: String?) async throws -> HardResetSummary { fatalError("unused") }
+    func updateBranchFromBase(repoAt url: URL, defaultBranch: String, token: String?) async throws { fatalError("unused") }
+    func discardUnstaged(repoAt url: URL) async throws { fatalError("unused") }
+    func forceCheckout(repoAt url: URL, branch: String, token: String?) async throws { fatalError("unused") }
+}
+
 /// Snapshot coverage for the full Repos screen at the main-window content size.
 /// Seeds a temp DB with 3 repos covering the three card states
 /// (clean-on-default, dirty-on-default, diverged), refreshes a real
@@ -108,7 +120,7 @@ final class ReposScreenTests: XCTestCase {
             fetchedAt: Date(timeIntervalSince1970: 1_700_000_000)
         ))
 
-        let vm = ReposViewModel(db: db)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitServiceForScreenTests())
         await vm.refresh()
 
         // Sanity-check the VM landed in .ready before snapshotting.
