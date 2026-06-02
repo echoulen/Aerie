@@ -224,6 +224,8 @@ struct MainShell: View {
     @State private var presentedCheckout: PRRow?
     /// The (repo, worktree) whose delete confirmation is presented (nil = none).
     @State private var presentedDeleteWorktree: WorktreeContext?
+    /// The (repo, worktree) whose discard confirmation is presented (nil = none).
+    @State private var presentedDiscardWorktree: WorktreeContext?
     /// GitHub accounts indexed by id, loaded once on appear so the merge dialog
     /// can resolve a PR's bound account (`repo.primaryAccountId`) synchronously
     /// for display. The overlay body can't `await`, hence the cached map.
@@ -297,6 +299,28 @@ struct MainShell: View {
                 },
                 onHardReset: { presentedReset = $0 },
                 onDiscard: { presentedDiscard = $0 },
+                onMergeWorktree: { row, wt in
+                    // No dialog: a forward, non-destructive step. Mirrors the
+                    // PR card's onUpdateBranch — merge origin/<default> into the
+                    // worktree, authenticated as the repo's bound account, then
+                    // re-project so the row's dirty/clean state settles.
+                    Task {
+                        do {
+                            let token = await services.auth.token(
+                                for: row.repo.primaryAccountId)
+                            try await services.gitService.updateBranchFromBase(
+                                repoAt: wt.path,
+                                defaultBranch: row.repo.defaultBranch,
+                                token: token)
+                        } catch {
+                            NSLog("Worktree merge failed for \(row.repo.name) @ \(wt.branchLabel): \(error.localizedDescription)")
+                        }
+                        await reposVM.refresh()
+                    }
+                },
+                onDiscardWorktree: { row, wt in
+                    presentedDiscardWorktree = WorktreeContext(repo: row.repo, worktree: wt)
+                },
                 onDeleteWorktree: { row, wt in
                     presentedDeleteWorktree = WorktreeContext(repo: row.repo, worktree: wt)
                 }
@@ -450,6 +474,30 @@ struct MainShell: View {
         }
     }
 
+    // Discard-worktree confirmation overlay content. Confirm runs `git restore .`
+    // + `git clean -fd` off the bound git service, then refreshes the
+    // ReposViewModel so the worktree rail updates immediately.
+    @ViewBuilder
+    private var discardWorktreeDialog: some View {
+        if let ctx = presentedDiscardWorktree {
+            DialogWorktreeDiscard(
+                repo: ctx.repo,
+                worktree: ctx.worktree,
+                onConfirm: {
+                    do {
+                        try await services.gitService.discardUnstaged(
+                            repoAt: ctx.worktree.path)
+                        await reposVM.refresh()
+                        presentedDiscardWorktree = nil
+                        return nil
+                    } catch {
+                        return "Discard failed: \(error.localizedDescription)"
+                    }
+                },
+                onCancel: { presentedDiscardWorktree = nil })
+        }
+    }
+
     var body: some View {
         AppFrame(
             viewModel: appVM,
@@ -467,6 +515,7 @@ struct MainShell: View {
         .overlay { mergeDialog }
         .overlay { checkoutDialog }
         .overlay { deleteWorktreeDialog }
+        .overlay { discardWorktreeDialog }
         .task {
             // Kick off focus-driven polling (idempotent), then paint instantly
             // from whatever's already cached. Fresh PRs arrive via the
