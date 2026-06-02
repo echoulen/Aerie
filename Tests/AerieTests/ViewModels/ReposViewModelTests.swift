@@ -2,6 +2,19 @@ import XCTest
 import GRDB
 @testable import Aerie
 
+// Minimal fake that returns no worktrees — lets existing tests stay focused
+// on repo/status projection without touching the git layer.
+private actor NoOpGitService: GitService {
+    func worktrees(mainWorktreeAt url: URL) async -> [WorktreeRow] { [] }
+    func removeWorktree(_ p: URL, mainWorktreeAt m: URL, force: Bool) async throws {}
+    func readStatus(at url: URL, repoId: UUID) async throws -> LocalGitStatus { fatalError("unused") }
+    func prLocalState(repoAt url: URL, prId: UUID, sourceBranch: String) async throws -> PRLocalState { fatalError("unused") }
+    func hardResetToOrigin(repoAt url: URL, defaultBranch: String, token: String?) async throws -> HardResetSummary { fatalError("unused") }
+    func updateBranchFromBase(repoAt url: URL, defaultBranch: String, token: String?) async throws { fatalError("unused") }
+    func discardUnstaged(repoAt url: URL) async throws { fatalError("unused") }
+    func forceCheckout(repoAt url: URL, branch: String, token: String?) async throws { fatalError("unused") }
+}
+
 final class ReposViewModelTests: XCTestCase {
     // MARK: - Helpers
 
@@ -88,7 +101,7 @@ final class ReposViewModelTests: XCTestCase {
         let zero  = try await insertRepo(db, accountId: acct, name: "Alpha",   repo: "alpha",   sortOrder: 0)
         let one   = try await insertRepo(db, accountId: acct, name: "Bravo",   repo: "bravo",   sortOrder: 1)
 
-        let vm = ReposViewModel(db: db)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
         await vm.refresh()
 
         guard case .ready(let rows) = vm.state else {
@@ -101,7 +114,7 @@ final class ReposViewModelTests: XCTestCase {
 
     func test_refresh_emitsEmpty_whenNoRepos() async throws {
         let db = try makeDB()
-        let vm = ReposViewModel(db: db)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
         await vm.refresh()
         XCTAssertEqual(vm.state, .empty)
     }
@@ -123,7 +136,7 @@ final class ReposViewModelTests: XCTestCase {
         )
         try await db.gitStatusCache.upsert(status)
 
-        let vm = ReposViewModel(db: db)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
         await vm.refresh()
 
         guard case .ready(let rows) = vm.state else {
@@ -145,7 +158,7 @@ final class ReposViewModelTests: XCTestCase {
         let visible = try await insertRepo(db, accountId: acct, name: "Visible")
         _ = try await insertRepo(db, accountId: acct, name: "Hidden", repo: "hidden", sortOrder: 1, hidden: true)
 
-        let vm = ReposViewModel(db: db)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
         await vm.refresh()
 
         guard case .ready(let rows) = vm.state else {

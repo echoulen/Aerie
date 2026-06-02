@@ -56,3 +56,6 @@ secrets.json
 Aerie.app/
 dist/
 Resources/AppIcon.icns
+
+# Superpowers brainstorming / spec docs (local only)
+docs/superpowers/
