@@ -171,6 +171,25 @@ final class PRCardTests: XCTestCase {
         XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .approved, mergeStateStatus: "BLOCKED")))
     }
 
+    /// Reported bug (PR #797): GitHub reports BEHIND — the head branch is out of
+    /// date with its base and the repo requires up-to-date branches, so GitHub
+    /// itself refuses the merge until the branch is updated. Aerie was lumping
+    /// BEHIND in with the mergeable states and lighting the Merge button; the
+    /// PUT then fails with a 405. BEHIND must block the button.
+    func test_isMergeable_behindMergeState_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .approved, mergeStateStatus: "BEHIND")))
+    }
+
+    /// Reported bug (PR #797, follow-up): right after a one-click "Update
+    /// branch", GitHub is still recomputing mergeability and briefly returns
+    /// UNKNOWN. The permissive fallback treated UNKNOWN as a green light and lit
+    /// the Merge button — even though the PR was actually still BLOCKED (a
+    /// required review). When GitHub explicitly can't determine the state we
+    /// must NOT offer a one-click merge.
+    func test_isMergeable_unknownMergeState_isNotMergeable() {
+        XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .reviewRequired, mergeStateStatus: "UNKNOWN")))
+    }
+
     func test_isMergeable_dirtyConflicts_isNotMergeable() {
         XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .approved, mergeStateStatus: "DIRTY")))
     }
@@ -233,6 +252,32 @@ final class PRCardTests: XCTestCase {
         XCTAssertEqual(reason?.contains("CI"), true, "got: \(reason ?? "nil")")
     }
 
+    func test_mergeBlockReason_behind_mentionsOutOfDateOrUpdate() {
+        let reason = makePR(ci: .success, review: .approved, mergeStateStatus: "BEHIND").mergeBlockReason
+        let lower = (reason ?? "").lowercased()
+        XCTAssertTrue(
+            lower.contains("out of date") || lower.contains("update"),
+            "BEHIND should say the branch is out of date / needs updating; got: \(reason ?? "nil")"
+        )
+    }
+
+    func test_mergeBlockReason_unknown_mentionsComputingOrRefresh() {
+        let reason = makePR(ci: .success, review: .reviewRequired, mergeStateStatus: "UNKNOWN").mergeBlockReason
+        let lower = (reason ?? "").lowercased()
+        XCTAssertTrue(
+            lower.contains("computing") || lower.contains("refresh"),
+            "UNKNOWN should say the state is still being computed; got: \(reason ?? "nil")"
+        )
+    }
+
+    /// The `nil` fallback (no `mergeStateStatus` — older cached rows) stays
+    /// permissive: it must NOT be swept up by the new UNKNOWN block. A plain
+    /// open PR with passing/no CI and no explicit "changes requested" still
+    /// merges.
+    func test_mergeBlockReason_nilStatus_staysPermissive() {
+        XCTAssertNil(makePR(ci: .success, review: .reviewRequired, mergeStateStatus: nil).mergeBlockReason)
+    }
+
     func test_mergeBlockReason_isMergeable_agreeWithGate() {
         // The wrapper and the reason must never disagree.
         let blocked = makePR(ci: .success, review: .approved, mergeStateStatus: "BLOCKED")
@@ -264,24 +309,45 @@ final class PRCardTests: XCTestCase {
         )
     }
 
+    // Local signal — the checked-out branch is behind its base. A PR with no
+    // `mergeStateStatus` isolates this from the GitHub signal below.
+
     func test_updateBranch_shownWhenBehind() {
-        XCTAssertTrue(PRCard.shouldShowUpdateBranch(makeLocal(behind: 2)))
+        XCTAssertTrue(PRCard.shouldShowUpdateBranch(makePR(), makeLocal(behind: 2)))
     }
 
     func test_updateBranch_hiddenWhenLevel() {
-        XCTAssertFalse(PRCard.shouldShowUpdateBranch(makeLocal(behind: 0)))
+        XCTAssertFalse(PRCard.shouldShowUpdateBranch(makePR(), makeLocal(behind: 0)))
     }
 
-    /// When the PR's branch isn't the current checkout, `behind` is nil — the
-    /// pill (and the local merge it triggers) only make sense on the checkout.
+    /// When the PR's branch isn't the current checkout, `behind` is nil and
+    /// GitHub reports nothing special — neither signal fires, so no pill.
     func test_updateBranch_hiddenWhenNotCheckedOut() {
         XCTAssertFalse(PRCard.shouldShowUpdateBranch(
+            makePR(),
             makeLocal(isCurrentBranch: false, ahead: nil, behind: nil, unpushed: nil)
         ))
     }
 
     func test_updateBranch_hiddenWhenNoLocalState() {
-        XCTAssertFalse(PRCard.shouldShowUpdateBranch(nil))
+        XCTAssertFalse(PRCard.shouldShowUpdateBranch(makePR(), nil))
+    }
+
+    // GitHub signal — `mergeStateStatus == "BEHIND"`. The reported bug (PR
+    // #797): the branch isn't checked out, so the local signal can't fire, yet
+    // GitHub blocks the merge until the branch is updated. The pill must show
+    // off the authoritative state alone.
+
+    func test_updateBranch_shownWhenGitHubBehind_evenIfNotCheckedOut() {
+        XCTAssertTrue(PRCard.shouldShowUpdateBranch(makePR(mergeStateStatus: "BEHIND"), nil))
+    }
+
+    func test_updateBranch_shownWhenGitHubBehind_evenIfLocalLevel() {
+        XCTAssertTrue(PRCard.shouldShowUpdateBranch(makePR(mergeStateStatus: "BEHIND"), makeLocal(behind: 0)))
+    }
+
+    func test_updateBranch_hiddenWhenGitHubClean() {
+        XCTAssertFalse(PRCard.shouldShowUpdateBranch(makePR(mergeStateStatus: "CLEAN"), nil))
     }
 
     // MARK: - Update-branch tooltip (pluralised commit count)
@@ -297,6 +363,19 @@ final class PRCardTests: XCTestCase {
         XCTAssertEqual(
             UpdateBranchButton.tooltip(behind: 3),
             "Update this branch with 3 new commits from origin/main"
+        )
+    }
+
+    /// Not-checked-out BEHIND PRs have no local count, so the tooltip drops the
+    /// number rather than claiming "0 new commits".
+    func test_updateBranchTooltip_unknownCount_isCountFree() {
+        XCTAssertEqual(
+            UpdateBranchButton.tooltip(behind: nil),
+            "Update this branch with the latest changes from origin/main"
+        )
+        XCTAssertEqual(
+            UpdateBranchButton.tooltip(behind: 0),
+            "Update this branch with the latest changes from origin/main"
         )
     }
 }

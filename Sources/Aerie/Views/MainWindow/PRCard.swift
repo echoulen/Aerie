@@ -41,13 +41,19 @@ struct PRCard: View {
         pr.isMergeableByGitHub
     }
 
-    /// Whether the amber "Update branch" pill should show for this row — only
-    /// when the checked-out branch is behind its base (`behind > 0`). `behind`
-    /// is nil unless the PR's branch is the current checkout, so this is also
-    /// false for not-checked-out branches and missing local state. Static +
-    /// internal so it's unit-testable without rendering the view.
-    static func shouldShowUpdateBranch(_ local: PRLocalState?) -> Bool {
-        (local?.behind ?? 0) > 0
+    /// Whether the amber "Update branch" pill should show for this row. Two
+    /// independent signals, either of which is enough:
+    ///   * the checked-out branch is behind its base (`local.behind > 0`) — the
+    ///     local-git view, only available when the PR's branch is the current
+    ///     checkout; or
+    ///   * GitHub reports the PR as `BEHIND` (`pr.isBehindBase`) — the
+    ///     authoritative server view, available even when the branch isn't
+    ///     checked out locally, which is exactly the case the local signal
+    ///     misses (PR #797: "Not checked out locally", yet GitHub blocks the
+    ///     merge until the branch is updated).
+    /// Static + internal so it's unit-testable without rendering the view.
+    static func shouldShowUpdateBranch(_ pr: PullRequest, _ local: PRLocalState?) -> Bool {
+        (local?.behind ?? 0) > 0 || pr.isBehindBase
     }
 
     var body: some View {
@@ -63,10 +69,12 @@ struct PRCard: View {
             ReviewChip(state: row.pr.reviewState)
             StatusPill(text: localStatus.text, tone: localStatus.tone)
             // Behind its base → offer a one-click update, glued right after the
-            // sync chip (never the actions column). Drops out at behind == 0.
-            if Self.shouldShowUpdateBranch(row.localState) {
+            // sync chip (never the actions column). `behind` is the local count
+            // when checked out, nil when GitHub's the only one reporting BEHIND
+            // (not checked out) — the button copes with an unknown count.
+            if Self.shouldShowUpdateBranch(row.pr, row.localState) {
                 UpdateBranchButton(
-                    behind: row.localState?.behind ?? 0,
+                    behind: row.localState?.behind,
                     onUpdate: onUpdateBranch
                 )
             }
@@ -230,9 +238,11 @@ struct PRCard: View {
 /// spins and the button is disabled. Once the branch is level again
 /// (`behind == 0`) the parent stops rendering it.
 struct UpdateBranchButton: View {
-    /// Commits the branch is behind its base — drives the tooltip count. The
-    /// parent only renders this view when it's >= 1.
-    let behind: Int
+    /// Commits the branch is behind its base — drives the tooltip count. Nil
+    /// when the count is unknown: the parent renders this view off GitHub's
+    /// `BEHIND` state for a not-checked-out PR, where there's no local checkout
+    /// to count against.
+    let behind: Int?
     /// Runs the branch update. Awaited so the button can spin until the caller's
     /// re-sync settles and (on success) the branch is no longer behind.
     var onUpdate: () async -> Void = {}
@@ -240,9 +250,14 @@ struct UpdateBranchButton: View {
     @State private var busy = false
 
     /// Pluralised tooltip — "…with 1 new commit…" / "…with 3 new commits…".
-    /// Static + internal so it's unit-testable without rendering the view.
-    static func tooltip(behind: Int) -> String {
-        "Update this branch with \(behind) new commit\(behind == 1 ? "" : "s") from origin/main"
+    /// Falls back to a count-free sentence when the behind count is unknown
+    /// (nil) or non-positive. Static + internal so it's unit-testable without
+    /// rendering the view.
+    static func tooltip(behind: Int?) -> String {
+        guard let behind, behind > 0 else {
+            return "Update this branch with the latest changes from origin/main"
+        }
+        return "Update this branch with \(behind) new commit\(behind == 1 ? "" : "s") from origin/main"
     }
 
     var body: some View {
