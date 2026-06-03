@@ -14,6 +14,17 @@ leave the list, open a browser, or drop to a terminal.
 
 ---
 
+## Download
+
+**[⬇ Download the latest Aerie for macOS (Apple Silicon)](https://github.com/echoulen/Aerie/releases/latest/download/Aerie-macOS-arm64.zip)**
+
+Unzip and move `Aerie.app` into `/Applications` (macOS 14+). You can also browse
+[all releases and notes](https://github.com/echoulen/Aerie/releases/latest), or
+[build from source](#build--run) instead.
+
+> The build is self-signed (no Apple Developer account), so on first launch
+> right-click `Aerie.app` → **Open** to get past Gatekeeper.
+
 ## Features
 
 ### Pull requests
