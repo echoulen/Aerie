@@ -541,4 +541,103 @@ final class GitHubAPIClientTests: XCTestCase {
         )
         XCTAssertEqual(prs, [])
     }
+
+    // MARK: GitHubAPIError surfacing
+    //
+    // The merge dialog renders `error.localizedDescription`. Without a
+    // `LocalizedError` conformance that goes through the NSError bridge and
+    // yields a useless "operation couldn't be completed" string, dropping
+    // GitHub's actual reason (which lives in `.message`). These pin that the
+    // server message — the part a user can act on — reaches the UI.
+
+    func test_gitHubAPIError_localizedDescription_includesServerMessage() {
+        let error: Error = GitHubAPIError(
+            status: 405,
+            message: "At least 1 approving review is required by reviewers with write access."
+        )
+        XCTAssertTrue(
+            error.localizedDescription.contains("At least 1 approving review is required"),
+            "the dialog shows localizedDescription, so it must carry GitHub's reason; got: \(error.localizedDescription)"
+        )
+    }
+
+    func test_gitHubAPIError_localizedDescription_fallsBackToStatusWhenMessageEmpty() {
+        let error: Error = GitHubAPIError(status: 500, message: "")
+        XCTAssertTrue(
+            error.localizedDescription.contains("500"),
+            "with no server message, the HTTP status is the only clue; got: \(error.localizedDescription)"
+        )
+    }
+
+    // MARK: fetchMergeState — single-PR live re-validation
+
+    func test_fetchMergeState_decodesSinglePRAndSendsNumber() async throws {
+        let responseJSON = """
+        {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_796",
+                "number": 796,
+                "title": "Sequencer fly-through",
+                "author": { "login": "octocat" },
+                "headRefName": "demo/sequencer",
+                "state": "OPEN",
+                "mergeable": "MERGEABLE",
+                "mergeStateStatus": "BLOCKED",
+                "labels": { "nodes": [] },
+                "commits": {
+                  "nodes": [ { "commit": { "statusCheckRollup": { "state": "SUCCESS" } } } ]
+                },
+                "reviewDecision": "REVIEW_REQUIRED",
+                "updatedAt": "2026-05-28T10:00:00Z",
+                "url": "https://github.com/acme/widgets/pull/796"
+              }
+            }
+          }
+        }
+        """
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let pr = try await client.fetchMergeState(
+            owner: "acme", repo: "widgets", number: 796, token: "ghp_test"
+        )
+
+        let unwrapped = try XCTUnwrap(pr)
+        XCTAssertEqual(unwrapped.number, 796)
+        XCTAssertEqual(unwrapped.mergeStateStatus, "BLOCKED")
+        XCTAssertEqual(unwrapped.reviewState, .reviewRequired)
+        XCTAssertEqual(unwrapped.ciState, .success)
+
+        let body = try XCTUnwrap(StubURLProtocol.lastBody)
+        let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        let variables = try XCTUnwrap(json?["variables"] as? [String: Any])
+        XCTAssertEqual(variables["number"] as? Int, 796)
+    }
+
+    func test_fetchMergeState_returnsNilWhenPRMissing() async throws {
+        let responseJSON = #"{ "data": { "repository": { "pullRequest": null } } }"#
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: nil
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let pr = try await client.fetchMergeState(
+            owner: "acme", repo: "widgets", number: 999, token: "ghp_test"
+        )
+        XCTAssertNil(pr)
+    }
 }

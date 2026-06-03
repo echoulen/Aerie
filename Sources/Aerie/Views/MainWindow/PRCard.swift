@@ -31,39 +31,14 @@ struct PRCard: View {
 
     private var mergeable: Bool { Self.isMergeable(row.pr) }
 
-    /// Whether the Merge button should light up. Prefer GitHub's authoritative
-    /// `mergeStateStatus` (what the web UI gates on) over re-deriving from CI +
-    /// review — repos differ on whether reviews/checks are *required*, so
-    /// demanding an approval (or green CI) wrongly disabled mergeable PRs.
+    /// Whether the Merge button should light up. Thin wrapper over
+    /// ``PullRequest/mergeBlockReason`` — the single source of truth shared with
+    /// the pre-merge re-validation in `MultiAccountAPI.mergePR`, so "button lit"
+    /// and "merge allowed" can't drift apart in their logic (only in freshness:
+    /// the button reads a cached row, the re-validation a live one).
     /// Static + internal so it's unit-testable without rendering the view.
     static func isMergeable(_ pr: PullRequest) -> Bool {
-        guard pr.state == .open else { return false }
-        // A failing CI rollup hard-blocks the button, even when GitHub would
-        // technically allow the merge: `UNSTABLE` (and occasionally `CLEAN`)
-        // means the failing checks aren't branch-protection-required, so the web
-        // UI keeps its merge button live. Aerie deliberately won't offer a
-        // one-click merge over red CI — override from the web if you must.
-        // (Note: only a *failure* blocks; `.pending`/`.none` still defer to
-        // `mergeStateStatus`, so an UNSTABLE PR with non-required checks merely
-        // *running* stays mergeable.)
-        if pr.ciState == .failure { return false }
-        switch pr.mergeStateStatus {
-        case "CLEAN", "UNSTABLE", "HAS_HOOKS", "BEHIND":
-            // GitHub will accept the merge (no branch-protection block, no
-            // conflicts). UNSTABLE = non-required checks pending/failing.
-            return true
-        case "DIRTY", "BLOCKED", "DRAFT":
-            // Conflicts, blocked by branch protection, or a draft.
-            return false
-        default:
-            // UNKNOWN, or older cached rows that predate the field: be
-            // permissive — open and not actively blocked. Approval is NOT
-            // required (many repos don't enforce reviews); only a hard failure
-            // or an explicit "changes requested" holds the button back.
-            return pr.ciState != .failure
-                && pr.ciState != .pending
-                && pr.reviewState != .changesRequested
-        }
+        pr.isMergeableByGitHub
     }
 
     /// Whether the amber "Update branch" pill should show for this row — only
