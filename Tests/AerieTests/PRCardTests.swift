@@ -202,6 +202,48 @@ final class PRCardTests: XCTestCase {
         XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .changesRequested)))
     }
 
+    // MARK: - mergeBlockReason
+    //
+    // `isMergeable` is now a thin wrapper over `PullRequest.mergeBlockReason`,
+    // the single source of truth shared by the Merge button (cached row) and
+    // the pre-merge re-validation (fresh server row). The reason string is what
+    // the merge dialog surfaces when a stale-cache merge is refused, so it has
+    // to name something the user can act on.
+
+    func test_mergeBlockReason_clean_isNil() {
+        XCTAssertNil(makePR(ci: .success, review: .reviewRequired, mergeStateStatus: "CLEAN").mergeBlockReason)
+    }
+
+    func test_mergeBlockReason_blocked_namesBranchProtectionOrReview() {
+        let reason = makePR(ci: .success, review: .reviewRequired, mergeStateStatus: "BLOCKED").mergeBlockReason
+        let lower = (reason ?? "").lowercased()
+        XCTAssertTrue(
+            lower.contains("branch protection") || lower.contains("review"),
+            "BLOCKED should explain it's branch-protection/required-review; got: \(reason ?? "nil")"
+        )
+    }
+
+    func test_mergeBlockReason_dirty_mentionsConflicts() {
+        let reason = makePR(mergeStateStatus: "DIRTY").mergeBlockReason
+        XCTAssertEqual(reason?.lowercased().contains("conflict"), true, "got: \(reason ?? "nil")")
+    }
+
+    func test_mergeBlockReason_failingCI_mentionsCI() {
+        let reason = makePR(ci: .failure, mergeStateStatus: "CLEAN").mergeBlockReason
+        XCTAssertEqual(reason?.contains("CI"), true, "got: \(reason ?? "nil")")
+    }
+
+    func test_mergeBlockReason_isMergeable_agreeWithGate() {
+        // The wrapper and the reason must never disagree.
+        let blocked = makePR(ci: .success, review: .approved, mergeStateStatus: "BLOCKED")
+        XCTAssertNotNil(blocked.mergeBlockReason)
+        XCTAssertFalse(PRCard.isMergeable(blocked))
+
+        let clean = makePR(ci: .success, review: .reviewRequired, mergeStateStatus: "CLEAN")
+        XCTAssertNil(clean.mergeBlockReason)
+        XCTAssertTrue(PRCard.isMergeable(clean))
+    }
+
     // MARK: - Update-branch pill visibility
 
     private func makeLocal(

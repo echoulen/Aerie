@@ -47,3 +47,44 @@ struct PullRequest: Codable, Equatable, Identifiable {
     /// Merge button lights up. Optional + defaulted (older cached rows lack it).
     var mergeStateStatus: String? = nil
 }
+
+extension PullRequest {
+    /// Single source of truth for "will a one-click squash merge go through?",
+    /// shared by the Merge button (which reads a *cached* row) and the
+    /// pre-merge re-validation in `MultiAccountAPI.mergePR` (which reads a
+    /// *fresh* row). Returns nil when the PR is mergeable, otherwise a short,
+    /// user-facing reason the merge dialog can surface.
+    ///
+    /// Mirrors what the GitHub web UI gates on: trust the authoritative
+    /// `mergeStateStatus` when present, and fall back to CI + review only when
+    /// it's absent (older cached rows / still computing). A *failing* CI rollup
+    /// is an Aerie policy block on top — we won't offer a one-click merge over
+    /// red CI even when GitHub technically would.
+    var mergeBlockReason: String? {
+        guard state == .open else { return "the pull request is \(state.rawValue)" }
+        if ciState == .failure { return "CI is failing" }
+        switch mergeStateStatus {
+        case "CLEAN", "UNSTABLE", "HAS_HOOKS", "BEHIND":
+            // GitHub will accept the merge (no branch-protection block, no
+            // conflicts). UNSTABLE = non-required checks pending/failing.
+            return nil
+        case "DIRTY":
+            return "the branch has merge conflicts"
+        case "BLOCKED":
+            return "branch protection is blocking it (e.g. a required review or status check)"
+        case "DRAFT":
+            return "it is still a draft"
+        default:
+            // UNKNOWN, or older cached rows that predate the field: be
+            // permissive — approval is NOT required (many repos don't enforce
+            // reviews); only a hard failure or an explicit "changes requested"
+            // holds the merge back.
+            if ciState == .pending { return "CI is still running" }
+            if reviewState == .changesRequested { return "changes were requested" }
+            return nil
+        }
+    }
+
+    /// Whether GitHub will accept a one-click squash merge right now.
+    var isMergeableByGitHub: Bool { mergeBlockReason == nil }
+}

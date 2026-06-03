@@ -19,9 +19,22 @@ struct RateLimitSnapshot: Sendable, Equatable {
     let limit: Int
 }
 
-struct GitHubAPIError: Error, Equatable {
+struct GitHubAPIError: Error, Equatable, LocalizedError {
     let status: Int
     let message: String
+
+    /// Surfaced verbatim by the merge dialog (`error.localizedDescription`).
+    /// Without this `LocalizedError` conformance the NSError bridge yields a
+    /// generic "operation couldn't be completed" string and drops `message` —
+    /// the only actionable part (e.g. "At least 1 approving review is
+    /// required"). The HTTP status is appended as context for real API
+    /// failures; synthetic errors (`status == 0`) omit it as noise.
+    var errorDescription: String? {
+        if message.isEmpty {
+            return "GitHub API error (HTTP \(status))"
+        }
+        return status > 0 ? "\(message) (HTTP \(status))" : message
+    }
 }
 
 // MARK: - Protocol
@@ -57,6 +70,20 @@ protocol GitHubAPIClient: Sendable {
         token: String
     ) async throws -> MergeResult
 
+    /// Fetches a single PR's authoritative merge fields (state,
+    /// `mergeStateStatus`, CI rollup, review decision) so a merge can be
+    /// re-validated against fresh server state immediately before it fires —
+    /// closing the window where a cached row lights the Merge button for a PR
+    /// GitHub now refuses. Returns nil when the PR isn't found. Declared on the
+    /// protocol (not just the extension) so the live override is dynamically
+    /// dispatched through the `GitHubAPIClient` existential in `MultiAccountAPI`.
+    func fetchMergeState(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws -> PullRequest?
+
     /// Returns the most recently observed rate-limit snapshot for the given token,
     /// or nil if we have not yet made a successful request with this token.
     /// Synchronous + nonisolated so it stays cheap on the hot path (the polling
@@ -85,6 +112,18 @@ extension GitHubAPIClient {
         } catch {
             return false
         }
+    }
+
+    /// Default: no re-validation data. Conformers that can't query a single PR
+    /// (e.g. test stubs that don't opt in) simply skip the pre-merge re-check,
+    /// so `MultiAccountAPI.mergePR` falls through to the merge itself.
+    func fetchMergeState(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws -> PullRequest? {
+        nil
     }
 }
 
@@ -330,6 +369,82 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         }
         let decoded = try JSONDecoder().decode(MergeResponse.self, from: data)
         return MergeResult(sha: decoded.sha, merged: decoded.merged)
+    }
+
+    // MARK: fetchMergeState
+
+    // Same node shape as `listOpenPRsQuery` so the existing `map(_:repoId:)`
+    // can decode it — just scoped to one PR by number, which is far cheaper
+    // than re-listing 50 and lets us re-validate a PR even when it'd fall
+    // outside the first page.
+    private static let fetchPRQuery: String = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          id
+          number
+          title
+          author { login }
+          headRefName
+          state
+          mergeable
+          mergeStateStatus
+          labels(first: 10) { nodes { name } }
+          commits(last: 1) {
+            nodes {
+              commit {
+                statusCheckRollup { state }
+              }
+            }
+          }
+          reviewDecision
+          reviews(states: [APPROVED], last: 1) { nodes { author { login } } }
+          additions
+          deletions
+          changedFiles
+          updatedAt
+          url
+        }
+      }
+    }
+    """
+
+    func fetchMergeState(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws -> PullRequest? {
+        var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+        let payload: [String: Any] = [
+            "query": Self.fetchPRQuery,
+            "variables": ["owner": owner, "repo": repo, "number": number] as [String: Any],
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await session.data(for: request)
+        let http = response as? HTTPURLResponse
+        recordRateLimit(token: token, response: http)
+        try checkOK(status: http?.statusCode ?? 0, data: data)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(FetchPRResponse.self, from: data)
+        // `repository: null` (private repo not visible to this token) or
+        // `pullRequest: null` (no such PR) both mean "nothing to re-validate".
+        guard let node = decoded.data.repository?.pullRequest else { return nil }
+        return Self.map(node, repoId: UUID())
+    }
+
+    private struct FetchPRResponse: Decodable {
+        struct DataLayer: Decodable { let repository: Repo? }
+        struct Repo: Decodable { let pullRequest: ListPRsResponse.Node? }
+        let data: DataLayer
     }
 
     // MARK: Helpers

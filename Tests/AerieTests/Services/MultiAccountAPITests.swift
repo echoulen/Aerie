@@ -93,6 +93,26 @@ actor StubGitHubAPIClient: GitHubAPIClient {
     nonisolated func lastRateLimit(token: String) -> RateLimitSnapshot? {
         rateLimits.get(token)
     }
+
+    /// Fresh PR returned by `fetchMergeState`, keyed by token. Absent ⇒ nil,
+    /// matching the protocol default — so tests that don't opt in keep their
+    /// existing merge behaviour (no pre-merge re-validation data available).
+    /// Read without touching `callCount`/`tokensUsed`, so those still count
+    /// only the merge PUT itself.
+    var freshPRByToken: [String: PullRequest] = [:]
+
+    func setFreshPR(_ pr: PullRequest, forToken token: String) {
+        freshPRByToken[token] = pr
+    }
+
+    func fetchMergeState(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws -> PullRequest? {
+        freshPRByToken[token]
+    }
 }
 
 // MARK: - Tests
@@ -554,9 +574,87 @@ final class MultiAccountAPITests: XCTestCase {
         XCTAssertEqual(secondaryRecord, fixed)
     }
 
+    // MARK: mergePR — pre-merge re-validation against fresh server state
+    //
+    // The reported bug: the Merge button lights up off a *cached* row, but by
+    // the time the user clicks, GitHub's authoritative state has flipped to
+    // BLOCKED (e.g. a required review appeared). `mergePR` re-checks the live
+    // state with the same token first, and refuses (with a clear reason) rather
+    // than firing a PUT GitHub will reject.
+
+    func test_mergePR_refusesWhenFreshStateNoLongerMergeable() async throws {
+        let primary = UUID()
+        let token = "tok"
+        let stub = StubGitHubAPIClient()
+        // Fresh server state says the PR is now BLOCKED.
+        await stub.setFreshPR(
+            makePR(repoId: UUID(), number: 796, mergeStateStatus: "BLOCKED"),
+            forToken: token
+        )
+        // A merge result is queued, but must never be consumed.
+        await stub.enqueue(.merge(MergeResult(sha: "x", merged: true)), forToken: token)
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: token] },
+            accountsInOrder: { [primary] }
+        )
+
+        do {
+            _ = try await api.mergePR(owner: "acme", repo: "widgets", number: 796, method: .squash)
+            XCTFail("expected the stale-cache merge to be refused")
+        } catch let error as GitHubAPIError {
+            XCTAssertFalse(error.message.isEmpty, "the refusal must explain why")
+        }
+
+        let count = await stub.callCount
+        XCTAssertEqual(count, 0, "must not issue the merge PUT when fresh state says it's blocked")
+    }
+
+    func test_mergePR_proceedsWhenFreshStateMergeable() async throws {
+        let primary = UUID()
+        let token = "tok"
+        let stub = StubGitHubAPIClient()
+        await stub.setFreshPR(
+            makePR(repoId: UUID(), number: 5, mergeStateStatus: "CLEAN"),
+            forToken: token
+        )
+        await stub.enqueue(.merge(MergeResult(sha: "abc", merged: true)), forToken: token)
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: token] },
+            accountsInOrder: { [primary] }
+        )
+
+        let result = try await api.mergePR(owner: "acme", repo: "widgets", number: 5, method: .squash)
+        XCTAssertTrue(result.value.merged)
+        let count = await stub.callCount
+        XCTAssertEqual(count, 1, "the merge PUT runs once when fresh state is mergeable")
+    }
+
+    func test_mergePR_proceedsWhenNoFreshStateAvailable() async throws {
+        // Back-compat / resilience: when re-validation yields nothing (PR not
+        // found, or the re-check query couldn't run), fall through to the merge
+        // rather than blocking the user on an inability to validate.
+        let primary = UUID()
+        let token = "tok"
+        let stub = StubGitHubAPIClient()
+        await stub.enqueue(.merge(MergeResult(sha: "abc", merged: true)), forToken: token)
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: token] },
+            accountsInOrder: { [primary] }
+        )
+
+        let result = try await api.mergePR(owner: "acme", repo: "widgets", number: 5, method: .squash)
+        XCTAssertTrue(result.value.merged)
+    }
+
     // MARK: helpers
 
-    private func makePR(repoId: UUID, number: Int) -> PullRequest {
+    private func makePR(repoId: UUID, number: Int, mergeStateStatus: String? = nil) -> PullRequest {
         PullRequest(
             id: UUID(),
             repoId: repoId,
@@ -570,7 +668,8 @@ final class MultiAccountAPITests: XCTestCase {
             reviewState: .approved,
             labels: [],
             htmlUrl: URL(string: "https://github.com/acme/widgets/pull/\(number)")!,
-            updatedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            mergeStateStatus: mergeStateStatus
         )
     }
 }

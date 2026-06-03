@@ -128,7 +128,24 @@ actor MultiAccountAPI {
         method: MergeMethod
     ) async throws -> MultiAccountAPIResult<MergeResult> {
         try await tryAcrossAccounts { token in
-            try await self.client.mergePR(
+            // Re-validate against fresh server state before firing the merge.
+            // The Merge button is gated on a *cached* row, so by the time the
+            // user clicks, GitHub's authoritative state may have flipped to
+            // BLOCKED/DIRTY (e.g. a required review appeared, or a conflict
+            // landed). Refuse with a clear reason rather than a PUT GitHub will
+            // reject. Best-effort: if the re-check itself can't run (`try?`
+            // swallows auth/network errors), fall through to the merge and let
+            // its own error surface — and an auth failure here re-occurs on the
+            // merge call below, so cross-account fallback still works.
+            if let fresh = try? await self.client.fetchMergeState(
+                owner: owner, repo: repo, number: number, token: token
+            ), let reason = fresh.mergeBlockReason {
+                throw GitHubAPIError(
+                    status: 405,
+                    message: "GitHub won't merge this PR right now — \(reason). Try refreshing."
+                )
+            }
+            return try await self.client.mergePR(
                 owner: owner,
                 repo: repo,
                 number: number,
