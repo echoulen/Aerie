@@ -258,22 +258,25 @@ struct MainShell: View {
                 onRefresh: { await services.refreshNow() },
                 onMerge: { presentedMerge = $0 },
                 onUpdateBranch: { row in
-                    // One-click "Update branch": merge origin/<base> into
-                    // the checkout, then re-sync so the row's behind count
-                    // (and the pill) update. Mirrors the hard-reset path —
-                    // a git op off the bound service, then `refreshNow`.
-                    // No dialog: this is a forward, non-destructive step.
+                    // One-click "Update branch": ask GitHub to update the PR's
+                    // head branch server-side (the analogue of the web "Update
+                    // branch" button), then re-sync so the row's BEHIND state
+                    // (and the pill) clear. No dialog: a forward, non-destructive
+                    // step.
+                    //
+                    // Always the server path — even when the branch is the local
+                    // checkout. A local `git merge` advances only the working
+                    // copy; without a push the PR's *remote* head never moves, so
+                    // GitHub keeps reporting BEHIND and the merge stays blocked
+                    // (PR #807: the local merge had already happened but never
+                    // reached GitHub). The server update moves the remote head,
+                    // which is what BEHIND is computed against. The bound
+                    // account's token is resolved inside MultiAccountAPI.
                     do {
-                        // Authenticate the fetch as the repo's bound account,
-                        // not gh's globally-active account (which may not have
-                        // access to a private remote).
-                        let token = await services.auth.token(
-                            for: row.repo.primaryAccountId
-                        )
-                        try await services.gitService.updateBranchFromBase(
-                            repoAt: row.repo.localPath,
-                            defaultBranch: row.repo.defaultBranch,
-                            token: token
+                        try await services.multiApi.updatePullRequestBranch(
+                            owner: row.repo.githubOwner,
+                            repo: row.repo.githubRepo,
+                            number: row.pr.number
                         )
                     } catch {
                         NSLog("Update branch failed for \(row.repo.name) #\(row.pr.number): \(error.localizedDescription)")

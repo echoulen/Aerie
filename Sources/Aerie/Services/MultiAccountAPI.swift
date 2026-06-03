@@ -155,6 +155,25 @@ actor MultiAccountAPI {
         }
     }
 
+    /// Brings a PR's head branch up to date with its base via GitHub's
+    /// server-side "Update branch" (the analogue of the web button), trying the
+    /// configured accounts in order on auth failures. Used for `BEHIND` PRs that
+    /// aren't checked out locally, where the local `git merge` path can't run.
+    func updatePullRequestBranch(
+        owner: String,
+        repo: String,
+        number: Int
+    ) async throws {
+        _ = try await tryAcrossAccounts { token in
+            try await self.client.updatePullRequestBranch(
+                owner: owner,
+                repo: repo,
+                number: number,
+                token: token
+            )
+        }
+    }
+
     /// Snapshot of the last response's rate-limit headers for the given
     /// account, or nil if we have no record (account unknown, or no call
     /// made yet on its token).

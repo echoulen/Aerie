@@ -478,6 +478,66 @@ final class GitHubAPIClientTests: XCTestCase {
         XCTAssertEqual(json?["merge_method"] as? String, "rebase")
     }
 
+    // MARK: updatePullRequestBranch
+
+    func test_updatePullRequestBranch_sendsPUTToUpdateBranchEndpoint() async throws {
+        StubURLProtocol.handler = { request in
+            // GitHub answers the update-branch endpoint with 202 Accepted.
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 202,
+                httpVersion: "HTTP/1.1",
+                headerFields: nil
+            )!
+            let body = #"{"message":"Updating pull request branch.","url":"https://api.github.com/repos/acme/widgets/pulls/42"}"#
+            return (response, Data(body.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        try await client.updatePullRequestBranch(
+            owner: "acme",
+            repo: "widgets",
+            number: 42,
+            token: "ghp_update"
+        )
+
+        let req = try XCTUnwrap(StubURLProtocol.lastRequest)
+        XCTAssertEqual(
+            req.url?.absoluteString,
+            "https://api.github.com/repos/acme/widgets/pulls/42/update-branch"
+        )
+        XCTAssertEqual(req.httpMethod, "PUT")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer ghp_update")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Accept"), "application/vnd.github+json")
+    }
+
+    func test_updatePullRequestBranch_throwsOnHTTPError() async throws {
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 422,
+                httpVersion: "HTTP/1.1",
+                headerFields: nil
+            )!
+            let body = #"{"message":"merge conflict between base and head"}"#
+            return (response, Data(body.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        do {
+            try await client.updatePullRequestBranch(
+                owner: "acme",
+                repo: "widgets",
+                number: 42,
+                token: "ghp_test"
+            )
+            XCTFail("expected throw")
+        } catch let error as GitHubAPIError {
+            XCTAssertEqual(error.status, 422)
+            XCTAssertEqual(error.message, "merge conflict between base and head")
+        }
+    }
+
     // MARK: rate-limit header tracking
 
     func test_listOpenPRs_recordsRateLimitHeaders() async throws {

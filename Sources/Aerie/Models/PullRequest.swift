@@ -64,21 +64,36 @@ extension PullRequest {
         guard state == .open else { return "the pull request is \(state.rawValue)" }
         if ciState == .failure { return "CI is failing" }
         switch mergeStateStatus {
-        case "CLEAN", "UNSTABLE", "HAS_HOOKS", "BEHIND":
+        case "CLEAN", "UNSTABLE", "HAS_HOOKS":
             // GitHub will accept the merge (no branch-protection block, no
             // conflicts). UNSTABLE = non-required checks pending/failing.
             return nil
+        case "BEHIND":
+            // The head branch is out of date with its base and the repo
+            // requires up-to-date branches before merging, so GitHub refuses
+            // the merge (a 405) until the branch is updated. Block the button
+            // and point the user at the fix — the "Update branch" affordance.
+            return "the branch is out of date with its base — update it first"
         case "DIRTY":
             return "the branch has merge conflicts"
         case "BLOCKED":
             return "branch protection is blocking it (e.g. a required review or status check)"
         case "DRAFT":
             return "it is still a draft"
+        case "UNKNOWN":
+            // GitHub hasn't finished computing mergeability — it's still
+            // recomputing (e.g. right after an "Update branch", a push, or a
+            // base move). It WILL resolve to a definite state (often BLOCKED or
+            // CLEAN) within seconds. Don't offer a one-click merge on a guess:
+            // a stale UNKNOWN was lighting the button for a PR that was actually
+            // still blocked by a required review (PR #797 follow-up). Mirrors
+            // GitHub's own UI, which greys the merge button while computing.
+            return "GitHub is still computing whether it can merge — refresh in a moment"
         default:
-            // UNKNOWN, or older cached rows that predate the field: be
-            // permissive — approval is NOT required (many repos don't enforce
-            // reviews); only a hard failure or an explicit "changes requested"
-            // holds the merge back.
+            // No `mergeStateStatus` at all (nil): older cached rows that predate
+            // the field, or one still in flight. Be permissive — approval is NOT
+            // required (many repos don't enforce reviews); only a hard failure
+            // or an explicit "changes requested" holds the merge back.
             if ciState == .pending { return "CI is still running" }
             if reviewState == .changesRequested { return "changes were requested" }
             return nil
@@ -87,4 +102,11 @@ extension PullRequest {
 
     /// Whether GitHub will accept a one-click squash merge right now.
     var isMergeableByGitHub: Bool { mergeBlockReason == nil }
+
+    /// Whether GitHub considers the head branch out of date with its base
+    /// (`mergeStateStatus == "BEHIND"`) and therefore in need of an update
+    /// before it can merge. Drives the "Update branch" affordance from the
+    /// authoritative server state, so it shows even when the PR's branch isn't
+    /// checked out locally (where there's no local `behind` count to read).
+    var isBehindBase: Bool { mergeStateStatus == "BEHIND" }
 }

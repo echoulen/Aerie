@@ -84,6 +84,21 @@ protocol GitHubAPIClient: Sendable {
         token: String
     ) async throws -> PullRequest?
 
+    /// Updates the PR's head branch with the latest commits from its base — the
+    /// server-side equivalent of GitHub's "Update branch" button (REST `PUT
+    /// .../pulls/{number}/update-branch`). Lets Aerie bring a `BEHIND` PR up to
+    /// date even when its branch isn't checked out locally, where the local
+    /// `git merge` path (`GitService.updateBranchFromBase`) has nothing to run
+    /// against. Declared on the protocol — not just the extension — so the live
+    /// override is dynamically dispatched through the `GitHubAPIClient`
+    /// existential in `MultiAccountAPI`.
+    func updatePullRequestBranch(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws
+
     /// Returns the most recently observed rate-limit snapshot for the given token,
     /// or nil if we have not yet made a successful request with this token.
     /// Synchronous + nonisolated so it stays cheap on the hot path (the polling
@@ -125,6 +140,16 @@ extension GitHubAPIClient {
     ) async throws -> PullRequest? {
         nil
     }
+
+    /// Default: no-op. Test stubs that don't exercise update-branch inherit a
+    /// harmless no-op (mirrors the `fetchMergeState` default); the live client
+    /// overrides it with the real REST call.
+    func updatePullRequestBranch(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws {}
 }
 
 // MARK: - Rate-limit store (lock-protected, nonisolated read/write)
@@ -369,6 +394,32 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         }
         let decoded = try JSONDecoder().decode(MergeResponse.self, from: data)
         return MergeResult(sha: decoded.sha, merged: decoded.merged)
+    }
+
+    // MARK: updatePullRequestBranch
+
+    func updatePullRequestBranch(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws {
+        let urlString =
+            "https://api.github.com/repos/\(owner)/\(repo)/pulls/\(number)/update-branch"
+        var request = URLRequest(url: URL(string: urlString)!)
+        request.httpMethod = "PUT"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Empty JSON object body: the optional `expected_head_sha` is omitted so
+        // the update always targets the PR's current head. GitHub answers 202
+        // Accepted (the merge is queued), which `checkOK` treats as success.
+        request.httpBody = try JSONSerialization.data(withJSONObject: [String: Any]())
+
+        let (data, response) = try await session.data(for: request)
+        let http = response as? HTTPURLResponse
+        recordRateLimit(token: token, response: http)
+        try checkOK(status: http?.statusCode ?? 0, data: data)
     }
 
     // MARK: fetchMergeState
