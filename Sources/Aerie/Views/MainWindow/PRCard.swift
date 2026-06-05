@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// A single PR row. Renders through the shared ``CardContent`` skeleton, so it
 /// stays pixel-consistent with the Issue and Repo cards.
@@ -90,12 +91,21 @@ struct PRCard: View {
     // bottom"). All three are `.btn.sm` (12pt) sized; Open is ghost (borderless),
     // Merge/Checkout carry the glass/amber `.btn` chrome. A fixed column width
     // keeps the three equal and the cards' action columns aligned down the list.
+    //
+    // Open shares its top row with a small ``CopyLinkButton`` (`v2/app.jsx`: the
+    // Open `flex:1` button paired with the fixed 30pt copy icon). The pair sits
+    // above Merge/Checkout so the copy affordance never crowds them. The column
+    // widens to 132 to match the design's `minWidth: 132` and give Open room
+    // beside the copy icon.
 
-    private static let actionColumnWidth: CGFloat = 108
+    private static let actionColumnWidth: CGFloat = 132
 
     private var actionColumn: some View {
         VStack(spacing: 8) {
-            openButton
+            HStack(spacing: 8) {
+                openButton
+                CopyLinkButton(url: row.pr.htmlUrl)
+            }
             mergeButton
             checkoutButton
         }
@@ -305,5 +315,97 @@ struct UpdateBranchButton: View {
             await onUpdate()
             busy = false
         }
+    }
+}
+
+/// The quiet "copy link" icon button that pairs with `Open ↗` on a PR card.
+/// Mirrors the design's `CopyLinkButton` (`.copy-link-btn` in `v2/styles.css`):
+/// a fixed 30×26 ghost square that's grey at rest, hints amber on hover, and —
+/// once the PR's GitHub URL is on the clipboard — flips to a green checkmark for
+/// ~1.6s before settling back. That confirm-then-fade is the same instant
+/// feedback language the Merge button uses, so the two read as one family.
+///
+/// The tooltip doubles as a preview: it shows the URL at rest ("Copy link · …")
+/// and "Copied to clipboard" while the checkmark is up, so the user can see
+/// exactly what lands on the clipboard.
+struct CopyLinkButton: View {
+    /// The GitHub URL to copy. The PR model already carries this as `htmlUrl`,
+    /// so the owner is whatever GitHub returned for the repo.
+    let url: URL
+
+    @State private var copied = false
+    @State private var hovering = false
+    /// Resets the checkmark ~1.6s after the last copy. Re-clicking cancels the
+    /// pending reset and starts a fresh one, so the confirmation always lingers
+    /// a full window from the *latest* click — the design's `clearTimeout` +
+    /// new `setTimeout(…, 1600)`.
+    @State private var resetTask: Task<Void, Never>?
+
+    var body: some View {
+        Button(action: copy) {
+            icon
+                .foregroundStyle(foreground)
+                .frame(width: 30, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous).fill(fill)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(border, lineWidth: 1)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(CopyLinkPressStyle())
+        .onHover { hovering = $0 }
+        .help(copied ? "Copied to clipboard" : "Copy link · \(url.absoluteString)")
+        .animation(.easeOut(duration: 0.15), value: copied)
+        .animation(.easeOut(duration: 0.15), value: hovering)
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        if copied {
+            Image(systemName: "checkmark")
+                .font(.system(size: 12, weight: .semibold))
+        } else {
+            Image(systemName: "link")
+                .font(.system(size: 12, weight: .medium))
+        }
+    }
+
+    // Resting grey → amber hint on hover → green once copied. The copied tint
+    // wins over hover, matching `.copy-link-btn.copied:hover` (stays green).
+    private var foreground: Color {
+        if copied { return AerieColor.ok }
+        return hovering ? AerieColor.amber : AerieColor.text3
+    }
+    private var fill: Color {
+        if copied { return AerieColor.ok.opacity(0.14) }
+        return hovering ? AerieColor.amber.opacity(0.10) : .clear
+    }
+    private var border: Color {
+        if copied { return AerieColor.ok.opacity(0.45) }
+        return hovering ? AerieColor.amber.opacity(0.40) : .clear
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        copied = true
+        resetTask?.cancel()
+        resetTask = Task {
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            if !Task.isCancelled { copied = false }
+        }
+    }
+}
+
+/// The 0.5px press-sink shared by the card's quiet icon buttons — mirrors
+/// `.copy-link-btn:active { transform: translateY(0.5px) }`.
+private struct CopyLinkPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .offset(y: configuration.isPressed ? 0.5 : 0)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
