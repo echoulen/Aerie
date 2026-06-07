@@ -139,11 +139,25 @@ actor MultiAccountAPI {
             // merge call below, so cross-account fallback still works.
             if let fresh = try? await self.client.fetchMergeState(
                 owner: owner, repo: repo, number: number, token: token
-            ), let reason = fresh.mergeBlockReason {
-                throw GitHubAPIError(
-                    status: 405,
-                    message: "GitHub won't merge this PR right now — \(reason). Try refreshing."
-                )
+            ) {
+                // Already merged — e.g. an enabled auto-merge (or another
+                // client) landed the merge in the window between the Merge
+                // button lighting up off a *cached* row and this click. The
+                // user's goal is already met, so treat it as an idempotent
+                // success rather than a 405: the dialog dismisses and the PR
+                // drops off the list on refresh, instead of a confusing
+                // "Merge failed … the pull request is merged".
+                if fresh.state == .merged {
+                    return MergeResult(sha: "", merged: true)
+                }
+                // Any other block (CI failing, conflicts, closed-unmerged,
+                // still-computing) is a real reason the user should see.
+                if let reason = fresh.mergeBlockReason {
+                    throw GitHubAPIError(
+                        status: 405,
+                        message: "GitHub won't merge this PR right now — \(reason). Try refreshing."
+                    )
+                }
             }
             return try await self.client.mergePR(
                 owner: owner,

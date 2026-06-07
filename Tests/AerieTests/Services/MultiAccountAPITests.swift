@@ -674,6 +674,38 @@ final class MultiAccountAPITests: XCTestCase {
         XCTAssertTrue(result.value.merged)
     }
 
+    func test_mergePR_treatsAlreadyMergedAsIdempotentSuccess() async throws {
+        // Auto-merge (or another client) landed the merge after the button lit
+        // off a cached row. The re-validation sees state == .merged and returns
+        // success WITHOUT firing the merge PUT, so the user sees the PR drop off
+        // rather than a confusing "Merge failed … the pull request is merged".
+        let primary = UUID()
+        let token = "tok"
+        let repoId = UUID()
+        let mergedPR = PullRequest(
+            id: UUID(), repoId: repoId, number: 9, title: "PR 9", authorLogin: "ghost",
+            sourceBranch: "feat/x", isMine: false, state: .merged, ciState: .success,
+            reviewState: .approved, labels: [],
+            htmlUrl: URL(string: "https://github.com/acme/widgets/pull/9")!,
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000))
+
+        let stub = StubGitHubAPIClient()
+        await stub.setFreshPR(mergedPR, forToken: token)
+        // Intentionally enqueue NO merge outcome: if the code wrongly fires the
+        // PUT, the stub throws "no canned outcome" and the test fails.
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: token] },
+            accountsInOrder: { [primary] }
+        )
+
+        let result = try await api.mergePR(owner: "acme", repo: "widgets", number: 9, method: .squash)
+        XCTAssertTrue(result.value.merged)
+        let count = await stub.callCount
+        XCTAssertEqual(count, 0, "an already-merged PR must not fire the merge PUT")
+    }
+
     // MARK: approvePR
 
     func test_approvePR_usesExactlyTheChosenAccount() async throws {
