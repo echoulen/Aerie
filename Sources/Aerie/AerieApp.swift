@@ -503,6 +503,10 @@ struct MainShell: View {
                         )
                         await services.refreshNow()
                         presentedApprove = nil
+                        // Approve done → leave the diff detail page and return to
+                        // the PR list, where the row now reflects the new review
+                        // state (and any lit Merge gate).
+                        reviewing = nil
                         return nil
                     } catch {
                         return "Approve failed: \(error.localizedDescription)"
