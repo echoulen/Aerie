@@ -222,6 +222,13 @@ struct MainShell: View {
     /// The PR whose force-checkout confirmation dialog is currently presented
     /// (nil = no dialog). Owned here for the same scrim reason as the others.
     @State private var presentedCheckout: PRRow?
+    /// The PR currently open in the code review (diff) screen, or nil for the
+    /// normal tab list. Owned here (not in `AppViewModel`) alongside the dialogs,
+    /// since the review screen replaces the whole tab content area.
+    @State private var reviewing: PRRow?
+    /// The PR + resolved approver set for the approve confirmation dialog
+    /// (nil = no dialog). Owned here for the same scrim reason as the others.
+    @State private var presentedApprove: PRReviewApproveContext?
     /// The (repo, worktree) whose delete confirmation is presented (nil = none).
     @State private var presentedDeleteWorktree: WorktreeContext?
     /// The (repo, worktree) whose discard confirmation is presented (nil = none).
@@ -250,6 +257,31 @@ struct MainShell: View {
     // time" limit.
     @ViewBuilder
     private var tabContent: some View {
+        if let row = reviewing {
+            // Code review (diff) screen replaces the tab list while open. Keyed
+            // on the PR id so switching PRs rebuilds the screen + its fetch.
+            PRReviewScreen(
+                row: row,
+                loadFiles: { r in
+                    try await services.multiApi.fetchPRFiles(
+                        owner: r.repo.githubOwner,
+                        repo: r.repo.githubRepo,
+                        number: r.pr.number,
+                        accountId: r.repo.primaryAccountId
+                    ).value
+                },
+                accountsProvider: { await services.auth.allAccounts() },
+                onBack: { reviewing = nil },
+                onApprove: { presentedApprove = $0 }
+            )
+            .id(row.id)
+        } else {
+            tabSwitcher
+        }
+    }
+
+    @ViewBuilder
+    private var tabSwitcher: some View {
         switch appVM.activeTab {
         case .prs:
             PRsScreen(
@@ -283,7 +315,8 @@ struct MainShell: View {
                     }
                     await services.refreshNow()
                 },
-                onCheckout: { presentedCheckout = $0 }
+                onCheckout: { presentedCheckout = $0 },
+                onReview: { reviewing = $0 }
             )
         case .issues:
             IssuesScreen(
@@ -451,6 +484,35 @@ struct MainShell: View {
         }
     }
 
+    // Approve confirmation overlay content. Confirm submits an approving review
+    // via the GitHub API using the chosen (non-author) approver account, then
+    // refreshes so the PR's review state — and the Merge gate — settle.
+    @ViewBuilder
+    private var approveDialog: some View {
+        if let ctx = presentedApprove {
+            DialogApprove(
+                context: ctx,
+                onConfirm: { approver, comment in
+                    do {
+                        _ = try await services.multiApi.approvePR(
+                            owner: ctx.row.repo.githubOwner,
+                            repo: ctx.row.repo.githubRepo,
+                            number: ctx.row.pr.number,
+                            body: comment,
+                            accountId: approver.id
+                        )
+                        await services.refreshNow()
+                        presentedApprove = nil
+                        return nil
+                    } catch {
+                        return "Approve failed: \(error.localizedDescription)"
+                    }
+                },
+                onCancel: { presentedApprove = nil }
+            )
+        }
+    }
+
     // Delete-worktree confirmation overlay content. Confirm runs `git worktree
     // remove` off the bound git service (force when the worktree is dirty), then
     // refreshes the ReposViewModel so the worktree rail updates immediately.
@@ -519,6 +581,7 @@ struct MainShell: View {
         .overlay { discardDialog }
         .overlay { mergeDialog }
         .overlay { checkoutDialog }
+        .overlay { approveDialog }
         .overlay { deleteWorktreeDialog }
         .overlay { discardWorktreeDialog }
         .task {

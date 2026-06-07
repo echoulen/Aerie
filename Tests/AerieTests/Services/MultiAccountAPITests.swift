@@ -113,6 +113,28 @@ actor StubGitHubAPIClient: GitHubAPIClient {
     ) async throws -> PullRequest? {
         freshPRByToken[token]
     }
+
+    // MARK: Approve recording
+
+    /// Tokens an approve was attempted with, in order, plus the comment body.
+    private(set) var approveCalls: [(token: String, body: String?)] = []
+    /// Per-token error to throw from `approvePR` (e.g. simulate a 403).
+    var approveErrorByToken: [String: GitHubAPIError] = [:]
+
+    func setApproveError(_ err: GitHubAPIError, forToken token: String) {
+        approveErrorByToken[token] = err
+    }
+
+    func approvePR(
+        owner: String,
+        repo: String,
+        number: Int,
+        body: String?,
+        token: String
+    ) async throws {
+        approveCalls.append((token, body))
+        if let err = approveErrorByToken[token] { throw err }
+    }
 }
 
 // MARK: - Tests
@@ -650,6 +672,61 @@ final class MultiAccountAPITests: XCTestCase {
 
         let result = try await api.mergePR(owner: "acme", repo: "widgets", number: 5, method: .squash)
         XCTAssertTrue(result.value.merged)
+    }
+
+    // MARK: approvePR
+
+    func test_approvePR_usesExactlyTheChosenAccount() async throws {
+        let approver = UUID()
+        let other = UUID()
+        let approverToken = "approver_tok"
+        let otherToken = "other_tok"
+        let stub = StubGitHubAPIClient()
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [approver: approverToken, other: otherToken] },
+            accountsInOrder: { [other, approver] } // 'other' is first in order…
+        )
+
+        let result = try await api.approvePR(
+            owner: "acme", repo: "widgets", number: 7,
+            body: "LGTM", accountId: approver // …but we picked 'approver' explicitly
+        )
+        XCTAssertEqual(result.successfulAccountId, approver)
+        let calls = await stub.approveCalls
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.token, approverToken)
+        XCTAssertEqual(calls.first?.body, "LGTM")
+    }
+
+    func test_approvePR_doesNotFallBackOnError() async throws {
+        let approver = UUID()
+        let other = UUID()
+        let approverToken = "approver_tok"
+        let otherToken = "other_tok"
+        let stub = StubGitHubAPIClient()
+        await stub.setApproveError(
+            GitHubAPIError(status: 403, message: "Can not approve your own pull request"),
+            forToken: approverToken
+        )
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [approver: approverToken, other: otherToken] },
+            accountsInOrder: { [approver, other] }
+        )
+
+        do {
+            _ = try await api.approvePR(
+                owner: "acme", repo: "widgets", number: 7, body: nil, accountId: approver)
+            XCTFail("expected approvePR to throw")
+        } catch let err as GitHubAPIError {
+            XCTAssertEqual(err.status, 403)
+        }
+        // Only the chosen account was tried — no round-robin to 'other'.
+        let calls = await stub.approveCalls
+        XCTAssertEqual(calls.map(\.token), [approverToken])
     }
 
     // MARK: helpers

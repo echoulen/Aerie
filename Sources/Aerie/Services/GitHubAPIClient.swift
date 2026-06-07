@@ -112,6 +112,31 @@ protocol GitHubAPIClient: Sendable {
     /// is dynamically dispatched when called through the `GitHubAPIClient`
     /// existential in `MultiAccountAPI`.
     func repoIsVisible(owner: String, repo: String, token: String) async -> Bool
+
+    /// Fetches the changed files (with per-file unified-diff `patch`) for a PR —
+    /// the data behind the code-review screen. Paginated server-side; the live
+    /// client walks pages up to a cap. Declared on the protocol (with an
+    /// extension default) so it's dynamically dispatched through the
+    /// `GitHubAPIClient` existential in `MultiAccountAPI`.
+    func fetchPRFiles(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws -> [PRFileChange]
+
+    /// Submits an approving review on a PR (REST `POST .../pulls/{n}/reviews`
+    /// with `event: APPROVE`). `body` is an optional review comment. The token's
+    /// account must not be the PR author — GitHub rejects self-approval — which
+    /// the caller enforces by choosing the approver account. Declared on the
+    /// protocol (with an extension default) for the same dynamic-dispatch reason.
+    func approvePR(
+        owner: String,
+        repo: String,
+        number: Int,
+        body: String?,
+        token: String
+    ) async throws
 }
 
 extension GitHubAPIClient {
@@ -148,6 +173,27 @@ extension GitHubAPIClient {
         owner: String,
         repo: String,
         number: Int,
+        token: String
+    ) async throws {}
+
+    /// Default: no files. Stubs that don't exercise the review screen inherit an
+    /// empty list; the live client overrides it with the real REST call.
+    func fetchPRFiles(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws -> [PRFileChange] {
+        []
+    }
+
+    /// Default: no-op. Stubs that don't exercise approve inherit a harmless
+    /// no-op; the live client overrides it with the real REST call.
+    func approvePR(
+        owner: String,
+        repo: String,
+        number: Int,
+        body: String?,
         token: String
     ) async throws {}
 }
@@ -415,6 +461,90 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         // the update always targets the PR's current head. GitHub answers 202
         // Accepted (the merge is queued), which `checkOK` treats as success.
         request.httpBody = try JSONSerialization.data(withJSONObject: [String: Any]())
+
+        let (data, response) = try await session.data(for: request)
+        let http = response as? HTTPURLResponse
+        recordRateLimit(token: token, response: http)
+        try checkOK(status: http?.statusCode ?? 0, data: data)
+    }
+
+    // MARK: fetchPRFiles
+
+    /// Walks `GET /repos/{owner}/{repo}/pulls/{number}/files` page by page
+    /// (100/page) until a short page arrives or we hit the file cap, so a huge
+    /// PR can't spin the request loop unbounded. Each element carries the file's
+    /// unified-diff `patch` (absent for binary / over-large files).
+    func fetchPRFiles(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws -> [PRFileChange] {
+        let perPage = 100
+        let maxFiles = 300
+        var collected: [PRFileChange] = []
+        var page = 1
+
+        while collected.count < maxFiles {
+            let urlString =
+                "https://api.github.com/repos/\(owner)/\(repo)/pulls/\(number)/files?per_page=\(perPage)&page=\(page)"
+            var request = URLRequest(url: URL(string: urlString)!)
+            request.httpMethod = "GET"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+            let (data, response) = try await session.data(for: request)
+            let http = response as? HTTPURLResponse
+            recordRateLimit(token: token, response: http)
+            try checkOK(status: http?.statusCode ?? 0, data: data)
+
+            let decoded = try JSONDecoder().decode([FileNode].self, from: data)
+            collected.append(contentsOf: decoded.map {
+                PRFileChange(
+                    filename: $0.filename,
+                    status: FileChangeStatus(githubStatus: $0.status),
+                    additions: $0.additions,
+                    deletions: $0.deletions,
+                    patch: $0.patch
+                )
+            })
+            // A short page means there are no more.
+            if decoded.count < perPage { break }
+            page += 1
+        }
+        return Array(collected.prefix(maxFiles))
+    }
+
+    private struct FileNode: Decodable {
+        let filename: String
+        let status: String
+        let additions: Int
+        let deletions: Int
+        let patch: String?
+    }
+
+    // MARK: approvePR
+
+    func approvePR(
+        owner: String,
+        repo: String,
+        number: Int,
+        body: String?,
+        token: String
+    ) async throws {
+        let urlString =
+            "https://api.github.com/repos/\(owner)/\(repo)/pulls/\(number)/reviews"
+        var request = URLRequest(url: URL(string: urlString)!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var payload: [String: Any] = ["event": "APPROVE"]
+        if let body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["body"] = body
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
         let (data, response) = try await session.data(for: request)
         let http = response as? HTTPURLResponse

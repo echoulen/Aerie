@@ -20,6 +20,9 @@ struct PRCard: View {
     /// Asks the shell to present the force-checkout confirmation dialog for this
     /// PR. Defaulted to a no-op for snapshot tests and previews.
     var onCheckout: () -> Void = {}
+    /// Opens the code review screen for this PR. Defaulted to a no-op for
+    /// snapshot tests and previews.
+    var onReview: () -> Void = {}
     /// Runs the base-branch update for this PR's checkout. Awaited by the
     /// status-row "Update branch" pill so it can spin until the row's sync
     /// settles. Defaulted to a no-op for snapshot tests and previews.
@@ -106,10 +109,38 @@ struct PRCard: View {
                 openButton
                 CopyLinkButton(url: row.pr.htmlUrl)
             }
+            reviewButton
             mergeButton
             checkoutButton
         }
         .frame(width: Self.actionColumnWidth)
+    }
+
+    // Glass-chrome button (matches Checkout) that drills into the code review
+    // screen — the in-app "read the diff → approve" entry point.
+    private var reviewButton: some View {
+        Button(action: onReview) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Review")
+            }
+            .aerieFont(AerieFont.custom(.sans, size: 12))
+            .foregroundStyle(AerieColor.text1)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(AerieColor.glass2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help("Review the diff for \(row.repo.name) #\(row.pr.number)")
     }
 
     private var openButton: some View {
