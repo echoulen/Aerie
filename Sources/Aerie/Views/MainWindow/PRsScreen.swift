@@ -37,6 +37,9 @@ struct PRsScreen: View {
     /// `row`. The screen owns no state, so the `DialogCheckout` presentation +
     /// `GitService.forceCheckout` call live in `MainShell` (mirrors `onMerge`).
     var onCheckout: (PRRow) -> Void = { _ in }
+    /// Asks the shell to open the code review screen for `row`. The detail-page
+    /// navigation state (`reviewing`) lives in `MainShell` (mirrors `onMerge`).
+    var onReview: (PRRow) -> Void = { _ in }
 
     var body: some View {
         switch viewModel.state {
@@ -127,6 +130,7 @@ struct PRsScreen: View {
                         onMerge: { onMerge(row) },
                         onOpen: { handleOpen(row) },
                         onCheckout: { onCheckout(row) },
+                        onReview: { onReview(row) },
                         onUpdateBranch: { await onUpdateBranch(row) },
                         now: now
                     )

@@ -12,6 +12,7 @@ let package = Package(
         .package(url: "https://github.com/ibrahimcetin/SwiftGitX.git", from: "0.4.0"),
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-snapshot-testing.git", from: "1.17.0"),
+        .package(url: "https://github.com/JohnSundell/Splash.git", from: "0.16.0"),
     ],
     targets: [
         .executableTarget(
@@ -20,6 +21,7 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "SwiftGitX", package: "SwiftGitX"),
                 .product(name: "Hummingbird", package: "hummingbird"),
+                .product(name: "Splash", package: "Splash"),
             ],
             exclude: ["Resources/Info.plist", "Resources/Assets.xcassets"],
             resources: [.process("Resources")]

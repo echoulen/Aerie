@@ -174,6 +174,47 @@ actor MultiAccountAPI {
         }
     }
 
+    /// Fetches a PR's changed files (+ per-file diff) using exactly
+    /// `accountId`'s token — the repo's bound account. Read path for the code
+    /// review screen: one precise call, no round-robin.
+    func fetchPRFiles(
+        owner: String,
+        repo: String,
+        number: Int,
+        accountId: UUID
+    ) async throws -> MultiAccountAPIResult<[PRFileChange]> {
+        try await withAccount(accountId) { token in
+            try await self.client.fetchPRFiles(
+                owner: owner,
+                repo: repo,
+                number: number,
+                token: token
+            )
+        }
+    }
+
+    /// Submits an approving review using exactly `accountId`'s token. **No**
+    /// round-robin: the approver is chosen deliberately by the caller (it must
+    /// not be the PR author — GitHub forbids self-approval), so falling back to
+    /// another account would silently approve as the wrong identity.
+    func approvePR(
+        owner: String,
+        repo: String,
+        number: Int,
+        body: String?,
+        accountId: UUID
+    ) async throws -> MultiAccountAPIResult<Void> {
+        try await withAccount(accountId) { token in
+            try await self.client.approvePR(
+                owner: owner,
+                repo: repo,
+                number: number,
+                body: body,
+                token: token
+            )
+        }
+    }
+
     /// Snapshot of the last response's rate-limit headers for the given
     /// account, or nil if we have no record (account unknown, or no call
     /// made yet on its token).
