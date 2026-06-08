@@ -16,6 +16,8 @@ struct DialogReset: View {
     var onCancel: () -> Void
     /// When non-nil, the confirm flow also force-deletes this merged branch, and
     /// the dialog says so. Defaulted to nil so existing call sites are unaffected.
+    /// Callers must only set this when `mergedBranch.branch == status.currentBranch`
+    /// (the off-default checked-out branch) — `MergedBranchSync` guarantees that.
     var mergedBranch: MergedBranchInfo? = nil
     /// In-flight state for the primary button.
     @State private var busy: Bool = false
@@ -52,7 +54,9 @@ struct DialogReset: View {
             onSecondary: onCancel,
             loading: busy,
             loadingLabel: "Resetting…",
-            progressNote: "Resetting to origin/\(repo.defaultBranch)…",
+            progressNote: mergedBranch == nil
+                ? "Resetting to origin/\(repo.defaultBranch)…"
+                : "Resetting & deleting branch…",
             errorMessage: errorMessage
         ) {
             KVList(rows: kvRows)

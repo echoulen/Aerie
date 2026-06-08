@@ -374,6 +374,7 @@ struct MainShell: View {
             DialogReset(
                 repo: row.repo,
                 status: status,
+                mergedBranch: row.mergedBranch,
                 onConfirm: {
                     do {
                         let token = await services.auth.token(
@@ -384,6 +385,23 @@ struct MainShell: View {
                             defaultBranch: row.repo.defaultBranch,
                             token: token
                         )
+                        // Reset succeeded — HEAD is now on the default branch, so the
+                        // merged branch can be force-deleted. A deletion failure here is
+                        // non-fatal: the reset already achieved the user's goal and the
+                        // orphaned merged branch is harmless (removable manually). Swallow
+                        // + log rather than reporting "Reset failed", which would
+                        // misrepresent a successful reset. refreshNow re-runs detection;
+                        // since HEAD is now on default, the pill clears regardless.
+                        if let merged = row.mergedBranch {
+                            do {
+                                try await services.gitService.deleteLocalBranch(
+                                    repoAt: row.repo.localPath,
+                                    branch: merged.branch
+                                )
+                            } catch {
+                                NSLog("Reset succeeded but couldn't delete merged branch \(merged.branch): \(error.localizedDescription)")
+                            }
+                        }
                         await services.refreshNow()
                         presentedReset = nil
                         return nil
