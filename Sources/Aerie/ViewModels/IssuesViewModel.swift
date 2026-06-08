@@ -24,6 +24,7 @@ enum IssuesState: Equatable {
 /// re-projects whatever's currently in the cache into a flat, `updatedAt`-sorted
 /// row list, and is re-invoked whenever a sync posts `.aerieIssueCacheDidChange`.
 /// Mirrors ``PRsViewModel``.
+@MainActor
 @Observable
 final class IssuesViewModel {
     private(set) var state: IssuesState = .loading

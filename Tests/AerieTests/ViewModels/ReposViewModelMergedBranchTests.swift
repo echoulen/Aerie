@@ -2,6 +2,7 @@ import XCTest
 import GRDB
 @testable import Aerie
 
+@MainActor
 final class ReposViewModelMergedBranchTests: XCTestCase {
     private var tempURLs: [URL] = []
     override func tearDownWithError() throws {

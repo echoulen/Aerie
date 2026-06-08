@@ -20,6 +20,7 @@ private actor NoOpGitServiceForScreenTests: GitService {
 /// Seeds a temp DB with 3 repos covering the three card states
 /// (clean-on-default, dirty-on-default, diverged), refreshes a real
 /// `ReposViewModel`, then renders against the standard backdrop.
+@MainActor
 final class ReposScreenTests: XCTestCase {
     private var tempURLs: [URL] = []
 

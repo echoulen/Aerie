@@ -25,6 +25,7 @@ enum PRsState: Equatable {
 /// layer's job (`PRSyncService`, driven by `PollingScheduler`). `refresh()`
 /// re-projects whatever's currently in the cache into a flat, `updatedAt`-sorted
 /// row list, and is re-invoked whenever a sync posts `.aeriePRCacheDidChange`.
+@MainActor
 @Observable
 final class PRsViewModel {
     private(set) var state: PRsState = .loading

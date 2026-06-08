@@ -31,6 +31,7 @@ enum ReposState: Equatable {
 ///
 /// `RepoDAO.all()` already orders by `(sort_order, name)` — we preserve that
 /// ordering rather than re-sorting in memory.
+@MainActor
 @Observable
 final class ReposViewModel {
     private(set) var state: ReposState = .loading
