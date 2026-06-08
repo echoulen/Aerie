@@ -106,4 +106,24 @@ final class RepoCardTests: XCTestCase {
         let row = RepoRow(repo: makeRepo(), status: nil)
         assertSnapshot(of: host(row), as: .image(size: CGSize(width: 980, height: 180)))
     }
+
+    // MARK: - Merged-branch logic (non-snapshot)
+
+    private func makeMergedInfo(branch: String = "IOE-3017", number: Int = 62) -> MergedBranchInfo {
+        MergedBranchInfo(
+            repoId: repoId, branch: branch, prNumber: number,
+            prUrl: URL(string: "https://github.com/carlos-li/aerie/pull/\(number)")!,
+            headOid: "deadbeef", mergedAt: Date(timeIntervalSince1970: 1_700_000_000))
+    }
+
+    func test_resetTitle_defaultWhenNotMerged() {
+        let row = RepoRow(repo: makeRepo(), status: makeStatus(currentBranch: "IOE-3017"))
+        XCTAssertEqual(RepoCard.resetTitle(row), "Reset to origin/main")
+    }
+
+    func test_resetTitle_deleteWhenMerged() {
+        var row = RepoRow(repo: makeRepo(), status: makeStatus(currentBranch: "IOE-3017"))
+        row.mergedBranch = makeMergedInfo()
+        XCTAssertEqual(RepoCard.resetTitle(row), "Reset & delete branch")
+    }
 }

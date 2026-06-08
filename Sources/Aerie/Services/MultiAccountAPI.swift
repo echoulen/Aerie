@@ -121,6 +121,25 @@ actor MultiAccountAPI {
         }
     }
 
+    /// Returns the merged PR whose head branch equals `headBranch`, using
+    /// exactly `accountId`'s token — the repo's bound account. One precise call,
+    /// no round-robin, mirroring the bound-account `listOpenPRs`.
+    func mergedPR(
+        owner: String,
+        repo: String,
+        headBranch: String,
+        accountId: UUID
+    ) async throws -> MultiAccountAPIResult<MergedPRRef?> {
+        try await withAccount(accountId) { token in
+            try await self.client.mergedPR(
+                owner: owner,
+                repo: repo,
+                headBranch: headBranch,
+                token: token
+            )
+        }
+    }
+
     func mergePR(
         owner: String,
         repo: String,

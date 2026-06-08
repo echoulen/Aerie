@@ -89,4 +89,18 @@ final class DialogResetTests: XCTestCase {
                                initialError: "Reset failed: could not fetch origin (network unreachable)")
         assertSnapshot(of: host(view), as: .image(size: CGSize(width: 1240, height: 880)))
     }
+
+    // MARK: - Delete-branch note (non-snapshot)
+
+    func test_deleteBranchNote_nilWhenNotMerged() {
+        XCTAssertNil(DialogReset.deleteBranchNote(nil))
+    }
+
+    func test_deleteBranchNote_describesBranchAndPR() {
+        let info = MergedBranchInfo(
+            repoId: repoId, branch: "IOE-3017", prNumber: 62,
+            prUrl: URL(string: "https://github.com/carlos-li/aerie/pull/62")!,
+            headOid: "deadbeef", mergedAt: fixedFetchedAt)
+        XCTAssertEqual(DialogReset.deleteBranchNote(info), "IOE-3017 (merged in #62)")
+    }
 }

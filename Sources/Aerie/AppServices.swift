@@ -146,11 +146,13 @@ final class AppServices {
             }
         })
         let refresher = GitStatusRefresher(db: db, gitService: gitService)
+        let mergedSync = MergedBranchSync(db: db, api: multiApi)
         let statusSubject = PassthroughSubject<Void, Never>()
-        let scheduler = PollingScheduler(clock: LiveClock()) { [prSync, issueSync, refresher, statusSubject] repoId in
+        let scheduler = PollingScheduler(clock: LiveClock()) { [prSync, issueSync, refresher, mergedSync, statusSubject] repoId in
             await prSync.sync(repoId: repoId)
             await issueSync.sync(repoId: repoId)
             await refresher.refresh(repoId: repoId)
+            await mergedSync.sync(repoId: repoId)
             await MainActor.run { statusSubject.send() }
         }
         let focusObserver = LiveAppFocusObserver()
