@@ -29,3 +29,32 @@ func intParam(_ params: JSONValue?, key: String) throws -> Int {
     }
     return i
 }
+
+/// Extract a required, non-empty string parameter. Throws `-32602` when the
+/// key is missing, not a string, or empty.
+func stringParam(_ params: JSONValue?, key: String) throws -> String {
+    guard case .object(let obj) = params,
+          case .string(let s) = obj[key] ?? .null, !s.isEmpty else {
+        throw JSONRPCError(
+            code: -32602,
+            message: "Missing or invalid \(key) (non-empty string expected)",
+            data: nil
+        )
+    }
+    return s
+}
+
+/// Extract an optional string parameter. Returns nil when absent or not a string.
+func optionalStringParam(_ params: JSONValue?, key: String) -> String? {
+    guard case .object(let obj) = params,
+          case .string(let s) = obj[key] ?? .null else { return nil }
+    return s
+}
+
+/// Extract an optional bool parameter, falling back to `def` when absent or
+/// not a bool.
+func boolParam(_ params: JSONValue?, key: String, default def: Bool) -> Bool {
+    guard case .object(let obj) = params,
+          case .bool(let b) = obj[key] ?? .null else { return def }
+    return b
+}
