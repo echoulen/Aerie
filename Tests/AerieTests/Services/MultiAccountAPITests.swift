@@ -136,6 +136,25 @@ actor StubGitHubAPIClient: GitHubAPIClient {
         if let err = approveErrorByToken[token] { throw err }
     }
 
+    // MARK: PR files (review screen / get_pr_diff)
+    var prFilesByToken: [String: [PRFileChange]] = [:]
+    var prFilesErrorByToken: [String: GitHubAPIError] = [:]
+    func setPRFiles(_ files: [PRFileChange], forToken token: String) { prFilesByToken[token] = files }
+    func setPRFilesError(_ err: GitHubAPIError, forToken token: String) { prFilesErrorByToken[token] = err }
+    func fetchPRFiles(owner: String, repo: String, number: Int, token: String) async throws -> [PRFileChange] {
+        if let err = prFilesErrorByToken[token] { throw err }
+        return prFilesByToken[token] ?? []
+    }
+
+    // MARK: Update branch (server-side)
+    private(set) var updateBranchCalls: [String] = []
+    var updateBranchErrorByToken: [String: GitHubAPIError] = [:]
+    func setUpdateBranchError(_ err: GitHubAPIError, forToken token: String) { updateBranchErrorByToken[token] = err }
+    func updatePullRequestBranch(owner: String, repo: String, number: Int, token: String) async throws {
+        updateBranchCalls.append(token)
+        if let err = updateBranchErrorByToken[token] { throw err }
+    }
+
     func mergedPR(
         owner: String,
         repo: String,
@@ -739,6 +758,15 @@ final class MultiAccountAPITests: XCTestCase {
         XCTAssertEqual(calls.count, 1)
         XCTAssertEqual(calls.first?.token, approverToken)
         XCTAssertEqual(calls.first?.body, "LGTM")
+    }
+
+    func test_stub_fetchPRFiles_returnsQueuedFiles() async throws {
+        let stub = StubGitHubAPIClient()
+        let file = PRFileChange(filename: "a.swift", status: .modified, additions: 1, deletions: 0, patch: "@@")
+        await stub.setPRFiles([file], forToken: "tok")
+        let out = try await stub.fetchPRFiles(owner: "o", repo: "r", number: 1, token: "tok")
+        XCTAssertEqual(out.count, 1)
+        XCTAssertEqual(out.first?.filename, "a.swift")
     }
 
     func test_approvePR_doesNotFallBackOnError() async throws {
