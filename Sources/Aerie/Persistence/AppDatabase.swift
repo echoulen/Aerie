@@ -10,6 +10,7 @@ actor AppDatabase {
     nonisolated var issueCache: IssueCacheDAO { IssueCacheDAO(dbQueue: dbQueue) }
     nonisolated var prLocalStateCache: PRLocalStateCacheDAO { PRLocalStateCacheDAO(dbQueue: dbQueue) }
     nonisolated var gitStatusCache: GitStatusCacheDAO { GitStatusCacheDAO(dbQueue: dbQueue) }
+    nonisolated var mergedBranchCache: MergedBranchCacheDAO { MergedBranchCacheDAO(dbQueue: dbQueue) }
     nonisolated var mcpActivity: MCPActivityDAO { MCPActivityDAO(dbQueue: dbQueue) }
     nonisolated var settings: SettingsDAO { SettingsDAO(dbQueue: dbQueue) }
 
@@ -34,6 +35,9 @@ actor AppDatabase {
         }
         m.registerMigration("v2") { db in
             try db.execute(sql: AppDatabase.schemaV2)
+        }
+        m.registerMigration("v3") { db in
+            try db.execute(sql: AppDatabase.schemaV3)
         }
         return m
     }
@@ -109,6 +113,17 @@ actor AppDatabase {
         payload_json TEXT NOT NULL,
         fetched_at REAL NOT NULL,
         PRIMARY KEY (repo_id, number)
+    );
+    """
+
+    /// v3 — the Repos tab's per-repo "this off-default branch is already merged"
+    /// cache. Single row per repo (like `git_status_cache`); replaced or cleared
+    /// each detection pass.
+    static let schemaV3: String = """
+    CREATE TABLE merged_branch_cache (
+        repo_id TEXT PRIMARY KEY REFERENCES repos(id),
+        payload_json TEXT NOT NULL,
+        fetched_at REAL NOT NULL
     );
     """
 }
