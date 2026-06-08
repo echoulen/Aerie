@@ -298,39 +298,25 @@ actor LiveGitService: GitService {
             )
         }
 
-        // Now the local reset via SwiftGitX (switch + reset --hard need no
-        // network, so libgit2's missing credentials don't matter here).
-        let repo = try SwiftGitX.Repository(at: url, createIfNotExists: false)
-
-        // Switch to the local default branch (creating it if needed by
-        // tracking the remote).
-        let defaultLocal: SwiftGitX.Branch
-        if let local = repo.branch[defaultBranch, type: .local] {
-            defaultLocal = local
-            try repo.switch(to: defaultLocal)
-        } else {
-            // No local default branch yet — `switch` against the remote
-            // ref will create one with upstream tracking.
-            let remoteBranch = try repo.branch.get(
-                named: "origin/\(defaultBranch)", type: .remote
-            )
-            try repo.switch(to: remoteBranch)
-        }
-
-        // Resolve the remote tip and reset --hard.
-        let remoteRef = try repo.branch.get(
-            named: "origin/\(defaultBranch)", type: .remote
-        )
-        guard let remoteTip = remoteRef.target as? SwiftGitX.Commit else {
+        // Local reset via the git CLI, NOT SwiftGitX: a libgit2 *safe* checkout
+        // refuses to leave a dirty branch when an uncommitted file differs on
+        // the target branch ("would be overwritten by checkout"), throwing
+        // `SwiftGitXError error 1` *before* the reset --hard that was meant to
+        // discard it. `checkout -f -B <default> origin/<default>` force-discards
+        // the dirty tree, switches to (or creates) the default branch, and
+        // resets it to the freshly-fetched origin tip in one step — mirroring
+        // `forceCheckout`. No network, so libgit2's missing credentials are moot
+        // and the CLI's keychain access isn't needed here either.
+        guard runGit(
+            ["checkout", "-f", "-B", defaultBranch, "origin/\(defaultBranch)"],
+            at: url
+        ) != nil else {
             throw NSError(
                 domain: "GitService", code: 1,
-                userInfo: [
-                    NSLocalizedDescriptionKey:
-                        "origin/\(defaultBranch) tip is not a commit"
-                ]
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Couldn't reset to origin/\(defaultBranch)."]
             )
         }
-        try repo.reset(to: remoteTip, mode: .hard)
 
         return HardResetSummary(
             discardedDirtyFiles: dirtyCount,
