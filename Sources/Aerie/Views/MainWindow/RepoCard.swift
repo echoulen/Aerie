@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// A single repository row. Renders through the shared ``CardContent`` skeleton,
 /// so it stays pixel-consistent with the PR and Issue cards.
@@ -37,10 +38,17 @@ struct RepoCard: View {
         status?.isDirty == true
     }
 
+    /// The danger button's title. When the checked-out branch is already merged,
+    /// the action also force-deletes that local branch, so the label says so.
+    /// Static + internal so it's unit-testable without rendering the view.
+    static func resetTitle(_ row: RepoRow) -> String {
+        row.mergedBranch != nil
+            ? "Reset & delete branch"
+            : "Reset to origin/\(row.repo.defaultBranch)"
+    }
+
     private var repoTitle: String { row.repo.name }
     private var owner: String { row.repo.githubOwner }
-    private var defaultBranch: String { row.repo.defaultBranch }
-
     private var branchName: String {
         row.status?.currentBranch ?? row.repo.defaultBranch
     }
@@ -78,7 +86,10 @@ struct RepoCard: View {
                 Text(owner)
                     .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text2)
-                if !isOnDefault {
+                if let merged = row.mergedBranch {
+                    MetaDot()
+                    mergedPill(merged)
+                } else if !isOnDefault {
                     MetaDot()
                     offDefaultPill
                 }
@@ -93,7 +104,7 @@ struct RepoCard: View {
             VStack(alignment: .trailing, spacing: 8) {
                 HStack(spacing: 8) {
                     CardOpenButton(action: onOpen)
-                    DangerButton(title: "Reset to origin/\(defaultBranch)", action: onHardReset)
+                    DangerButton(title: Self.resetTitle(row), action: onHardReset)
                 }
                 if Self.shouldShowDiscard(row.status) {
                     DiscardButton(action: onDiscard)
@@ -119,6 +130,26 @@ struct RepoCard: View {
             .padding(.vertical, 1)
             .background(Capsule(style: .continuous).fill(AerieColor.glass2))
             .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+    }
+
+    /// Amber-toned, clickable pill replacing `off default` when the checked-out
+    /// branch is already merged. Opens the merged PR. Amber (not err/ok) reads as
+    /// "needs action" without colliding with the danger or clean tones.
+    private func mergedPill(_ merged: MergedBranchInfo) -> some View {
+        Button {
+            NSWorkspace.shared.open(merged.prUrl)
+        } label: {
+            Text("merged · #\(merged.prNumber)")
+                .aerieFont(AerieFont.custom(.sans, size: 10))
+                .foregroundStyle(AerieColor.amber)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 1)
+                .background(Capsule(style: .continuous).fill(AerieColor.amberSoft))
+                .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.amberLine, lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Open merged PR #\(merged.prNumber)")
     }
 }
 
