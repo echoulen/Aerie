@@ -9,6 +9,9 @@ struct RepoRow: Equatable, Identifiable {
     let repo: Repository
     let status: LocalGitStatus?
     var worktrees: [WorktreeRow] = []
+    /// The checked-out off-default branch's merged-PR info, when detected. Drives
+    /// the `merged · #N` pill and the "Reset & delete branch" affordance.
+    var mergedBranch: MergedBranchInfo? = nil
 }
 
 /// State machine for the Repos view.
@@ -59,9 +62,11 @@ final class ReposViewModel {
             var rows: [RepoRow] = []
             for repo in all {
                 let status = try await db.gitStatusCache.status(forRepo: repo.id)
+                let merged = try await db.mergedBranchCache.info(forRepo: repo.id)
                 rows.append(RepoRow(
                     repo: repo, status: status,
-                    worktrees: worktreesByRepo[repo.id] ?? []))
+                    worktrees: worktreesByRepo[repo.id] ?? [],
+                    mergedBranch: merged))
             }
             state = .ready(rows)
 
@@ -73,7 +78,9 @@ final class ReposViewModel {
                     worktreesByRepo[repo.id] = wts
                     changed = true
                 }
-                rows[i] = RepoRow(repo: repo, status: rows[i].status, worktrees: wts)
+                rows[i] = RepoRow(
+                    repo: repo, status: rows[i].status, worktrees: wts,
+                    mergedBranch: rows[i].mergedBranch)
             }
             if changed { state = .ready(rows) }
         } catch {
