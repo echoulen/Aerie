@@ -90,6 +90,14 @@ protocol GitService: Actor {
     /// main worktree so the checkout deleting itself can't break the command.
     /// `force` deletes even when the worktree has uncommitted changes.
     func removeWorktree(_ worktreePath: URL, mainWorktreeAt mainURL: URL, force: Bool) async throws
+
+    /// Force-delete a local branch: `git branch -D <branch>`. Used after a hard
+    /// reset to clean up a branch whose PR has already merged. Force (`-D`)
+    /// because a squash-merged branch's commits aren't in the default branch's
+    /// history, so a safe `-d` would refuse. The caller must NOT be on `branch`
+    /// — `hardResetToOrigin` switches to the default branch first. Throws if git
+    /// refuses (e.g. unknown branch).
+    func deleteLocalBranch(repoAt url: URL, branch: String) async throws
 }
 
 actor LiveGitService: GitService {
@@ -355,6 +363,22 @@ actor LiveGitService: GitService {
                 domain: "GitService", code: 5,
                 userInfo: [NSLocalizedDescriptionKey:
                     "Couldn't remove untracked files (git clean -fd failed)."]
+            )
+        }
+    }
+
+    // MARK: - Delete local branch
+
+    func deleteLocalBranch(repoAt url: URL, branch: String) async throws {
+        // CLI (not libgit2) for parity with the other mutating ops. `-D` force-
+        // deletes even when the branch isn't merged into HEAD's upstream — the
+        // squash-merge case, where the branch's commits never landed on the
+        // default branch under the same SHAs.
+        guard runGit(["branch", "-D", branch], at: url) != nil else {
+            throw NSError(
+                domain: "GitService", code: 9,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Couldn't delete local branch \(branch) (git branch -D failed)."]
             )
         }
     }

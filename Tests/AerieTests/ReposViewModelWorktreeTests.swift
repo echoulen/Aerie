@@ -14,6 +14,7 @@ private actor FakeGitService: GitService {
     func updateBranchFromBase(repoAt url: URL, defaultBranch: String, token: String?) async throws { fatalError("unused") }
     func discardUnstaged(repoAt url: URL) async throws { fatalError("unused") }
     func forceCheckout(repoAt url: URL, branch: String, token: String?) async throws { fatalError("unused") }
+    func deleteLocalBranch(repoAt url: URL, branch: String) async throws { fatalError("unused") }
 }
 
 @MainActor

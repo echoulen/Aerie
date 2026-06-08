@@ -712,4 +712,45 @@ final class GitServiceTests: XCTestCase {
         ]).trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertEqual(headSha, originSha)
     }
+
+    // MARK: deleteLocalBranch
+
+    func test_deleteLocalBranch_removesAnExistingBranch() async throws {
+        let repo = try makeTempRepo() // on main
+        try shell(["git", "-C", repo.path, "branch", "feat/merged"]) // create, stay on main
+
+        let svc = LiveGitService()
+        try await svc.deleteLocalBranch(repoAt: repo, branch: "feat/merged")
+
+        let listed = try shell(["git", "-C", repo.path, "branch", "--list", "feat/merged"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(listed, "", "branch should be gone")
+    }
+
+    func test_deleteLocalBranch_forceDeletesBranchNotMergedIntoMain() async throws {
+        // squash-merge analogue: a branch with a commit that is NOT on main.
+        // A safe `-d` would refuse; force `-D` must still remove it.
+        let repo = try makeTempRepo() // on main
+        try shell(["git", "-C", repo.path, "checkout", "-q", "-b", "feat/squashed"])
+        try addCommit(in: repo, file: "only-on-branch")
+        try shell(["git", "-C", repo.path, "checkout", "-q", "main"])
+
+        let svc = LiveGitService()
+        try await svc.deleteLocalBranch(repoAt: repo, branch: "feat/squashed")
+
+        let listed = try shell(["git", "-C", repo.path, "branch", "--list", "feat/squashed"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(listed, "")
+    }
+
+    func test_deleteLocalBranch_throwsForUnknownBranch() async throws {
+        let repo = try makeTempRepo()
+        let svc = LiveGitService()
+        do {
+            try await svc.deleteLocalBranch(repoAt: repo, branch: "does/not/exist")
+            XCTFail("expected throw")
+        } catch let e as NSError {
+            XCTAssertEqual(e.domain, "GitService")
+        }
+    }
 }
