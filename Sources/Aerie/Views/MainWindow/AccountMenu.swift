@@ -23,6 +23,7 @@ struct ActiveAccount: Equatable {
 /// Loads the active account for the titlebar avatar. Mirrors
 /// `AccountsViewModel`'s closure-injection style so the view stays decoupled
 /// from `AuthService` and can be driven by test doubles.
+@MainActor
 @Observable
 final class AccountMenuViewModel {
     private(set) var active: ActiveAccount?

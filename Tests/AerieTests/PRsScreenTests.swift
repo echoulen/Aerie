@@ -6,6 +6,7 @@ import SnapshotTesting
 /// Snapshot coverage for the full PRs screen at the main-window content size.
 /// Seeds a temp DB with 3 PRs across 2 repos, refreshes a real `PRsViewModel`,
 /// then renders the screen against the standard backdrop.
+@MainActor
 final class PRsScreenTests: XCTestCase {
     private var tempURLs: [URL] = []
 

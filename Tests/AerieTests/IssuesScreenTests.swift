@@ -6,6 +6,7 @@ import SnapshotTesting
 /// Snapshot coverage for the full Issues screen at the main-window content
 /// size. Seeds a temp DB with issues across 2 repos, refreshes a real
 /// `IssuesViewModel`, then renders the screen against the standard backdrop.
+@MainActor
 final class IssuesScreenTests: XCTestCase {
     private var tempURLs: [URL] = []
 

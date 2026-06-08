@@ -2,6 +2,7 @@ import XCTest
 import GRDB
 @testable import Aerie
 
+@MainActor
 final class PRsViewModelTests: XCTestCase {
     // MARK: - Helpers
 

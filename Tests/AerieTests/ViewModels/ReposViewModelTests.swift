@@ -16,6 +16,7 @@ private actor NoOpGitService: GitService {
     func deleteLocalBranch(repoAt url: URL, branch: String) async throws { fatalError("unused") }
 }
 
+@MainActor
 final class ReposViewModelTests: XCTestCase {
     // MARK: - Helpers
 
