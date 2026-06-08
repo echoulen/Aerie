@@ -29,6 +29,7 @@ final class MCPToolsetTests: XCTestCase {
             db: db,
             git: LiveGitService(),
             api: api,
+            accounts: { [] },
             refresh: { _ in },
             accountToken: { _ in nil }
         )
@@ -43,13 +44,25 @@ final class MCPToolsetTests: XCTestCase {
         }.sorted()
 
         XCTAssertEqual(names, [
+            "aerie_approve_pr",
+            "aerie_cleanup_merged_branch",
+            "aerie_discard_unstaged",
+            "aerie_force_checkout",
             "aerie_get_local_status",
             "aerie_get_pr",
+            "aerie_get_pr_diff",
             "aerie_get_pr_local_state",
             "aerie_hard_reset_to_default",
+            "aerie_list_issues",
+            "aerie_list_merged_branches",
             "aerie_list_prs",
             "aerie_list_repos",
+            "aerie_list_worktrees",
             "aerie_merge_pr",
+            "aerie_remove_worktree",
+            "aerie_update_pr_branch",
+            "aerie_worktree_discard",
+            "aerie_worktree_merge",
         ])
     }
 }

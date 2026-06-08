@@ -68,6 +68,7 @@ struct AerieApp: App {
                     db: db,
                     git: git,
                     api: api,
+                    accounts: { await auth.allAccounts() },
                     refresh: { repoId in
                         await scheduler.refreshNow(repoIds: [repoId], now: Date())
                     },
