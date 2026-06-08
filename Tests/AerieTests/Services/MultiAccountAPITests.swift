@@ -135,6 +135,15 @@ actor StubGitHubAPIClient: GitHubAPIClient {
         approveCalls.append((token, body))
         if let err = approveErrorByToken[token] { throw err }
     }
+
+    func mergedPR(
+        owner: String,
+        repo: String,
+        headBranch: String,
+        token: String
+    ) async throws -> MergedPRRef? {
+        nil
+    }
 }
 
 // MARK: - Tests

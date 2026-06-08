@@ -13,6 +13,15 @@ struct MergeResult: Sendable, Equatable {
     let merged: Bool
 }
 
+/// A merged PR matched by head-branch name. The transport-layer result of
+/// `mergedPR`; `MergedBranchSync` maps it into a `MergedBranchInfo`.
+struct MergedPRRef: Sendable, Equatable {
+    let number: Int
+    let url: URL
+    let headOid: String
+    let mergedAt: Date
+}
+
 struct RateLimitSnapshot: Sendable, Equatable {
     let remaining: Int
     let resetEpoch: TimeInterval
@@ -83,6 +92,17 @@ protocol GitHubAPIClient: Sendable {
         number: Int,
         token: String
     ) async throws -> PullRequest?
+
+    /// Returns the most-recently-updated MERGED PR whose head branch equals
+    /// `headBranch`, or nil if none. Declared on the protocol — not just the
+    /// extension — so the live override is dynamically dispatched through the
+    /// `GitHubAPIClient` existential in `MultiAccountAPI`.
+    func mergedPR(
+        owner: String,
+        repo: String,
+        headBranch: String,
+        token: String
+    ) async throws -> MergedPRRef?
 
     /// Updates the PR's head branch with the latest commits from its base — the
     /// server-side equivalent of GitHub's "Update branch" button (REST `PUT
@@ -301,6 +321,75 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             throw GitHubAPIError(status: 404, message: "repository not visible")
         }
         return repository.pullRequests.nodes.map { Self.map($0, repoId: repoId) }
+    }
+
+    // MARK: mergedPR
+
+    private static let mergedPRQuery: String = """
+    query($owner: String!, $repo: String!, $head: String!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequests(headRefName: $head, states: MERGED, first: 1,
+                     orderBy: {field: UPDATED_AT, direction: DESC}) {
+          nodes {
+            number
+            url
+            headRefOid
+            mergedAt
+          }
+        }
+      }
+    }
+    """
+
+    func mergedPR(
+        owner: String,
+        repo: String,
+        headBranch: String,
+        token: String
+    ) async throws -> MergedPRRef? {
+        var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+        let payload: [String: Any] = [
+            "query": Self.mergedPRQuery,
+            "variables": ["owner": owner, "repo": repo, "head": headBranch],
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await session.data(for: request)
+        let http = response as? HTTPURLResponse
+        recordRateLimit(token: token, response: http)
+        try checkOK(status: http?.statusCode ?? 0, data: data)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(MergedPRResponse.self, from: data)
+        // 200 + repository: null = this token can't see the (private) repo.
+        // Surface as 404 so MultiAccountAPI can fall through to one that can.
+        guard let repository = decoded.data.repository else {
+            throw GitHubAPIError(status: 404, message: "repository not visible")
+        }
+        guard let node = repository.pullRequests.nodes.first else { return nil }
+        return MergedPRRef(
+            number: node.number, url: node.url,
+            headOid: node.headRefOid, mergedAt: node.mergedAt
+        )
+    }
+
+    private struct MergedPRResponse: Decodable {
+        struct DataLayer: Decodable { let repository: Repo? }
+        struct Repo: Decodable { let pullRequests: PRsLayer }
+        struct PRsLayer: Decodable { let nodes: [Node] }
+        struct Node: Decodable {
+            let number: Int
+            let url: URL
+            let headRefOid: String
+            let mergedAt: Date
+        }
+        let data: DataLayer
     }
 
     // MARK: listOpenIssues
