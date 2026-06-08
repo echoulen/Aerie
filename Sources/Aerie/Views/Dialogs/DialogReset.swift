@@ -14,6 +14,9 @@ struct DialogReset: View {
     /// (default branch is read from `repo.defaultBranch`).
     var onConfirm: () async -> String?
     var onCancel: () -> Void
+    /// When non-nil, the confirm flow also force-deletes this merged branch, and
+    /// the dialog says so. Defaulted to nil so existing call sites are unaffected.
+    var mergedBranch: MergedBranchInfo? = nil
     /// In-flight state for the primary button.
     @State private var busy: Bool = false
     @State private var errorMessage: String?
@@ -21,12 +24,14 @@ struct DialogReset: View {
     init(
         repo: Repository,
         status: LocalGitStatus,
+        mergedBranch: MergedBranchInfo? = nil,
         onConfirm: @escaping () async -> String?,
         onCancel: @escaping () -> Void,
         initialError: String? = nil
     ) {
         self.repo = repo
         self.status = status
+        self.mergedBranch = mergedBranch
         self.onConfirm = onConfirm
         self.onCancel = onCancel
         self._errorMessage = State(initialValue: initialError)
@@ -35,9 +40,13 @@ struct DialogReset: View {
     var body: some View {
         DialogShell(
             tone: .danger,
-            title: "Hard reset \(repo.name) to origin/\(repo.defaultBranch)?",
+            title: mergedBranch == nil
+                ? "Hard reset \(repo.name) to origin/\(repo.defaultBranch)?"
+                : "Reset \(repo.name) & delete merged branch?",
             subtitle: "This will run git reset --hard. Local commits and uncommitted changes on the current branch will be discarded.",
-            primaryTitle: "Reset to origin/\(repo.defaultBranch)",
+            primaryTitle: mergedBranch == nil
+                ? "Reset to origin/\(repo.defaultBranch)"
+                : "Reset & delete branch",
             onPrimary: { Task { await runConfirm() } },
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
@@ -46,14 +55,24 @@ struct DialogReset: View {
             progressNote: "Resetting to origin/\(repo.defaultBranch)…",
             errorMessage: errorMessage
         ) {
-            KVList(rows: [
-                KVList.Row("repository", AnyView(mono("\(repo.githubOwner)/\(repo.githubRepo)"))),
-                KVList.Row("current branch", AnyView(mono(status.currentBranch))),
-                KVList.Row("working tree", AnyView(workingTreeValue)),
-                KVList.Row("unpushed", AnyView(unpushedValue)),
-                KVList.Row("target", AnyView(mono("origin/\(repo.defaultBranch) @ \(shortSha)"))),
-            ])
+            KVList(rows: kvRows)
         }
+    }
+
+    // MARK: - KV rows
+
+    private var kvRows: [KVList.Row] {
+        var rows: [KVList.Row] = [
+            KVList.Row("repository", AnyView(mono("\(repo.githubOwner)/\(repo.githubRepo)"))),
+            KVList.Row("current branch", AnyView(mono(status.currentBranch))),
+            KVList.Row("working tree", AnyView(workingTreeValue)),
+            KVList.Row("unpushed", AnyView(unpushedValue)),
+            KVList.Row("target", AnyView(mono("origin/\(repo.defaultBranch) @ \(shortSha)"))),
+        ]
+        if let note = Self.deleteBranchNote(mergedBranch) {
+            rows.append(KVList.Row("delete branch", AnyView(mono(note))))
+        }
+        return rows
     }
 
     // MARK: - Styled row values (mirrors the design's coloured KVList values)
@@ -102,5 +121,12 @@ struct DialogReset: View {
         // nil → success (caller dismisses); non-nil → show the error, stay open.
         errorMessage = await onConfirm()
         busy = false
+    }
+
+    /// The "delete branch" KV value, or nil when there's no merged branch to
+    /// clean up. Static + internal so it's unit-testable without rendering.
+    static func deleteBranchNote(_ mergedBranch: MergedBranchInfo?) -> String? {
+        guard let m = mergedBranch else { return nil }
+        return "\(m.branch) (merged in #\(m.prNumber))"
     }
 }
