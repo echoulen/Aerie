@@ -4,28 +4,31 @@ import SwiftUI
 /// just after the count. Mirrors `v2/app.jsx` `RefreshButton`: a 26×26 amber
 /// ghost square whose icon spins while a refresh is in flight.
 ///
-/// `action` is the real refresh (an immediate poll tick). The icon keeps
-/// spinning until it returns, with a short minimum so a cache-fast refresh
-/// still reads as "it did something".
+/// `action` is the real refresh (an immediate poll tick). The icon spins in
+/// whole forward turns: when the refresh ends it finishes the current turn
+/// forward and lands upright, never reversing back to the start. One full turn
+/// always plays, so a cache-fast refresh still reads as "it did something".
 struct RefreshButton: View {
     /// The refresh to run on tap. Defaults to a no-op so snapshot tests and
     /// previews can render the button without wiring a real sync.
     var action: () async -> Void = {}
 
-    @State private var isSpinning = false
+    /// Accumulating rotation in degrees. Only ever increases (each turn adds
+    /// +360), so the icon never spins backward.
+    @State private var rotation = 0.0
+    /// True while a refresh's `action` is in flight. Read at each turn's
+    /// completion to decide whether to keep spinning.
+    @State private var isWorking = false
+    /// True while the spin loop is running, so a re-press doesn't start a second
+    /// overlapping loop.
+    @State private var isAnimating = false
 
     var body: some View {
         Button(action: tapped) {
             Image(systemName: "arrow.clockwise")
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(AerieColor.amber)
-                .rotationEffect(.degrees(isSpinning ? 360 : 0))
-                .animation(
-                    isSpinning
-                        ? .linear(duration: 0.8).repeatForever(autoreverses: false)
-                        : .default,
-                    value: isSpinning
-                )
+                .rotationEffect(.degrees(rotation))
                 .frame(width: 26, height: 26)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -38,19 +41,45 @@ struct RefreshButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Refresh list")
+        // ⌘R refreshes the current tab's list. Only the active tab's screen —
+        // and thus a single RefreshButton — is mounted at a time, so this
+        // shortcut routes to the active tab's `action` automatically and reuses
+        // the spin animation. The PR code-review screen mounts no RefreshButton,
+        // so ⌘R is inert there.
+        .keyboardShortcut("r", modifiers: .command)
+        .help("Refresh list (⌘R)")
         .accessibilityLabel("Refresh list")
     }
 
     private func tapped() {
-        guard !isSpinning else { return }
+        guard !isWorking else { return }
+        isWorking = true
+        // Start the spin loop only if one isn't already running. A re-press
+        // during the tail of the previous turn just re-arms `isWorking`; the
+        // in-flight loop picks it up at its next completion.
+        if !isAnimating {
+            isAnimating = true
+            spinForwardOneTurn()
+        }
         Task {
-            isSpinning = true
-            async let work: Void = action()
-            // Keep one full rotation visible even when the refresh is instant.
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            await work
-            isSpinning = false
+            await action()
+            isWorking = false
+        }
+    }
+
+    /// Animates one full +360 turn, then decides — only once the turn has
+    /// finished — whether to keep going. Because the stop decision happens at a
+    /// turn boundary, the icon always lands upright and finishes forward instead
+    /// of snapping back when the refresh ends.
+    private func spinForwardOneTurn() {
+        withAnimation(.linear(duration: 0.8)) {
+            rotation += 360
+        } completion: {
+            if isWorking {
+                spinForwardOneTurn()
+            } else {
+                isAnimating = false
+            }
         }
     }
 }
