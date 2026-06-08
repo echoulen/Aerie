@@ -713,6 +713,73 @@ final class GitServiceTests: XCTestCase {
         XCTAssertEqual(headSha, originSha)
     }
 
+    /// Regression for the "Reset & delete branch" failure on a real repo
+    /// (SwiftGitX error 1): the current branch is dirty in a file the feature
+    /// commit *also changed*, so that file differs between the feature branch
+    /// and the default branch. A libgit2 *safe* branch switch refuses to clobber
+    /// the uncommitted change ("would be overwritten by checkout") and throws
+    /// before the `reset --hard` that was supposed to discard it ever runs. The
+    /// reset must force-discard the dirty tree instead. (The happy-path test
+    /// above only passes because its dirty file is identical across branches, so
+    /// the safe switch can carry it over.)
+    func test_hardResetToOrigin_discardsDirtyTreeConflictingWithDefault() async throws {
+        let remoteDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString + "-remote.git")
+        try shell(["git", "init", "-q", "--bare", "-b", "main", remoteDir.path])
+
+        // Seed origin/main with `shared.txt = base`.
+        let seedDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: seedDir, withIntermediateDirectories: true)
+        try shell(["git", "-C", seedDir.path, "init", "-q", "-b", "main"])
+        try shell(["git", "-C", seedDir.path, "remote", "add", "origin", remoteDir.path])
+        try "base".write(to: seedDir.appendingPathComponent("shared.txt"), atomically: true, encoding: .utf8)
+        try shell(["git", "-C", seedDir.path, "add", "."])
+        try shell([
+            "git", "-C", seedDir.path, "-c", "user.email=t@t", "-c", "user.name=T",
+            "commit", "-q", "-m", "init",
+        ])
+        try shell(["git", "-C", seedDir.path, "push", "-q", "-u", "origin", "main"])
+
+        // Clone; on feat/x COMMIT a change to shared.txt (so it differs from
+        // main), then dirty the same file in the working tree.
+        let cloneDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try shell(["git", "clone", "-q", remoteDir.path, cloneDir.path])
+        try shell(["git", "-C", cloneDir.path, "config", "user.email", "t@t"])
+        try shell(["git", "-C", cloneDir.path, "config", "user.name", "T"])
+        try shell(["git", "-C", cloneDir.path, "checkout", "-q", "-b", "feat/x"])
+        try "feature".write(to: cloneDir.appendingPathComponent("shared.txt"), atomically: true, encoding: .utf8)
+        try shell(["git", "-C", cloneDir.path, "commit", "-aqm", "feat: change shared"])
+        try "dirty-uncommitted".write(to: cloneDir.appendingPathComponent("shared.txt"), atomically: true, encoding: .utf8)
+
+        // Precondition: a plain `git switch main` refuses here.
+        XCTAssertThrowsError(
+            try shell(["git", "-C", cloneDir.path, "switch", "main"]),
+            "precondition: switching to main should be blocked by the conflicting dirty file"
+        )
+
+        let svc = LiveGitService()
+        let summary = try await svc.hardResetToOrigin(repoAt: cloneDir, defaultBranch: "main")
+        XCTAssertEqual(summary.discardedDirtyFiles, 1)
+        XCTAssertEqual(summary.discardedCommits, 1)
+
+        // Lands on main, clean, at origin/main.
+        let postBranch = try shell([
+            "git", "-C", cloneDir.path, "symbolic-ref", "--short", "HEAD",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(postBranch, "main")
+        let postStatus = try shell([
+            "git", "-C", cloneDir.path, "status", "--porcelain",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(postStatus, "")
+        let headSha = try shell(["git", "-C", cloneDir.path, "rev-parse", "HEAD"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let originSha = try shell(["git", "-C", cloneDir.path, "rev-parse", "origin/main"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(headSha, originSha)
+    }
+
     // MARK: deleteLocalBranch
 
     func test_deleteLocalBranch_removesAnExistingBranch() async throws {
