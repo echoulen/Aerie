@@ -90,6 +90,18 @@ struct DialogShell<Content: View>: View {
             card
         }
         .ignoresSafeArea()
+        // Lock the dialog subtree to dark. Every `AerieColor` token is an
+        // explicit white-on-dark value, so SwiftUI `Text` reads correctly
+        // regardless — but the system-rendered controls inside dialogs (the
+        // approve picker's `.borderlessButton` `Menu` label, a `TextField`'s
+        // placeholder) resolve their text against the *effective* appearance.
+        // The window-level `NSAppearance(.darkAqua)` lock (set imperatively and
+        // async in `AerieWindowChrome`) doesn't reliably reach these overlay
+        // controls, so in macOS Light mode they paint with the light
+        // `labelColor`/`placeholderTextColor` (near-black) — invisible on the
+        // dark surface. Forcing the colour scheme here in-tree is declarative
+        // and covers them.
+        .environment(\.colorScheme, .dark)
         // Esc closes the dialog when light-dismiss is enabled and nothing is
         // in flight. No-op otherwise (keeps the other dialogs modal).
         .onExitCommand { if let onBackgroundDismiss, !loading { onBackgroundDismiss() } }
