@@ -599,10 +599,15 @@ actor LiveGitService: GitService {
         } catch {
             return nil
         }
+        // Drain both pipes concurrently *before* waiting. Reading stdout only
+        // after `waitUntilExit()` deadlocks once git writes more than the OS
+        // pipe buffer (~64 KiB) — to stdout, or to stderr, which we otherwise
+        // never read at all: the child blocks on `write()` and never exits, so
+        // the wait hangs forever. See `SubprocessIO.drainConcurrently`.
+        let (outData, _) = SubprocessIO.drainConcurrently(stdout: outPipe, stderr: errPipe)
         p.waitUntilExit()
         guard p.terminationStatus == 0 else { return nil }
-        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)?
+        return String(data: outData, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

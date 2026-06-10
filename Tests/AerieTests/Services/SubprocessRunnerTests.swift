@@ -63,4 +63,60 @@ final class SubprocessRunnerTests: XCTestCase {
         )
         XCTAssertFalse((env["PATH"] ?? "").isEmpty, "PATH is always present")
     }
+
+    // MARK: - Pipe-buffer deadlock
+    //
+    // Reading a child's stdout/stderr only AFTER it exits deadlocks once the
+    // child writes more than the OS pipe buffer (~64 KiB): it blocks on write()
+    // waiting for the pipe to be drained, but nothing drains it until the process
+    // terminates — so it never terminates. The runner must drain both streams
+    // concurrently while the process runs.
+
+    func test_run_largeStdoutAndStderr_doesNotDeadlock() async {
+        let runner = LiveSubprocessRunner()
+        let bytes = 200_000  // well past the ~64 KiB OS pipe buffer
+
+        // Run on an UNSTRUCTURED task we never await: a deadlocked `run()` parks
+        // on a continuation that never resumes and a child blocked on write(),
+        // and `withCheckedContinuation` is not cancellation-aware — so awaiting
+        // it (e.g. via a task group) would hang the whole suite instead of
+        // failing. Polling a flag lets the test fail cleanly at the 8 s bound.
+        let box = ResultBox()
+        let task = Task {
+            let r = try? await runner.run(
+                "sh",
+                ["-c", "yes | head -c \(bytes); yes | head -c \(bytes) 1>&2"]
+            )
+            box.finish(r)
+        }
+        for _ in 0..<80 where !box.isDone {
+            try? await Task.sleep(nanoseconds: 100_000_000)  // 80 × 100 ms = 8 s
+        }
+        task.cancel()  // best-effort; a deadlocked continuation won't observe it
+
+        guard let (out, err, rc) = box.value else {
+            return XCTFail("run() deadlocked draining >64 KiB of stdout/stderr (no return within 8 s)")
+        }
+        XCTAssertEqual(rc, 0)
+        XCTAssertEqual(out.utf8.count, bytes, "full stdout must be captured")
+        XCTAssertEqual(err.utf8.count, bytes, "full stderr must be captured")
+    }
+}
+
+/// Lock-guarded one-shot holder for a runner result, so the test can poll for
+/// completion from one task while another fills it — without awaiting (and thus
+/// blocking on) a potentially deadlocked subprocess call.
+private final class ResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: (String, String, Int32)??
+
+    func finish(_ value: (String, String, Int32)?) {
+        lock.lock(); result = .some(value); lock.unlock()
+    }
+    var isDone: Bool {
+        lock.lock(); defer { lock.unlock() }; return result != nil
+    }
+    var value: (String, String, Int32)? {
+        lock.lock(); defer { lock.unlock() }; return result ?? nil
+    }
 }

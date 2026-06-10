@@ -56,11 +56,62 @@ struct LiveSubprocessRunner: SubprocessRunner {
         let errPipe = Pipe(); p.standardError  = errPipe
         try p.run()
         return await withCheckedContinuation { cont in
-            p.terminationHandler = { proc in
-                let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                cont.resume(returning: (out, err, proc.terminationStatus))
+            DispatchQueue.global().async {
+                // Drain both pipes concurrently *before* waiting for exit. Reading
+                // them only once the process has terminated (the previous
+                // `terminationHandler` approach) deadlocks the moment a child
+                // writes more than the OS pipe buffer (~64 KiB) to a stream
+                // nobody is draining: it blocks on `write()` and never exits, so
+                // the handler never fires. See `SubprocessIO.drainConcurrently`.
+                let (outData, errData) = SubprocessIO.drainConcurrently(
+                    stdout: outPipe, stderr: errPipe
+                )
+                p.waitUntilExit()
+                let out = String(data: outData, encoding: .utf8) ?? ""
+                let err = String(data: errData, encoding: .utf8) ?? ""
+                cont.resume(returning: (out, err, p.terminationStatus))
             }
         }
+    }
+}
+
+/// Reads a process's stdout and stderr pipes to EOF **concurrently**.
+///
+/// The naïve "wait for the process to exit, then read the pipes" pattern
+/// deadlocks: an OS pipe buffers only ~64 KiB, so a child that writes more than
+/// that to a stream nobody is draining blocks on `write()` — and therefore never
+/// exits, so the waiter waits forever. Draining both streams on separate threads
+/// *before* `waitUntilExit()` keeps the buffers empty so the child always makes
+/// progress. Shared by every subprocess call site in the app.
+enum SubprocessIO {
+    static func drainConcurrently(stdout: Pipe, stderr: Pipe) -> (out: Data, err: Data) {
+        let outBox = DataBox()
+        let errBox = DataBox()
+        let group = DispatchGroup()
+        let queue = DispatchQueue(
+            label: "dev.echoulen.Aerie.subprocess-drain",
+            attributes: .concurrent
+        )
+        group.enter()
+        queue.async {
+            outBox.set(stdout.fileHandleForReading.readDataToEndOfFile())
+            group.leave()
+        }
+        group.enter()
+        queue.async {
+            errBox.set(stderr.fileHandleForReading.readDataToEndOfFile())
+            group.leave()
+        }
+        group.wait()
+        return (outBox.data, errBox.data)
+    }
+
+    /// Lock-guarded `Data` holder so the two reader closures can publish their
+    /// results across threads without tripping the concurrency checker.
+    private final class DataBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored = Data()
+        func set(_ d: Data) { lock.lock(); stored = d; lock.unlock() }
+        var data: Data { lock.lock(); defer { lock.unlock() }; return stored }
     }
 }
