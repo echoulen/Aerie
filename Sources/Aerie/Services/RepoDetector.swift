@@ -153,11 +153,14 @@ actor RepoDetector {
         p.standardOutput = stdout
         p.standardError = stderr
         try p.run()
+        // Drain both pipes concurrently *before* waiting. Reading after
+        // `waitUntilExit()` deadlocks once git writes more than the OS pipe
+        // buffer (~64 KiB) to a stream nobody is draining — the child blocks on
+        // `write()` and never exits. See `SubprocessIO.drainConcurrently`.
+        let (outData, errData) = SubprocessIO.drainConcurrently(stdout: stdout, stderr: stderr)
         p.waitUntilExit()
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        let out = String(data: data, encoding: .utf8) ?? ""
+        let out = String(data: outData, encoding: .utf8) ?? ""
         if p.terminationStatus != 0 {
-            let errData = stderr.fileHandleForReading.readDataToEndOfFile()
             let errOut = String(data: errData, encoding: .utf8) ?? ""
             throw DetectionError(message: "git \(args.joined(separator: " ")) failed: \(errOut)")
         }
