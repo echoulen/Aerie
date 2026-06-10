@@ -29,6 +29,7 @@ struct AccountRow: Equatable, Identifiable {
 /// closures so the integration layer (Phase 16) can wire them through
 /// from `AuthService` without this VM growing a hard dependency on it.
 /// Same trick `ReposViewModel` uses with the DB — the VM stays narrow.
+@MainActor
 @Observable
 final class AccountsViewModel {
     private(set) var rows: [AccountRow] = []

@@ -7,6 +7,7 @@ import SnapshotTesting
 /// size. Seeds a temp DB with 2 accounts (one primary, one secondary)
 /// plus a sprinkling of repos pointing at each, then refreshes a real
 /// `AccountsViewModel` and snapshots the rendered view.
+@MainActor
 final class AccountsScreenTests: XCTestCase {
     private var tempURLs: [URL] = []
 

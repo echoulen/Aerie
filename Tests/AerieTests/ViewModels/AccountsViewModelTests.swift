@@ -16,6 +16,7 @@ private actor StubAccountUsageTracker: AccountUsageTracker {
     }
 }
 
+@MainActor
 final class AccountsViewModelTests: XCTestCase {
     // MARK: - Helpers
 

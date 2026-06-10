@@ -10,6 +10,7 @@ import CoreGraphics
 /// via `SettingsDAO` under `appearance.zoom_pct`. A single shared instance is
 /// the source of truth: the Settings screen + keyboard shortcuts (⌘+/⌘−/⌘0)
 /// mutate it, and `AerieApp` reads `scale` to zoom the main window live.
+@MainActor
 @Observable
 final class AppearanceViewModel {
     /// One stop on the display-size stepper. `pct` is the interface zoom

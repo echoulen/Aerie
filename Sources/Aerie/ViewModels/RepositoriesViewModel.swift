@@ -7,6 +7,7 @@ import Observation
 /// edits the repo set (reorder / remove / change account) rather than
 /// projecting cached git status. We deliberately expose the raw
 /// `Repository` list — the Settings row doesn't need the cached status.
+@MainActor
 @Observable
 final class RepositoriesViewModel {
     private(set) var repos: [Repository] = []

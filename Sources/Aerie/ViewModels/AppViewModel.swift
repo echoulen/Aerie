@@ -12,6 +12,7 @@ enum MainTab: String, Equatable, CaseIterable {
 /// `nextTickInSeconds` is the integration surface for `LiveIndicator`. Phase 8
 /// doesn't drive it from a real scheduler yet — tests pass values directly. A
 /// later phase wires it to `PollingScheduler`.
+@MainActor
 @Observable
 final class AppViewModel {
     var activeTab: MainTab

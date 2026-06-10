@@ -5,6 +5,7 @@ import GRDB
 /// Logic coverage for the Settings → Appearance interface-zoom view model.
 /// Mirrors the temp-DB pattern used by `AdvancedViewModelTests`: each test
 /// spins up a throwaway SQLite file and exercises the real `SettingsDAO`.
+@MainActor
 final class AppearanceViewModelTests: XCTestCase {
     private var tempURLs: [URL] = []
 

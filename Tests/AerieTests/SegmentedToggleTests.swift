@@ -3,6 +3,7 @@ import SwiftUI
 import SnapshotTesting
 @testable import Aerie
 
+@MainActor
 final class SegmentedToggleTests: XCTestCase {
     private static let size = CGSize(width: 480, height: 80)
 

@@ -25,6 +25,7 @@ private final class CadenceRecorder: @unchecked Sendable {
     }
 }
 
+@MainActor
 final class AdvancedViewModelTests: XCTestCase {
     // MARK: - Helpers
 
