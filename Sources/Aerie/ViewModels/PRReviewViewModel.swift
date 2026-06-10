@@ -14,6 +14,13 @@ enum PRReviewState: Equatable {
 /// (which read cached DB state), this fetches the PR's changed files on demand
 /// and holds them in memory only — the diff is never persisted. Also resolves
 /// which account may approve the PR (the author can't approve their own).
+///
+/// `@MainActor` for the same reason the list view models are (see #67): `load()`
+/// `await`s a network fetch, and a non-isolated async method can resume on a
+/// background thread — mutating the `@Observable` `state`/`resolution` off the
+/// main thread while SwiftUI reads them on it, a data race that can crash the
+/// app on open. Main-actor isolation pins every mutation to the main thread.
+@MainActor
 @Observable
 final class PRReviewViewModel {
     let row: PRRow
