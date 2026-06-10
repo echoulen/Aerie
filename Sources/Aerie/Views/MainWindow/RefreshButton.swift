@@ -71,14 +71,28 @@ struct RefreshButton: View {
     /// finished — whether to keep going. Because the stop decision happens at a
     /// turn boundary, the icon always lands upright and finishes forward instead
     /// of snapping back when the refresh ends.
+    ///
+    /// The re-arm hops to the next run-loop turn instead of recursing
+    /// synchronously. When an animation completes *immediately* (logically
+    /// complete — e.g. the refresh is tapped mid view-transition right after
+    /// leaving the review screen, so the change has nothing to animate), the
+    /// completion fires inside the same run-loop observer pass that dispatched
+    /// it; recursing there starts another instantly-completing animation whose
+    /// completion joins the same pass — an unbounded loop that pins the main
+    /// thread, and the `Task` that clears `isWorking` never gets to run, so it
+    /// can't terminate (captured live in a `sample` of the hang). Going through
+    /// `Task { @MainActor … }` lets the run loop advance between turns, so the
+    /// stop flag actually flips and the loop always ends.
     private func spinForwardOneTurn() {
         withAnimation(.linear(duration: 0.8)) {
             rotation += 360
         } completion: {
-            if isWorking {
-                spinForwardOneTurn()
-            } else {
-                isAnimating = false
+            Task { @MainActor in
+                if isWorking {
+                    spinForwardOneTurn()
+                } else {
+                    isAnimating = false
+                }
             }
         }
     }
