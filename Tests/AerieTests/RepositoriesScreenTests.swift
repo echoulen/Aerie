@@ -6,6 +6,7 @@ import SnapshotTesting
 /// Snapshot coverage for the full Repositories screen at the Settings
 /// content size. Seeds a temp DB with 2 accounts + 3 repos, refreshes a
 /// real `RepositoriesViewModel`, then snapshots the rendered view.
+@MainActor
 final class RepositoriesScreenTests: XCTestCase {
     private var tempURLs: [URL] = []
 

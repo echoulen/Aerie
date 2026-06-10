@@ -3,6 +3,7 @@ import SwiftUI
 import SnapshotTesting
 @testable import Aerie
 
+@MainActor
 final class AppFrameTests: XCTestCase {
     private func host(activeTab: MainTab, nextTickInSeconds: Int?) -> NSHostingView<some View> {
         let vm = AppViewModel(activeTab: activeTab, nextTickInSeconds: nextTickInSeconds)

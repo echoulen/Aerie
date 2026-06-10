@@ -7,6 +7,7 @@ import SnapshotTesting
 /// size. Seeds a temp DB with two accounts + rate-limit snapshots (one
 /// healthy, one warning), refreshes a real `AdvancedViewModel`, then
 /// snapshots the rendered view.
+@MainActor
 final class AdvancedScreenTests: XCTestCase {
     private var tempURLs: [URL] = []
 

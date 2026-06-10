@@ -7,6 +7,7 @@ import SnapshotTesting
 /// content size. Seeds a temp DB, drives an `AppearanceViewModel` to a known
 /// stop, then renders. Two cases pin the visual contract: the default 100%
 /// stop, and a zoomed-in 125% stop (the preview row scales with it).
+@MainActor
 final class AppearanceScreenTests: XCTestCase {
     private var tempURLs: [URL] = []
 

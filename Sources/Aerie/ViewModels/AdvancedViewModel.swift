@@ -21,6 +21,7 @@ struct AccountRateLimitSnapshot: Equatable, Identifiable {
 /// lookup, accounts provider) so tests don't need a live
 /// `PollingScheduler` / `MultiAccountAPI` to exercise the VM. Same
 /// pattern as `AccountsViewModel` (Phase 12).
+@MainActor
 @Observable
 final class AdvancedViewModel {
     private(set) var activeCadence: TimeInterval = 30
