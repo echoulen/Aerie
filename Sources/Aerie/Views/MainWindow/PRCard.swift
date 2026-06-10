@@ -71,6 +71,13 @@ struct PRCard: View {
         } chips: {
             CIChip(state: row.pr.ciState)
             ReviewChip(state: row.pr.reviewState)
+            // Merge conflicts have no chip of their own otherwise — they'd show
+            // only as a dimmed Merge button. Surface them explicitly, in red, so
+            // the blocking reason is legible at a glance (grouped with the other
+            // "can this merge?" signals, before the local-state sentence).
+            if row.pr.hasMergeConflicts {
+                StatusPill(text: "Conflicts", tone: .err)
+            }
             StatusPill(text: localStatus.text, tone: localStatus.tone)
             // Behind its base → offer a one-click update, glued right after the
             // sync chip (never the actions column). `behind` is the local count

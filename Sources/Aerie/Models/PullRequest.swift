@@ -109,4 +109,12 @@ extension PullRequest {
     /// authoritative server state, so it shows even when the PR's branch isn't
     /// checked out locally (where there's no local `behind` count to read).
     var isBehindBase: Bool { mergeStateStatus == "BEHIND" }
+
+    /// Whether the PR has merge conflicts with its base (`mergeStateStatus ==
+    /// "DIRTY"`, GitHub's `mergeable == CONFLICTING`). Drives an explicit
+    /// "Conflicts" pill on the card: previously a conflicting PR only showed a
+    /// dimmed Merge button, indistinguishable from BLOCKED / BEHIND / CI-pending,
+    /// so the user couldn't tell *why* it wouldn't merge. Guarded on `open` —
+    /// a closed/merged PR's stale DIRTY is meaningless (and never renders here).
+    var hasMergeConflicts: Bool { state == .open && mergeStateStatus == "DIRTY" }
 }

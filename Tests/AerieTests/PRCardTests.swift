@@ -37,6 +37,7 @@ final class PRCardTests: XCTestCase {
         ci: CIState = .success,
         review: ReviewState = .approved,
         sourceBranch: String = "feat/phase9-prs-view",
+        state: PRState = .open,
         mergeStateStatus: String? = nil
     ) -> PullRequest {
         PullRequest(
@@ -47,7 +48,7 @@ final class PRCardTests: XCTestCase {
             authorLogin: author,
             sourceBranch: sourceBranch,
             isMine: isMine,
-            state: .open,
+            state: state,
             ciState: ci,
             reviewState: review,
             labels: ["enhancement"],
@@ -287,6 +288,43 @@ final class PRCardTests: XCTestCase {
         let clean = makePR(ci: .success, review: .reviewRequired, mergeStateStatus: "CLEAN")
         XCTAssertNil(clean.mergeBlockReason)
         XCTAssertTrue(PRCard.isMergeable(clean))
+    }
+
+    // MARK: - Merge-conflict pill visibility
+    //
+    // Reported bug: a conflicting PR (GitHub `mergeStateStatus == "DIRTY"`,
+    // `mergeable == CONFLICTING`) surfaced only as a dimmed Merge button —
+    // indistinguishable from "blocked", "behind", or "CI still running". The
+    // card never said *why*. `hasMergeConflicts` drives an explicit "Conflicts"
+    // pill so the conflict is visible at a glance.
+
+    func test_hasMergeConflicts_dirtyOpen_isTrue() {
+        XCTAssertTrue(makePR(state: .open, mergeStateStatus: "DIRTY").hasMergeConflicts)
+    }
+
+    func test_hasMergeConflicts_clean_isFalse() {
+        XCTAssertFalse(makePR(mergeStateStatus: "CLEAN").hasMergeConflicts)
+    }
+
+    func test_hasMergeConflicts_behind_isFalse() {
+        // BEHIND is "out of date", not a conflict — it has its own Update pill.
+        XCTAssertFalse(makePR(mergeStateStatus: "BEHIND").hasMergeConflicts)
+    }
+
+    func test_hasMergeConflicts_blocked_isFalse() {
+        XCTAssertFalse(makePR(mergeStateStatus: "BLOCKED").hasMergeConflicts)
+    }
+
+    /// Older cached rows / still-computing PRs carry no `mergeStateStatus`. Don't
+    /// claim a conflict we can't actually see.
+    func test_hasMergeConflicts_nilStatus_isFalse() {
+        XCTAssertFalse(makePR(mergeStateStatus: nil).hasMergeConflicts)
+    }
+
+    /// A merged PR can briefly report DIRTY, but it's no longer open — the pill
+    /// is meaningless there (and such a PR never renders in the open list).
+    func test_hasMergeConflicts_dirtyButMerged_isFalse() {
+        XCTAssertFalse(makePR(state: .merged, mergeStateStatus: "DIRTY").hasMergeConflicts)
     }
 
     // MARK: - Update-branch pill visibility
