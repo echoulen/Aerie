@@ -23,6 +23,12 @@ enum AerieColor {
     // design's distinct-panel look.
     static let cardSurface = Color.white.opacity(0.10)
 
+    // Opaque base painted *under* `cardSurface` so cards stay solid even when
+    // the window itself is translucent — keeps card content off the frosted
+    // desktop behind the window. Slightly lighter than `backdrop1` so the panel
+    // still reads as raised against the darker translucent backdrop.
+    static let cardBase = backdrop2
+
     // Dialog surface — dark warm-tinted, sits over a within-window blur.
     // Matches design `rgba(28, 26, 32, 0.78)`: opaque enough to read dark,
     // not the milky white-on-glass that .glass2 produced on the dialog.

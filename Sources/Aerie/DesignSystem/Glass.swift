@@ -65,7 +65,12 @@ struct GlassModifier: ViewModifier {
                     .opacity(0.8)
             }
         case .card:
-            AerieColor.cardSurface
+            // Opaque base + the original subtle white lift on top, so cards
+            // stay solid over the now-translucent window.
+            ZStack {
+                AerieColor.cardBase
+                AerieColor.cardSurface
+            }
         case .dialog:
             ZStack {
                 VisualEffectBlur(material: .hudWindow, blendingMode: .withinWindow)

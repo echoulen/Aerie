@@ -47,6 +47,13 @@ struct AerieWindowChrome: NSViewRepresentable {
         // account `Menu` label in a repo row paints with the system `labelColor`
         // (black), which is invisible on the dark surface ("Jarvis-E" going dark).
         window.appearance = NSAppearance(named: .darkAqua)
+        // Make the host window itself transparent so the `Backdrop`'s
+        // behind-window blur can frost the desktop / other apps *through* the
+        // window. Without this, AppKit paints an opaque window background and
+        // no glass shows. The Backdrop still lays a dark tint over the glass,
+        // so white-on-dark content stays legible.
+        window.isOpaque = false
+        window.backgroundColor = .clear
     }
 }
 
