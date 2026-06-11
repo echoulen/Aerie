@@ -54,25 +54,74 @@ struct LiveSubprocessRunner: SubprocessRunner {
         p.environment = SubprocessPATH.environment()
         let outPipe = Pipe(); p.standardOutput = outPipe
         let errPipe = Pipe(); p.standardError  = errPipe
-        try p.run()
-        return await withCheckedContinuation { cont in
+
+        let io = IOResult()
+        // Three things must finish before we return: stdout drained to EOF,
+        // stderr drained to EOF, and the child terminated.
+        let group = DispatchGroup()
+        group.enter()  // stdout drained
+        group.enter()  // stderr drained
+        group.enter()  // process terminated
+
+        return try await withCheckedThrowingContinuation { cont in
+            // What tells us the child exited is `terminationHandler`, NOT
+            // `waitUntilExit()`. The old code called `p.waitUntilExit()` on a
+            // `DispatchQueue.global()` worker thread; that wait is unreliable
+            // there — under a burst of concurrent subprocesses it parked forever
+            // in `_pthread_mutex_firstfit_lock_wait` even after the child had been
+            // reaped, so `run()` never returned. That froze `GhBootstrapper`
+            // (its `await auth.bootstrap()` never came back) and left the whole
+            // app on a bare-Backdrop black screen. Foundation invokes
+            // `terminationHandler` from its own process-management queue, which
+            // delivers reliably. Registered *before* `run()` so a child that
+            // exits instantly can't fire it before we're listening.
+            p.terminationHandler = { _ in group.leave() }
+            do {
+                try p.run()
+            } catch {
+                // Launch failed: the handler will never fire, so resume here.
+                cont.resume(throwing: error)
+                return
+            }
+            // Drain each pipe on its own short-lived task *while the process
+            // runs*, for two reasons:
+            //   1. A child writing past the ~64 KiB OS pipe buffer blocks on
+            //      `write()` (and never exits) unless someone drains the stream.
+            //   2. Each drain runs independently and never blocks waiting on the
+            //      other, so firing many run()s at once can't exhaust the global
+            //      pool's threads. (Routing both drains through a blocking
+            //      `SubprocessIO.drainConcurrently` here starved the pool and
+            //      hung under load.)
             DispatchQueue.global().async {
-                // Drain both pipes concurrently *before* waiting for exit. Reading
-                // them only once the process has terminated (the previous
-                // `terminationHandler` approach) deadlocks the moment a child
-                // writes more than the OS pipe buffer (~64 KiB) to a stream
-                // nobody is draining: it blocks on `write()` and never exits, so
-                // the handler never fires. See `SubprocessIO.drainConcurrently`.
-                let (outData, errData) = SubprocessIO.drainConcurrently(
-                    stdout: outPipe, stderr: errPipe
-                )
-                p.waitUntilExit()
-                let out = String(data: outData, encoding: .utf8) ?? ""
-                let err = String(data: errData, encoding: .utf8) ?? ""
-                cont.resume(returning: (out, err, p.terminationStatus))
+                io.store(out: outPipe.fileHandleForReading.readDataToEndOfFile())
+                group.leave()
+            }
+            DispatchQueue.global().async {
+                io.store(err: errPipe.fileHandleForReading.readDataToEndOfFile())
+                group.leave()
+            }
+            group.notify(queue: .global()) {
+                cont.resume(returning: (
+                    String(data: io.out, encoding: .utf8) ?? "",
+                    String(data: io.err, encoding: .utf8) ?? "",
+                    p.terminationStatus
+                ))
             }
         }
     }
+}
+
+/// Lock-guarded holder for a subprocess's drained stdout/stderr, so the two
+/// independent drain tasks can publish their results for the
+/// `terminationHandler`-gated resume to read.
+private final class IOResult: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _out = Data()
+    private var _err = Data()
+    func store(out: Data) { lock.lock(); _out = out; lock.unlock() }
+    func store(err: Data) { lock.lock(); _err = err; lock.unlock() }
+    var out: Data { lock.lock(); defer { lock.unlock() }; return _out }
+    var err: Data { lock.lock(); defer { lock.unlock() }; return _err }
 }
 
 /// Reads a process's stdout and stderr pipes to EOF **concurrently**.
