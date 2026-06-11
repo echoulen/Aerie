@@ -101,6 +101,39 @@ final class SubprocessRunnerTests: XCTestCase {
         XCTAssertEqual(out.utf8.count, bytes, "full stdout must be captured")
         XCTAssertEqual(err.utf8.count, bytes, "full stderr must be captured")
     }
+
+    // MARK: - waitUntilExit() wakeup race
+    //
+    // `run()` awaited the child via `Process.waitUntilExit()` on a
+    // `DispatchQueue.global()` worker thread. That wait is unreliable there:
+    // `sample` caught a run() parked forever in `_pthread_mutex_firstfit_lock_wait`
+    // inside waitUntilExit *after the child had already been reaped*. That froze
+    // `GhBootstrapper` — its `await auth.bootstrap()` never returned — so the UI
+    // sat on the bare-Backdrop `.none` state: a black screen. The race surfaces
+    // under bursts of fast-terminating children, so fire many at once and require
+    // every one to return within the bound.
+
+    func test_run_concurrentShortCommands_allReturn() async {
+        let runner = LiveSubprocessRunner()
+        let n = 200
+        let done = AtomicCounter()
+        for _ in 0..<n {
+            Task.detached {
+                if let r = try? await runner.run("true", []), r.2 == 0 {
+                    done.increment()
+                }
+            }
+        }
+        // Poll rather than await: a run() parked on a never-resumed continuation
+        // would hang the whole suite if awaited directly.
+        for _ in 0..<200 where done.value < n {
+            try? await Task.sleep(nanoseconds: 100_000_000)  // up to 20 s
+        }
+        XCTAssertEqual(
+            done.value, n,
+            "every concurrent subprocess must return; a parked waitUntilExit leaves the count short"
+        )
+    }
 }
 
 /// Lock-guarded one-shot holder for a runner result, so the test can poll for
@@ -119,4 +152,12 @@ private final class ResultBox: @unchecked Sendable {
     var value: (String, String, Int32)? {
         lock.lock(); defer { lock.unlock() }; return result ?? nil
     }
+}
+
+/// Thread-safe tally for counting concurrent subprocess completions.
+private final class AtomicCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func increment() { lock.lock(); count += 1; lock.unlock() }
+    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
 }
