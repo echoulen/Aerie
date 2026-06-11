@@ -45,12 +45,10 @@ struct GlassModifier: ViewModifier {
 
     // Per `styles.css`:
     //   .window → glass-1 (0.035) + behindWindow frosted material
-    //   .card   → `cardSurface` (0.10) flat fill, nothing else; the aurora
-    //             `Backdrop` is nearly static so a stacked NSVisualEffectView
-    //             only adds milky brightness (the "三個區塊太白" symptom). The
-    //             flat fill is a touch lighter than glass-2 so the panel reads
-    //             as distinct from the backdrop (matching the design, whose
-    //             `backdrop-filter` blur lifts the card on its own).
+    //   .card   → within-window blur + `cardGlassTint`: a frosted-glass panel
+    //             that blurs the now-translucent backdrop showing behind it.
+    //             (Was a flat/opaque fill; the window is translucent now, so the
+    //             card frosts what shows through instead of sitting solid.)
     //   .dialog → dark `dialogSurface` (rgba(28,26,32,0.78)) layered over a
     //             within-window blur. The old white-glass + `.menu` material
     //             rendered too bright in dark mode; this matches the design's
@@ -65,11 +63,14 @@ struct GlassModifier: ViewModifier {
                     .opacity(0.8)
             }
         case .card:
-            // Opaque base + the original subtle white lift on top, so cards
-            // stay solid over the now-translucent window.
+            // Frosted glass: blur the desktop showing through the translucent
+            // window *behind* the card, washed with a dark tint so text stays
+            // legible. Must be `.behindWindow` (not `.withinWindow`): the desktop
+            // is composited behind the window, so a within-window blur has no
+            // crisp content to frost and reads as a flat tint.
             ZStack {
-                AerieColor.cardBase
-                AerieColor.cardSurface
+                VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                AerieColor.cardGlassTint
             }
         case .dialog:
             ZStack {

@@ -15,19 +15,11 @@ enum AerieColor {
     static let glassLine2 = Color.white.opacity(0.14)
     static let glassHighlight = Color.white.opacity(0.22)
 
-    // Card surface. The design's `.card` is `glass-2` (0.055) over a
-    // `backdrop-filter: blur(16px)` that samples the warm aurora behind it and
-    // visibly lifts the panel. Our `Backdrop` is near-static, so a flat 0.055
-    // reads as "too close to the background". Bumping the card fill on its own
-    // (rather than re-introducing a milky NSVisualEffectView) restores the
-    // design's distinct-panel look.
-    static let cardSurface = Color.white.opacity(0.10)
-
-    // Opaque base painted *under* `cardSurface` so cards stay solid even when
-    // the window itself is translucent — keeps card content off the frosted
-    // desktop behind the window. Slightly lighter than `backdrop1` so the panel
-    // still reads as raised against the darker translucent backdrop.
-    static let cardBase = backdrop2
+    // Card frosted-glass wash — a warm dark-brown tint over the card's
+    // behind-window blur (see `GlassModifier`). Lighter than the modal
+    // `dialogSurface` so the frosted backdrop still reads through the card.
+    // Raise the opacity for a more solid card, lower it to let more show.
+    static let cardGlassTint = Color(red: 42/255, green: 31/255, blue: 22/255).opacity(0.62)
 
     // Dialog surface — dark warm-tinted, sits over a within-window blur.
     // Matches design `rgba(28, 26, 32, 0.78)`: opaque enough to read dark,
