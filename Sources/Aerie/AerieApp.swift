@@ -203,7 +203,7 @@ struct WorktreeContext: Identifiable, Equatable {
 /// auto-refresh and the toast overlay are tracked as Known Issues in the plan.
 struct MainShell: View {
     private let services = AppServices.shared
-    private let claudeReview: ClaudeReviewService = LiveClaudeReviewService()
+    @State private var aiReviewStore: AIReviewStore = MainShell.makeAIReviewStore()
     @Environment(\.openWindow) private var openWindow
     @State private var appVM = AppViewModel()
     @State private var prsVM: PRsViewModel
@@ -264,6 +264,7 @@ struct MainShell: View {
             // on the PR id so switching PRs rebuilds the screen + its fetch.
             PRReviewScreen(
                 row: row,
+                store: aiReviewStore,
                 loadFiles: { r in
                     try await services.multiApi.fetchPRFiles(
                         owner: r.repo.githubOwner,
@@ -274,25 +275,7 @@ struct MainShell: View {
                 },
                 accountsProvider: { await services.auth.allAccounts() },
                 onBack: { reviewing = nil },
-                onApprove: { presentedApprove = $0 },
-                runReview: { r, diff in
-                    await claudeReview.review(
-                        owner: r.repo.githubOwner,
-                        repo: r.repo.githubRepo,
-                        number: r.pr.number,
-                        title: r.pr.title,
-                        author: r.pr.authorLogin,
-                        sourceBranch: r.pr.sourceBranch,
-                        diff: diff,
-                        localPath: r.repo.localPath,
-                        onLine: { _ in })
-                },
-                submitApprove: { r, body in
-                    await approveOrComment(row: r, body: body, approve: true)
-                },
-                submitComment: { r, body in
-                    await approveOrComment(row: r, body: body, approve: false)
-                }
+                onApprove: { presentedApprove = $0 }
             )
             .id(row.id)
         } else {
@@ -555,36 +538,48 @@ struct MainShell: View {
         }
     }
 
-    /// Shared back-end for the AI-review auto-actions. Resolves the default
-    /// approver (the AI-review button is gated on one existing), then either
-    /// approves (carrying Claude's summary) or posts a comment, and refreshes.
-    /// Returns nil on success or a message on failure.
-    /// Note: unlike `approveDialog`, this does NOT clear `reviewing` — the review
-    /// screen stays up so the VM's `.done` result card remains visible.
-    private func approveOrComment(row: PRRow, body: String, approve: Bool) async -> String? {
-        let accounts = await services.auth.allAccounts()
-        let resolution = ApproverResolver.resolve(
-            accounts: accounts,
-            boundAccountId: row.repo.primaryAccountId,
-            authorLogin: row.pr.authorLogin)
-        guard let approver = resolution.defaultApprover else {
-            return "無合格的 approver。"
-        }
-        do {
-            if approve {
-                _ = try await services.multiApi.approvePR(
-                    owner: row.repo.githubOwner, repo: row.repo.githubRepo,
-                    number: row.pr.number, body: body, accountId: approver.id)
-            } else {
-                _ = try await services.multiApi.addIssueComment(
-                    owner: row.repo.githubOwner, repo: row.repo.githubRepo,
-                    number: row.pr.number, body: body, accountId: approver.id)
-            }
-            await services.refreshNow()
-            return nil
-        } catch {
-            return error.localizedDescription
-        }
+    /// Builds the AI-review store, wiring its closures to live services. Static so
+    /// it can seed the `@State` initial value without touching `self`.
+    @MainActor
+    private static func makeAIReviewStore() -> AIReviewStore {
+        let services = AppServices.shared
+        let claude: ClaudeReviewService = LiveClaudeReviewService()
+        return AIReviewStore(
+            loadFiles: { r in
+                try await services.multiApi.fetchPRFiles(
+                    owner: r.repo.githubOwner, repo: r.repo.githubRepo,
+                    number: r.pr.number, accountId: r.repo.primaryAccountId).value
+            },
+            runReview: { r, diff, onLine in
+                await claude.review(
+                    owner: r.repo.githubOwner, repo: r.repo.githubRepo, number: r.pr.number,
+                    title: r.pr.title, author: r.pr.authorLogin, sourceBranch: r.pr.sourceBranch,
+                    diff: diff, localPath: r.repo.localPath, onLine: onLine)
+            },
+            resolveApprover: { r in
+                let accounts = await services.auth.allAccounts()
+                return ApproverResolver.resolve(
+                    accounts: accounts, boundAccountId: r.repo.primaryAccountId,
+                    authorLogin: r.pr.authorLogin).defaultApprover
+            },
+            approve: { r, approver, body in
+                do {
+                    _ = try await services.multiApi.approvePR(
+                        owner: r.repo.githubOwner, repo: r.repo.githubRepo,
+                        number: r.pr.number, body: body, accountId: approver.id)
+                    await services.refreshNow()
+                    return nil
+                } catch { return error.localizedDescription }
+            },
+            comment: { r, approver, body in
+                do {
+                    _ = try await services.multiApi.addIssueComment(
+                        owner: r.repo.githubOwner, repo: r.repo.githubRepo,
+                        number: r.pr.number, body: body, accountId: approver.id)
+                    await services.refreshNow()
+                    return nil
+                } catch { return error.localizedDescription }
+            })
     }
 
     // Delete-worktree confirmation overlay content. Confirm runs `git worktree
