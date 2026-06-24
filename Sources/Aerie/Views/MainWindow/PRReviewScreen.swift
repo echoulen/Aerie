@@ -54,8 +54,11 @@ struct PRReviewScreen: View {
     @ViewBuilder
     private var aiReviewBanner: some View {
         switch vm.aiReview {
-        case .idle, .running:
+        case .idle:
             EmptyView()
+        case .running:
+            AIReviewRunningCard()
+                .padding(.horizontal, 28).padding(.top, 16)
         case .done(let review):
             AIReviewCard(review: review)
                 .padding(.horizontal, 28).padding(.top, 16)
@@ -225,7 +228,7 @@ private struct AIReviewButton: View {
     let phase: AIReviewPhase
     let action: () -> Void
 
-    private var isRunning: Bool { if case .running = phase { return true }; return false }
+    private var isRunning: Bool { phase == .running }
 
     var body: some View {
         Button(action: action) {
@@ -239,7 +242,7 @@ private struct AIReviewButton: View {
                     .aerieFont(AerieFont.custom(.sans, size: 13).weight(.semibold))
             }
             .foregroundStyle(AerieColor.text1)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 18)
             .padding(.vertical, 9)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(AerieColor.glass2))
             .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
@@ -247,7 +250,7 @@ private struct AIReviewButton: View {
         }
         .buttonStyle(.plain)
         .disabled(isRunning)
-        .help("用 Claude CLI 審查這個 PR;沒有重大問題會自動 approve")
+        .help("Review this PR with the Claude CLI; auto-approves when there are no major problems")
     }
 }
 
@@ -292,6 +295,24 @@ private struct AIReviewCard: View {
     }
 }
 
+/// Shown while an AI review is in flight — a calm status row so the content
+/// area isn't blank during the (possibly long) Claude run. The header button
+/// also shows a spinner; this gives feedback in the main area too.
+private struct AIReviewRunningCard: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Reviewing with Claude…")
+                .aerieFont(AerieFont.custom(.sans, size: 12.5))
+                .foregroundStyle(AerieColor.text2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AerieColor.glass2))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+    }
+}
+
 /// Error card when an AI review couldn't complete.
 private struct AIReviewFailureCard: View {
     let message: String
@@ -304,7 +325,7 @@ private struct AIReviewFailureCard: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(16)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AerieColor.glass2))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .strokeBorder(AerieColor.err.opacity(0.3), lineWidth: 1))
