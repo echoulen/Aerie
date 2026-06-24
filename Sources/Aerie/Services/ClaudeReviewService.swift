@@ -180,7 +180,10 @@ struct LiveClaudeReviewService: ClaudeReviewService {
         let args = ["-p", prompt, "--output-format", "json", "--allowedTools", "Read,Grep,Glob"]
 
         // 4. Run with a timeout. A timed-out claude is read-only and harmless;
-        //    we just stop waiting and report it.
+        //    we just stop waiting and report it. Cancelling the task unblocks the
+        //    awaiting continuation, but the underlying `Process` is not killed —
+        //    it runs until it exits on its own (LiveSubprocessRunner exposes no
+        //    handle to terminate it).
         do {
             let runner = self.runner
             let (out, err, code) = try await withTimeout(seconds: timeout) {

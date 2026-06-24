@@ -1,6 +1,16 @@
 import XCTest
 @testable import Aerie
 
+/// Runner whose `claude` call never returns on its own — only cancellation (via
+/// the service's timeout) unblocks it. `which` still succeeds.
+private final class HangingClaudeRunner: SubprocessRunner, @unchecked Sendable {
+    func run(_ command: String, _ args: [String], cwd: URL?) async throws -> (String, String, Int32) {
+        if command == "which" { return ("/opt/homebrew/bin/claude", "", 0) }
+        try await Task.sleep(nanoseconds: 60 * 1_000_000_000)  // 60s; cancelled long before this
+        return ("", "", 0)
+    }
+}
+
 /// Stub runner that answers by the *first* arg so a long prompt doesn't need to
 /// be matched exactly: `which` vs `-p`.
 private final class StubClaudeRunner: SubprocessRunner, @unchecked Sendable {
@@ -81,5 +91,15 @@ final class ClaudeReviewServiceTests: XCTestCase {
         let svc = makeService(runner)
         _ = await review(svc, localPath: URL(fileURLWithPath: "/no/such/dir/\(UUID().uuidString)"))
         XCTAssertNil(runner.lastCwd)
+    }
+
+    func test_review_timesOut_whenRunnerHangs() async {
+        let svc = LiveClaudeReviewService(runner: HangingClaudeRunner(), timeout: 0.05)
+        let outcome = await svc.review(
+            owner: "echoulen", repo: "aerie", number: 42,
+            title: "T", author: "octocat", sourceBranch: "feat/x",
+            diff: "DIFF", localPath: URL(fileURLWithPath: "/tmp"))
+        guard case .failed(let msg) = outcome else { return XCTFail("expected .failed on timeout") }
+        XCTAssertTrue(msg.contains("逾時"), "expected a timeout message, got: \(msg)")
     }
 }
