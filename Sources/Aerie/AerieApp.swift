@@ -558,6 +558,8 @@ struct MainShell: View {
     /// approver (the AI-review button is gated on one existing), then either
     /// approves (carrying Claude's summary) or posts a comment, and refreshes.
     /// Returns nil on success or a message on failure.
+    /// Note: unlike `approveDialog`, this does NOT clear `reviewing` — the review
+    /// screen stays up so the VM's `.done` result card remains visible.
     private func approveOrComment(row: PRRow, body: String, approve: Bool) async -> String? {
         let accounts = await services.auth.allAccounts()
         let resolution = ApproverResolver.resolve(
