@@ -37,6 +37,26 @@ final class SubprocessRunnerTests: XCTestCase {
         XCTAssertTrue(parts.contains("/usr/bin"))
     }
 
+    func test_augmentedPATH_includesLocalBinForNativeClaude() {
+        let parts = SubprocessPATH.augmented(base: "/usr/bin")
+            .split(separator: ":").map(String.init)
+        XCTAssertTrue(parts.contains("\(NSHomeDirectory())/.local/bin"),
+                      "~/.local/bin (Claude Code native installer) must be searched")
+    }
+
+    func test_augmentedPATH_localBinBeatsSupersetShim() {
+        let home = NSHomeDirectory()
+        // base puts the superset shim ahead of ~/.local/bin, as the user's shell PATH does.
+        let parts = SubprocessPATH.augmented(base: "\(home)/.superset/bin:\(home)/.local/bin:/usr/bin")
+            .split(separator: ":").map(String.init)
+        guard let localIdx = parts.firstIndex(of: "\(home)/.local/bin"),
+              let shimIdx = parts.firstIndex(of: "\(home)/.superset/bin") else {
+            return XCTFail("both ~/.local/bin and ~/.superset/bin should be present")
+        }
+        XCTAssertLessThan(localIdx, shimIdx,
+                          "native ~/.local/bin must resolve before the superset wrapper")
+    }
+
     // MARK: - extra-env injection
     //
     // Git operations against a private remote must authenticate as the account
@@ -113,6 +133,23 @@ final class SubprocessRunnerTests: XCTestCase {
     // under bursts of fast-terminating children, so fire many at once and require
     // every one to return within the bound.
 
+    // MARK: - Working directory
+
+    func test_run_respectsCwd() async throws {
+        let runner = LiveSubprocessRunner()
+        let tmp = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        let (out, _, code) = try await runner.run("pwd", [], cwd: tmp)
+        XCTAssertEqual(code, 0)
+        XCTAssertEqual(out.trimmingCharacters(in: .whitespacesAndNewlines), "/private/tmp")
+    }
+
+    func test_run_withoutCwd_stillWorks() async throws {
+        let runner = LiveSubprocessRunner()
+        let (out, _, code) = try await runner.run("echo", ["hi"])
+        XCTAssertEqual(code, 0)
+        XCTAssertEqual(out.trimmingCharacters(in: .whitespacesAndNewlines), "hi")
+    }
+
     func test_run_concurrentShortCommands_allReturn() async {
         let runner = LiveSubprocessRunner()
         let n = 200
@@ -133,6 +170,25 @@ final class SubprocessRunnerTests: XCTestCase {
             done.value, n,
             "every concurrent subprocess must return; a parked waitUntilExit leaves the count short"
         )
+    }
+
+    // MARK: - stream()
+
+    func test_stream_emitsLinesInOrder() async throws {
+        let runner = LiveSubprocessRunner()
+        let box = LineCollector()
+        let code = try await runner.stream("printf", ["a\\nb\\nc\\n"], cwd: nil) { box.add($0) }
+        XCTAssertEqual(code, 0)
+        XCTAssertEqual(box.lines, ["a", "b", "c"])
+    }
+
+    func test_stream_cancellationTerminatesProcess() async throws {
+        let runner = LiveSubprocessRunner()
+        let task = Task { try await runner.stream("sleep", ["30"], cwd: nil) { _ in } }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        task.cancel()
+        let code = try await task.value     // must return promptly, not after 30s
+        XCTAssertNotEqual(code, 0)          // terminated by signal → non-zero
     }
 }
 
@@ -160,4 +216,12 @@ private final class AtomicCounter: @unchecked Sendable {
     private var count = 0
     func increment() { lock.lock(); count += 1; lock.unlock() }
     var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
+/// Thread-safe line collector for stream tests.
+final class LineCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _lines: [String] = []
+    func add(_ s: String) { lock.lock(); _lines.append(s); lock.unlock() }
+    var lines: [String] { lock.lock(); defer { lock.unlock() }; return _lines }
 }

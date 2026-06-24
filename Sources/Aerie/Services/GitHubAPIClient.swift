@@ -157,6 +157,20 @@ protocol GitHubAPIClient: Sendable {
         body: String?,
         token: String
     ) async throws
+
+    /// Posts a plain comment on a PR/issue thread
+    /// (`POST /repos/{owner}/{repo}/issues/{number}/comments`). Unlike a review,
+    /// any account may comment (no self-approval restriction). Declared on the
+    /// protocol (with an extension default) for the same dynamic-dispatch reason
+    /// as `approvePR`: test stubs inherit a harmless no-op, while
+    /// `LiveGitHubAPIClient` overrides it with the real REST call.
+    func addIssueComment(
+        owner: String,
+        repo: String,
+        number: Int,
+        body: String,
+        token: String
+    ) async throws
 }
 
 extension GitHubAPIClient {
@@ -214,6 +228,16 @@ extension GitHubAPIClient {
         repo: String,
         number: Int,
         body: String?,
+        token: String
+    ) async throws {}
+
+    /// Default: no-op. Stubs that don't exercise addIssueComment inherit a
+    /// harmless no-op; the live client overrides it with the real REST call.
+    func addIssueComment(
+        owner: String,
+        repo: String,
+        number: Int,
+        body: String,
         token: String
     ) async throws {}
 }
@@ -634,6 +658,30 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             payload["body"] = body
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await session.data(for: request)
+        let http = response as? HTTPURLResponse
+        recordRateLimit(token: token, response: http)
+        try checkOK(status: http?.statusCode ?? 0, data: data)
+    }
+
+    // MARK: addIssueComment
+
+    func addIssueComment(
+        owner: String,
+        repo: String,
+        number: Int,
+        body: String,
+        token: String
+    ) async throws {
+        let urlString =
+            "https://api.github.com/repos/\(owner)/\(repo)/issues/\(number)/comments"
+        var request = URLRequest(url: URL(string: urlString)!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["body": body])
 
         let (data, response) = try await session.data(for: request)
         let http = response as? HTTPURLResponse

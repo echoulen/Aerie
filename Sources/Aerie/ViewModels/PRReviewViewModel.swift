@@ -10,22 +10,15 @@ enum PRReviewState: Equatable {
     case error(String)
 }
 
-/// Drives the code review screen for a single PR. Unlike the list view models
-/// (which read cached DB state), this fetches the PR's changed files on demand
-/// and holds them in memory only — the diff is never persisted. Also resolves
-/// which account may approve the PR (the author can't approve their own).
-///
-/// `@MainActor` for the same reason the list view models are (see #67): `load()`
-/// `await`s a network fetch, and a non-isolated async method can resume on a
-/// background thread — mutating the `@Observable` `state`/`resolution` off the
-/// main thread while SwiftUI reads them on it, a data race that can crash the
-/// app on open. Main-actor isolation pins every mutation to the main thread.
+/// Drives the diff view for one PR: fetches changed files on demand (never
+/// persisted) and resolves which account may approve. AI-review execution/state
+/// lives in `AIReviewStore` (held by the shell), not here, so it survives this
+/// screen being rebuilt.
 @MainActor
 @Observable
 final class PRReviewViewModel {
     let row: PRRow
     private(set) var state: PRReviewState = .loading
-    /// Computed in `load()` once the account list is available.
     private(set) var resolution = ApproverResolution(eligible: [], defaultApprover: nil)
 
     private let loadFiles: (PRRow) async throws -> [PRFileChange]
@@ -41,8 +34,6 @@ final class PRReviewViewModel {
         self.accountsProvider = accountsProvider
     }
 
-    /// Resolves the approver set, then fetches the PR's changed files. Safe to
-    /// call again (e.g. a Retry button) — it resets to `.loading` first.
     func load() async {
         state = .loading
         let accounts = await accountsProvider()

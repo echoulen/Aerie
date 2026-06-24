@@ -3,9 +3,18 @@ import XCTest
 
 final class MockSubprocessRunner: SubprocessRunner, @unchecked Sendable {
     var responses: [String: (String, String, Int32)] = [:]
-    func run(_ command: String, _ args: [String]) async throws -> (String, String, Int32) {
+    func run(_ command: String, _ args: [String], cwd: URL?) async throws -> (String, String, Int32) {
         let key = ([command] + args).joined(separator: " ")
         return responses[key] ?? ("", "", 0)
+    }
+    func stream(_ command: String, _ args: [String], cwd: URL?,
+                onLine: @escaping @Sendable (String) -> Void) async throws -> Int32 {
+        let key = ([command] + args).joined(separator: " ")
+        let (out, _, code) = responses[key] ?? ("", "", 0)
+        for line in out.split(separator: "\n", omittingEmptySubsequences: false) where !line.isEmpty {
+            onLine(String(line))
+        }
+        return code
     }
 }
 

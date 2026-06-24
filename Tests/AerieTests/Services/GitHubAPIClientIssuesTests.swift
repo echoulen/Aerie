@@ -150,4 +150,33 @@ final class GitHubAPIClientIssuesTests: XCTestCase {
             XCTAssertEqual(error.status, 404)
         }
     }
+
+    // MARK: addIssueComment
+
+    func test_addIssueComment_postsToCommentsEndpoint() async throws {
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 201,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"])!
+            return (response, Data("{}".utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        try await client.addIssueComment(
+            owner: "acme", repo: "widgets", number: 148,
+            body: "AI review: looks good", token: "ghp_test")
+
+        let req = try XCTUnwrap(StubURLProtocol.lastRequest)
+        XCTAssertEqual(req.url?.absoluteString,
+                       "https://api.github.com/repos/acme/widgets/issues/148/comments")
+        XCTAssertEqual(req.httpMethod, "POST")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer ghp_test")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Accept"), "application/vnd.github+json")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Content-Type"), "application/json")
+
+        let bodyData = try XCTUnwrap(StubURLProtocol.lastBody)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
+        XCTAssertEqual(json["body"] as? String, "AI review: looks good")
+    }
 }

@@ -13,12 +13,14 @@ struct PRReviewApproveContext: Identifiable, Equatable {
 /// PR card's Review button; the back arrow returns to the list.
 struct PRReviewScreen: View {
     @State private var vm: PRReviewViewModel
+    let store: AIReviewStore
     private let highlighter: CodeHighlighter
     var onBack: () -> Void
     var onApprove: (PRReviewApproveContext) -> Void
 
     init(
         row: PRRow,
+        store: AIReviewStore,
         loadFiles: @escaping (PRRow) async throws -> [PRFileChange],
         accountsProvider: @escaping () async -> [GitHubAccount],
         highlighter: CodeHighlighter = SplashCodeHighlighter(),
@@ -27,6 +29,7 @@ struct PRReviewScreen: View {
     ) {
         _vm = State(initialValue: PRReviewViewModel(
             row: row, loadFiles: loadFiles, accountsProvider: accountsProvider))
+        self.store = store
         self.highlighter = highlighter
         self.onBack = onBack
         self.onApprove = onApprove
@@ -34,15 +37,34 @@ struct PRReviewScreen: View {
 
     private var pr: PullRequest { vm.row.pr }
     private var repo: Repository { vm.row.repo }
+    private var aiPhase: AIReviewPhase { store.phase(for: vm.row) }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider().overlay(AerieColor.glassLine)
+            aiReviewBanner
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task { await vm.load() }
+    }
+
+    @ViewBuilder
+    private var aiReviewBanner: some View {
+        switch aiPhase {
+        case .idle:
+            EmptyView()
+        case .running(let lines):
+            AIReviewConsole(lines: lines)
+                .padding(.horizontal, 28).padding(.top, 16)
+        case .done(let review, let actedAs):
+            AIReviewCard(review: review, actedAs: actedAs)
+                .padding(.horizontal, 28).padding(.top, 16)
+        case .failed(let message):
+            AIReviewFailureCard(message: message)
+                .padding(.horizontal, 28).padding(.top, 16)
+        }
     }
 
     // MARK: Header
@@ -61,6 +83,11 @@ struct PRReviewScreen: View {
                 statusRow
             }
             Spacer(minLength: 16)
+            AIReviewButton(
+                phase: aiPhase,
+                canApprove: vm.resolution.canApprove,
+                action: { store.start(row: vm.row) }
+            )
             ApproveButton(
                 row: vm.row,
                 resolution: vm.resolution,
@@ -192,5 +219,147 @@ private struct ApproveButton: View {
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(bg))
         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(line, lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+}
+
+/// "AI Review" affordance: triggers `store.start(row:)`, shows a spinner while
+/// the review runs. Styled like the other glass header buttons.
+private struct AIReviewButton: View {
+    let phase: AIReviewPhase
+    let canApprove: Bool
+    let action: () -> Void
+
+    private var isRunning: Bool { if case .running = phase { return true }; return false }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                if isRunning {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "sparkles").font(.system(size: 12, weight: .semibold))
+                }
+                Text(isRunning ? "Reviewing…" : "AI Review")
+                    .aerieFont(AerieFont.custom(.sans, size: 13).weight(.semibold))
+            }
+            .foregroundStyle(AerieColor.text1)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(AerieColor.glass2))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isRunning || !canApprove)
+        .help(canApprove
+            ? "Review this PR with the Claude CLI; auto-approves when there are no major problems"
+            : "No account is eligible to approve this PR, so AI Review is unavailable.")
+    }
+}
+
+/// Result card for a finished AI review: a verdict pill, the summary, and any
+/// issues. Approve = green; issues_found = amber.
+private struct AIReviewCard: View {
+    let review: ClaudeReview
+    let actedAs: String?
+
+    private var isApprove: Bool { review.verdict == .approve }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: isApprove ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                Text(isApprove ? "AI Review · Approved" : "AI Review · Issues found")
+                    .aerieFont(AerieFont.custom(.sans, size: 13).weight(.semibold))
+            }
+            .foregroundStyle(isApprove ? AerieColor.ok : AerieColor.amberInk)
+
+            Text(review.summary)
+                .aerieFont(AerieFont.body())
+                .foregroundStyle(AerieColor.text2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !review.issues.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(Array(review.issues.enumerated()), id: \.offset) { _, issue in
+                        HStack(alignment: .top, spacing: 6) {
+                            Text("•").foregroundStyle(AerieColor.text3)
+                            Text(issue).foregroundStyle(AerieColor.text2)
+                        }
+                        .aerieFont(AerieFont.custom(.sans, size: 12.5))
+                    }
+                }
+            }
+
+            if let actedAs {
+                Text("\(isApprove ? "Approved" : "Commented") as \(actedAs)")
+                    .aerieFont(AerieFont.code(11))
+                    .foregroundStyle(AerieColor.text4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AerieColor.glass2))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(isApprove ? AerieColor.ok.opacity(0.32) : AerieColor.amberCtaLine, lineWidth: 1))
+    }
+}
+
+/// Live, scrollable console of Claude's progress while a review runs. Auto-scrolls
+/// to the newest line. Replaces the old single-line running card.
+private struct AIReviewConsole: View {
+    let lines: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Reviewing with Claude…")
+                    .aerieFont(AerieFont.custom(.sans, size: 12.5).weight(.semibold))
+                    .foregroundStyle(AerieColor.text2)
+            }
+            if !lines.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 3) {
+                            ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                                Text(line)
+                                    .aerieFont(AerieFont.code(11))
+                                    .foregroundStyle(AerieColor.text3)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id(i)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 220)
+                    .onChange(of: lines) { _, _ in
+                        if let last = lines.indices.last { proxy.scrollTo(last, anchor: .bottom) }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AerieColor.glass2))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+    }
+}
+
+/// Error card when an AI review couldn't complete.
+private struct AIReviewFailureCard: View {
+    let message: String
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "xmark.octagon.fill").foregroundStyle(AerieColor.err)
+            Text(message)
+                .aerieFont(AerieFont.custom(.sans, size: 12.5))
+                .foregroundStyle(AerieColor.text2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AerieColor.glass2))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(AerieColor.err.opacity(0.3), lineWidth: 1))
     }
 }
