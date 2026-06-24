@@ -37,7 +37,7 @@ struct PRReviewScreen: View {
 
     private var pr: PullRequest { vm.row.pr }
     private var repo: Repository { vm.row.repo }
-    private var aiPhase: AIReviewPhase { store.phase(for: pr.id) }
+    private var aiPhase: AIReviewPhase { store.phase(for: vm.row) }
 
     var body: some View {
         VStack(spacing: 0) {

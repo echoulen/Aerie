@@ -10,14 +10,15 @@ enum AIReviewPhase: Equatable {
     case failed(String)
 }
 
-/// Owns AI-review execution + state for ALL PRs, keyed by PR id, so a review
-/// survives the review screen being torn down and rebuilt (Back → re-enter).
-/// Held by `MainShell`, not the per-screen view model.
+/// Owns AI-review execution + state for ALL PRs, keyed by a STABLE per-PR key
+/// (repo id + PR number), so a review survives the review screen being torn down
+/// and rebuilt (Back → re-enter). `PullRequest.id` is a fresh UUID on every API
+/// fetch, so it must NOT be the key. Held by `MainShell`, not the per-screen VM.
 @MainActor
 @Observable
 final class AIReviewStore {
-    private(set) var phases: [UUID: AIReviewPhase] = [:]
-    private var running: Set<UUID> = []
+    private(set) var phases: [String: AIReviewPhase] = [:]
+    private var running: Set<String> = []
     private let maxLines = 200
 
     private let loadFiles: (PRRow) async throws -> [PRFileChange]
@@ -40,61 +41,68 @@ final class AIReviewStore {
         self.comment = comment
     }
 
-    func phase(for id: UUID) -> AIReviewPhase { phases[id] ?? .idle }
+    /// Stable per-PR key. `PullRequest.id` is a fresh UUID on every API fetch, so
+    /// it can't be the key (Back → refresh → re-fetch changes it). The repo's
+    /// persisted id plus the PR number is stable across refreshes.
+    private static func key(_ row: PRRow) -> String {
+        "\(row.repo.id.uuidString)#\(row.pr.number)"
+    }
+
+    func phase(for row: PRRow) -> AIReviewPhase { phases[Self.key(row)] ?? .idle }
 
     /// Starts a review for `row` (no-op if one is already running for it). Fails
     /// fast when no eligible approver. Runs in a Task NOT tied to any view, so
     /// Back doesn't cancel it.
     func start(row: PRRow) {
-        let id = row.pr.id
-        guard !running.contains(id) else { return }
-        running.insert(id)
+        let key = Self.key(row)
+        guard !running.contains(key) else { return }
+        running.insert(key)
 
         Task {
-            defer { self.running.remove(id) }
+            defer { self.running.remove(key) }
 
             guard let approver = await self.resolveApprover(row) else {
-                self.phases[id] = .failed("無合格的 approver(你不能 approve 自己的 PR,也沒有其他帳號可用),無法使用 AI Review。")
+                self.phases[key] = .failed("無合格的 approver(你不能 approve 自己的 PR,也沒有其他帳號可用),無法使用 AI Review。")
                 return
             }
-            self.phases[id] = .running([])
+            self.phases[key] = .running([])
 
             let files: [PRFileChange]
             do { files = try await self.loadFiles(row) }
-            catch { self.phases[id] = .failed("無法取得 PR 變更:\(error.localizedDescription)"); return }
+            catch { self.phases[key] = .failed("無法取得 PR 變更:\(error.localizedDescription)"); return }
             let diff = ClaudeReviewPrompt.diffText(files: files)
 
             let onLine: @Sendable (String) -> Void = { line in
-                Task { @MainActor [weak self] in self?.appendLine(line, to: id) }
+                Task { @MainActor [weak self] in self?.appendLine(line, to: key) }
             }
 
             switch await self.runReview(row, diff, onLine) {
             case .failed(let m):
-                self.phases[id] = .failed(m)
+                self.phases[key] = .failed(m)
             case .success(let review):
                 switch review.verdict {
                 case .approve:
                     if let err = await self.approve(row, approver, review.summary) {
-                        self.phases[id] = .failed("Approve 失敗:\(err)")
+                        self.phases[key] = .failed("Approve 失敗:\(err)")
                     } else {
-                        self.phases[id] = .done(review, actedAs: approver.login)
+                        self.phases[key] = .done(review, actedAs: approver.login)
                     }
                 case .issuesFound:
                     if let err = await self.comment(row, approver, Self.commentBody(from: review)) {
-                        self.phases[id] = .failed("發 comment 失敗:\(err)")
+                        self.phases[key] = .failed("發 comment 失敗:\(err)")
                     } else {
-                        self.phases[id] = .done(review, actedAs: approver.login)
+                        self.phases[key] = .done(review, actedAs: approver.login)
                     }
                 }
             }
         }
     }
 
-    private func appendLine(_ line: String, to id: UUID) {
-        guard case .running(var lines) = phase(for: id) else { return }
+    private func appendLine(_ line: String, to key: String) {
+        guard case .running(var lines) = (phases[key] ?? .idle) else { return }
         lines.append(line)
         if lines.count > maxLines { lines.removeFirst(lines.count - maxLines) }
-        phases[id] = .running(lines)
+        phases[key] = .running(lines)
     }
 
     /// Formats Claude's issues into a PR comment body.
