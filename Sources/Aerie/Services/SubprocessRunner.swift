@@ -2,7 +2,15 @@ import Foundation
 
 protocol SubprocessRunner: Sendable {
     /// Returns (stdout, stderr, exitCode). Throws on launch failure only.
-    func run(_ command: String, _ args: [String]) async throws -> (String, String, Int32)
+    /// `cwd` sets the child's working directory (nil = inherit the parent's).
+    func run(_ command: String, _ args: [String], cwd: URL?) async throws -> (String, String, Int32)
+}
+
+extension SubprocessRunner {
+    /// Back-compat convenience: run with the inherited working directory.
+    func run(_ command: String, _ args: [String]) async throws -> (String, String, Int32) {
+        try await run(command, args, cwd: nil)
+    }
 }
 
 /// Builds the `PATH` used for subprocesses (we shell out via `/usr/bin/env`,
@@ -47,11 +55,12 @@ enum SubprocessPATH {
 }
 
 struct LiveSubprocessRunner: SubprocessRunner {
-    func run(_ command: String, _ args: [String]) async throws -> (String, String, Int32) {
+    func run(_ command: String, _ args: [String], cwd: URL?) async throws -> (String, String, Int32) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = [command] + args
         p.environment = SubprocessPATH.environment()
+        if let cwd { p.currentDirectoryURL = cwd }
         let outPipe = Pipe(); p.standardOutput = outPipe
         let errPipe = Pipe(); p.standardError  = errPipe
 

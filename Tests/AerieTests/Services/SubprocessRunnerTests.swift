@@ -113,6 +113,23 @@ final class SubprocessRunnerTests: XCTestCase {
     // under bursts of fast-terminating children, so fire many at once and require
     // every one to return within the bound.
 
+    // MARK: - Working directory
+
+    func test_run_respectsCwd() async throws {
+        let runner = LiveSubprocessRunner()
+        let tmp = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        let (out, _, code) = try await runner.run("pwd", [], cwd: tmp)
+        XCTAssertEqual(code, 0)
+        XCTAssertEqual(out.trimmingCharacters(in: .whitespacesAndNewlines), "/private/tmp")
+    }
+
+    func test_run_withoutCwd_stillWorks() async throws {
+        let runner = LiveSubprocessRunner()
+        let (out, _, code) = try await runner.run("echo", ["hi"])
+        XCTAssertEqual(code, 0)
+        XCTAssertEqual(out.trimmingCharacters(in: .whitespacesAndNewlines), "hi")
+    }
+
     func test_run_concurrentShortCommands_allReturn() async {
         let runner = LiveSubprocessRunner()
         let n = 200
