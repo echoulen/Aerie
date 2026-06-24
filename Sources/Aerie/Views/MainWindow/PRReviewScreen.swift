@@ -222,8 +222,8 @@ private struct ApproveButton: View {
     }
 }
 
-/// "AI Review" affordance: triggers `runAIReview()`, shows a spinner while it
-/// runs. Styled like the other glass header buttons.
+/// "AI Review" affordance: triggers `store.start(row:)`, shows a spinner while
+/// the review runs. Styled like the other glass header buttons.
 private struct AIReviewButton: View {
     let phase: AIReviewPhase
     let canApprove: Bool
@@ -332,7 +332,7 @@ private struct AIReviewConsole: View {
                         }
                     }
                     .frame(maxHeight: 220)
-                    .onChange(of: lines.count) { _, _ in
+                    .onChange(of: lines) { _, _ in
                         if let last = lines.indices.last { proxy.scrollTo(last, anchor: .bottom) }
                     }
                 }

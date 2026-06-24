@@ -50,8 +50,7 @@ final class AIReviewStore {
         guard !running.contains(id) else { return }
         running.insert(id)
 
-        Task { [weak self] in
-            guard let self else { return }
+        Task {
             defer { self.running.remove(id) }
 
             guard let approver = await self.resolveApprover(row) else {
