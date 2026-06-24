@@ -82,13 +82,13 @@ final class AIReviewStore {
             case .success(let review):
                 switch review.verdict {
                 case .approve:
-                    if let err = await self.approve(row, approver, review.summary) {
+                    if let err = await self.approve(row, approver, Self.reviewBody(from: review)) {
                         self.phases[key] = .failed("Approve 失敗:\(err)")
                     } else {
                         self.phases[key] = .done(review, actedAs: approver.login)
                     }
                 case .issuesFound:
-                    if let err = await self.comment(row, approver, Self.commentBody(from: review)) {
+                    if let err = await self.comment(row, approver, Self.reviewBody(from: review)) {
                         self.phases[key] = .failed("發 comment 失敗:\(err)")
                     } else {
                         self.phases[key] = .done(review, actedAs: approver.login)
@@ -105,13 +105,23 @@ final class AIReviewStore {
         phases[key] = .running(lines)
     }
 
-    /// Formats Claude's issues into a PR comment body.
-    static func commentBody(from review: ClaudeReview) -> String {
-        var lines = ["**AI Review — 發現需處理的問題**", "", review.summary]
+    /// Formats a review into a tidy markdown body for the GitHub PR comment /
+    /// approval review. Header reflects the verdict; Claude's `summary` (already
+    /// markdown bullets) is the body; concrete issues get their own section; a
+    /// footer attributes the review.
+    static func reviewBody(from review: ClaudeReview) -> String {
+        let header = review.verdict == .approve
+            ? "## ✅ AI Review · Approved"
+            : "## ⚠️ AI Review · 發現需處理的問題"
+        var parts = [header, "", review.summary]
         if !review.issues.isEmpty {
-            lines.append("")
-            lines.append(contentsOf: review.issues.map { "- \($0)" })
+            parts.append("")
+            parts.append("### 需處理的問題")
+            parts.append(contentsOf: review.issues.map { "- \($0)" })
         }
-        return lines.joined(separator: "\n")
+        parts.append("")
+        parts.append("---")
+        parts.append("*Reviewed by Claude Code*")
+        return parts.joined(separator: "\n")
     }
 }

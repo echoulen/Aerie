@@ -59,7 +59,7 @@ enum ClaudeReviewPrompt {
 
         Respond with your analysis, then end your message with a single JSON object \
         on its own, exactly in this shape:
-        {"verdict": "approve" | "issues_found", "summary": "<one paragraph>", "issues": ["<issue>", ...]}
+        {"verdict": "approve" | "issues_found", "summary": "<concise markdown — short \"- \" bullet points of the key findings (and a final \"結論:\" bullet), NOT one long run-on paragraph; this string is shown verbatim in a GitHub PR comment, so write it as readable markdown>", "issues": ["<issue>", ...]}
 
         Use "verdict": "approve" ONLY if there are no major problems. If you find \
         any major problem, use "issues_found" and list each in "issues".
