@@ -36,7 +36,16 @@ extension SubprocessRunner {
 /// Prepending the common CLI install dirs makes tools resolve regardless of how
 /// the app was launched (Finder vs Terminal).
 enum SubprocessPATH {
-    private static let toolDirs = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"]
+    /// Directories searched ahead of the inherited PATH. `~/.local/bin` is where
+    /// the Claude Code *native* installer puts `claude` (a symlink into
+    /// `~/.local/share/claude/versions/…`); including it lets the GUI resolve the
+    /// official binary — and, sitting ahead of `baseDirs`, it wins over a
+    /// third-party shim (e.g. a superset/agent wrapper) that merely happens to
+    /// appear earlier on the user's shell PATH. Computed (not `let`) because the
+    /// home directory is only known at runtime.
+    private static var toolDirs: [String] {
+        ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "\(NSHomeDirectory())/.local/bin"]
+    }
     private static let systemDirs = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
 
     static func augmented(base: String) -> String {

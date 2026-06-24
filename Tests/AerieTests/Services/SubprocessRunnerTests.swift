@@ -37,6 +37,26 @@ final class SubprocessRunnerTests: XCTestCase {
         XCTAssertTrue(parts.contains("/usr/bin"))
     }
 
+    func test_augmentedPATH_includesLocalBinForNativeClaude() {
+        let parts = SubprocessPATH.augmented(base: "/usr/bin")
+            .split(separator: ":").map(String.init)
+        XCTAssertTrue(parts.contains("\(NSHomeDirectory())/.local/bin"),
+                      "~/.local/bin (Claude Code native installer) must be searched")
+    }
+
+    func test_augmentedPATH_localBinBeatsSupersetShim() {
+        let home = NSHomeDirectory()
+        // base puts the superset shim ahead of ~/.local/bin, as the user's shell PATH does.
+        let parts = SubprocessPATH.augmented(base: "\(home)/.superset/bin:\(home)/.local/bin:/usr/bin")
+            .split(separator: ":").map(String.init)
+        guard let localIdx = parts.firstIndex(of: "\(home)/.local/bin"),
+              let shimIdx = parts.firstIndex(of: "\(home)/.superset/bin") else {
+            return XCTFail("both ~/.local/bin and ~/.superset/bin should be present")
+        }
+        XCTAssertLessThan(localIdx, shimIdx,
+                          "native ~/.local/bin must resolve before the superset wrapper")
+    }
+
     // MARK: - extra-env injection
     //
     // Git operations against a private remote must authenticate as the account
