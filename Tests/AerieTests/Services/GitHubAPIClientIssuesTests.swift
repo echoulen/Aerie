@@ -173,6 +173,7 @@ final class GitHubAPIClientIssuesTests: XCTestCase {
         XCTAssertEqual(req.httpMethod, "POST")
         XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer ghp_test")
         XCTAssertEqual(req.value(forHTTPHeaderField: "Accept"), "application/vnd.github+json")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Content-Type"), "application/json")
 
         let bodyData = try XCTUnwrap(StubURLProtocol.lastBody)
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: bodyData) as? [String: Any])

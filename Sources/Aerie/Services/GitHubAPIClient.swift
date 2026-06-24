@@ -159,7 +159,11 @@ protocol GitHubAPIClient: Sendable {
     ) async throws
 
     /// Posts a plain comment on a PR/issue thread
-    /// (`POST /repos/{owner}/{repo}/issues/{number}/comments`).
+    /// (`POST /repos/{owner}/{repo}/issues/{number}/comments`). Unlike a review,
+    /// any account may comment (no self-approval restriction). Declared on the
+    /// protocol (with an extension default) for the same dynamic-dispatch reason
+    /// as `approvePR`: test stubs inherit a harmless no-op, while
+    /// `LiveGitHubAPIClient` overrides it with the real REST call.
     func addIssueComment(
         owner: String,
         repo: String,
