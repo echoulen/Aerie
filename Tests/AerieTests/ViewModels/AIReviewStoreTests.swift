@@ -53,7 +53,8 @@ final class AIReviewStoreTests: XCTestCase {
             approver: { _ in self.acct("reviewer") },
             approve: { _, a, b in approveBody = b; XCTAssertEqual(a.login, "reviewer"); return nil })
         let row = prRow(); store.start(row: row); await settle(store, row)
-        XCTAssertEqual(approveBody, "LGTM")
+        XCTAssertTrue(approveBody?.contains("LGTM") == true, "approve body carries Claude's summary")
+        XCTAssertTrue(approveBody?.contains("## ✅ AI Review · Approved") == true, "wrapped in the formatted markdown body, not a bare summary")
         guard case .done(let r, let actedAs) = store.phase(for: row) else { return XCTFail() }
         XCTAssertEqual(r.verdict, .approve); XCTAssertEqual(actedAs, "reviewer")
     }
@@ -108,9 +109,28 @@ final class AIReviewStoreTests: XCTestCase {
         }
     }
 
-    func test_commentBody_noIssues_omitsBulletList() {
-        let body = AIReviewStore.commentBody(from: ClaudeReview(verdict: .issuesFound, summary: "flagged", issues: [], raw: ""))
+    func test_reviewBody_approve_hasApprovedHeaderFooter_noIssueSection() {
+        let body = AIReviewStore.reviewBody(from: ClaudeReview(verdict: .approve, summary: "- 全部 OK", issues: [], raw: ""))
+        XCTAssertTrue(body.contains("## ✅ AI Review · Approved"))
+        XCTAssertTrue(body.contains("- 全部 OK"))
+        XCTAssertTrue(body.contains("Reviewed by Claude Code"))
+        XCTAssertFalse(body.contains("### 需處理的問題"), "approve has no issues section")
+    }
+
+    func test_reviewBody_issuesFound_hasWarningHeaderAndIssueList() {
+        let body = AIReviewStore.reviewBody(from: ClaudeReview(
+            verdict: .issuesFound, summary: "- 有風險", issues: ["null deref", "race"], raw: ""))
+        XCTAssertTrue(body.contains("## ⚠️ AI Review · 發現需處理的問題"))
+        XCTAssertTrue(body.contains("### 需處理的問題"))
+        XCTAssertTrue(body.contains("- null deref"))
+        XCTAssertTrue(body.contains("- race"))
+        XCTAssertTrue(body.contains("Reviewed by Claude Code"))
+    }
+
+    func test_reviewBody_issuesFound_noIssues_omitsIssueSection() {
+        let body = AIReviewStore.reviewBody(from: ClaudeReview(
+            verdict: .issuesFound, summary: "flagged", issues: [], raw: ""))
         XCTAssertTrue(body.contains("flagged"))
-        XCTAssertFalse(body.contains("- "))
+        XCTAssertFalse(body.contains("### 需處理的問題"))
     }
 }
