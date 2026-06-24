@@ -13,25 +13,23 @@ struct PRReviewApproveContext: Identifiable, Equatable {
 /// PR card's Review button; the back arrow returns to the list.
 struct PRReviewScreen: View {
     @State private var vm: PRReviewViewModel
+    let store: AIReviewStore
     private let highlighter: CodeHighlighter
     var onBack: () -> Void
     var onApprove: (PRReviewApproveContext) -> Void
 
     init(
         row: PRRow,
+        store: AIReviewStore,
         loadFiles: @escaping (PRRow) async throws -> [PRFileChange],
         accountsProvider: @escaping () async -> [GitHubAccount],
         highlighter: CodeHighlighter = SplashCodeHighlighter(),
         onBack: @escaping () -> Void = {},
-        onApprove: @escaping (PRReviewApproveContext) -> Void = { _ in },
-        runReview: @escaping (PRRow, String) async -> ClaudeReviewOutcome
-            = { _, _ in .failed("AI Review 尚未設定。") },
-        submitApprove: @escaping (PRRow, String) async -> String? = { _, _ in nil },
-        submitComment: @escaping (PRRow, String) async -> String? = { _, _ in nil }
+        onApprove: @escaping (PRReviewApproveContext) -> Void = { _ in }
     ) {
         _vm = State(initialValue: PRReviewViewModel(
-            row: row, loadFiles: loadFiles, accountsProvider: accountsProvider,
-            runReview: runReview, submitApprove: submitApprove, submitComment: submitComment))
+            row: row, loadFiles: loadFiles, accountsProvider: accountsProvider))
+        self.store = store
         self.highlighter = highlighter
         self.onBack = onBack
         self.onApprove = onApprove
@@ -39,6 +37,7 @@ struct PRReviewScreen: View {
 
     private var pr: PullRequest { vm.row.pr }
     private var repo: Repository { vm.row.repo }
+    private var aiPhase: AIReviewPhase { store.phase(for: pr.id) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,14 +52,14 @@ struct PRReviewScreen: View {
 
     @ViewBuilder
     private var aiReviewBanner: some View {
-        switch vm.aiReview {
+        switch aiPhase {
         case .idle:
             EmptyView()
-        case .running:
-            AIReviewRunningCard()
+        case .running(let lines):
+            AIReviewConsole(lines: lines)
                 .padding(.horizontal, 28).padding(.top, 16)
-        case .done(let review):
-            AIReviewCard(review: review)
+        case .done(let review, let actedAs):
+            AIReviewCard(review: review, actedAs: actedAs)
                 .padding(.horizontal, 28).padding(.top, 16)
         case .failed(let message):
             AIReviewFailureCard(message: message)
@@ -85,9 +84,9 @@ struct PRReviewScreen: View {
             }
             Spacer(minLength: 16)
             AIReviewButton(
-                phase: vm.aiReview,
+                phase: aiPhase,
                 canApprove: vm.resolution.canApprove,
-                action: { Task { await vm.runAIReview() } }
+                action: { store.start(row: vm.row) }
             )
             ApproveButton(
                 row: vm.row,
@@ -230,7 +229,7 @@ private struct AIReviewButton: View {
     let canApprove: Bool
     let action: () -> Void
 
-    private var isRunning: Bool { phase == .running }
+    private var isRunning: Bool { if case .running = phase { return true }; return false }
 
     var body: some View {
         Button(action: action) {
@@ -262,6 +261,7 @@ private struct AIReviewButton: View {
 /// issues. Approve = green; issues_found = amber.
 private struct AIReviewCard: View {
     let review: ClaudeReview
+    let actedAs: String?
 
     private var isApprove: Bool { review.verdict == .approve }
 
@@ -290,6 +290,12 @@ private struct AIReviewCard: View {
                     }
                 }
             }
+
+            if let actedAs {
+                Text("\(isApprove ? "Approved" : "Commented") as \(actedAs)")
+                    .aerieFont(AerieFont.code(11))
+                    .foregroundStyle(AerieColor.text4)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
@@ -299,16 +305,38 @@ private struct AIReviewCard: View {
     }
 }
 
-/// Shown while an AI review is in flight — a calm status row so the content
-/// area isn't blank during the (possibly long) Claude run. The header button
-/// also shows a spinner; this gives feedback in the main area too.
-private struct AIReviewRunningCard: View {
+/// Live, scrollable console of Claude's progress while a review runs. Auto-scrolls
+/// to the newest line. Replaces the old single-line running card.
+private struct AIReviewConsole: View {
+    let lines: [String]
+
     var body: some View {
-        HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
-            Text("Reviewing with Claude…")
-                .aerieFont(AerieFont.custom(.sans, size: 12.5))
-                .foregroundStyle(AerieColor.text2)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Reviewing with Claude…")
+                    .aerieFont(AerieFont.custom(.sans, size: 12.5).weight(.semibold))
+                    .foregroundStyle(AerieColor.text2)
+            }
+            if !lines.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 3) {
+                            ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                                Text(line)
+                                    .aerieFont(AerieFont.code(11))
+                                    .foregroundStyle(AerieColor.text3)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id(i)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 220)
+                    .onChange(of: lines.count) { _, _ in
+                        if let last = lines.indices.last { proxy.scrollTo(last, anchor: .bottom) }
+                    }
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
