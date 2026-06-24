@@ -4,6 +4,15 @@ protocol SubprocessRunner: Sendable {
     /// Returns (stdout, stderr, exitCode). Throws on launch failure only.
     /// `cwd` sets the child's working directory (nil = inherit the parent's).
     func run(_ command: String, _ args: [String], cwd: URL?) async throws -> (String, String, Int32)
+
+    /// Streams stdout line-by-line via `onLine` (each call is one line, no
+    /// trailing newline) until EOF, returning the child's exit code. Honors
+    /// task cancellation by terminating the child process. stderr is drained
+    /// but discarded.
+    func stream(
+        _ command: String, _ args: [String], cwd: URL?,
+        onLine: @escaping @Sendable (String) -> Void
+    ) async throws -> Int32
 }
 
 extension SubprocessRunner {
@@ -118,6 +127,51 @@ struct LiveSubprocessRunner: SubprocessRunner {
             }
         }
     }
+
+    func stream(
+        _ command: String, _ args: [String], cwd: URL?,
+        onLine: @escaping @Sendable (String) -> Void
+    ) async throws -> Int32 {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = [command] + args
+        p.environment = SubprocessPATH.environment()
+        if let cwd { p.currentDirectoryURL = cwd }
+        let outPipe = Pipe(); p.standardOutput = outPipe
+        let errPipe = Pipe(); p.standardError = errPipe
+
+        // Drain stderr so a chatty child can't deadlock on a full stderr pipe.
+        DispatchQueue.global().async {
+            _ = try? errPipe.fileHandleForReading.readToEnd()
+        }
+
+        let buffer = StreamLineBuffer(onLine: onLine)
+        let proc = UncheckedBox(p)
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Int32, Error>) in
+                outPipe.fileHandleForReading.readabilityHandler = { fh in
+                    let data = fh.availableData
+                    if data.isEmpty {
+                        fh.readabilityHandler = nil      // EOF
+                    } else {
+                        buffer.feed(data)
+                    }
+                }
+                p.terminationHandler = { proc in
+                    outPipe.fileHandleForReading.readabilityHandler = nil
+                    buffer.flush()                        // emit any trailing partial line
+                    cont.resume(returning: proc.terminationStatus)
+                }
+                do { try p.run() } catch {
+                    outPipe.fileHandleForReading.readabilityHandler = nil
+                    cont.resume(throwing: error)
+                }
+            }
+        } onCancel: {
+            proc.value.terminate()
+        }
+    }
 }
 
 /// Lock-guarded holder for a subprocess's drained stdout/stderr, so the two
@@ -172,4 +226,40 @@ enum SubprocessIO {
         func set(_ d: Data) { lock.lock(); stored = d; lock.unlock() }
         var data: Data { lock.lock(); defer { lock.unlock() }; return stored }
     }
+}
+
+/// Accumulates streamed bytes and emits complete `\n`-terminated lines.
+/// Lock-guarded: `readabilityHandler` fires on a background queue.
+private final class StreamLineBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = Data()
+    private let onLine: @Sendable (String) -> Void
+    init(onLine: @escaping @Sendable (String) -> Void) { self.onLine = onLine }
+
+    func feed(_ data: Data) {
+        lock.lock()
+        pending.append(data)
+        var lines: [String] = []
+        while let nl = pending.firstIndex(of: 0x0A) {
+            let lineData = pending.subdata(in: pending.startIndex..<nl)
+            pending.removeSubrange(pending.startIndex...nl)
+            if let s = String(data: lineData, encoding: .utf8) { lines.append(s) }
+        }
+        lock.unlock()
+        for l in lines { onLine(l) }
+    }
+
+    func flush() {
+        lock.lock()
+        let rest = pending; pending.removeAll()
+        lock.unlock()
+        if !rest.isEmpty, let s = String(data: rest, encoding: .utf8), !s.isEmpty { onLine(s) }
+    }
+}
+
+/// Lets a non-Sendable value (here `Process`) cross into the cancellation
+/// handler. We only call `terminate()` on it, which is safe concurrently.
+private final class UncheckedBox<T>: @unchecked Sendable {
+    let value: T
+    init(_ v: T) { value = v }
 }

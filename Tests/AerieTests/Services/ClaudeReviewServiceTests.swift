@@ -9,6 +9,8 @@ private final class HangingClaudeRunner: SubprocessRunner, @unchecked Sendable {
         try await Task.sleep(nanoseconds: 60 * 1_000_000_000)  // 60s; cancelled long before this
         return ("", "", 0)
     }
+    func stream(_ command: String, _ args: [String], cwd: URL?,
+                onLine: @escaping @Sendable (String) -> Void) async throws -> Int32 { 0 }
 }
 
 /// Stub runner that answers by the *first* arg so a long prompt doesn't need to
@@ -28,6 +30,8 @@ private final class StubClaudeRunner: SubprocessRunner, @unchecked Sendable {
         }
         return ("", "", 0)
     }
+    func stream(_ command: String, _ args: [String], cwd: URL?,
+                onLine: @escaping @Sendable (String) -> Void) async throws -> Int32 { 0 }
 }
 
 final class ClaudeReviewServiceTests: XCTestCase {

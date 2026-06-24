@@ -151,6 +151,25 @@ final class SubprocessRunnerTests: XCTestCase {
             "every concurrent subprocess must return; a parked waitUntilExit leaves the count short"
         )
     }
+
+    // MARK: - stream()
+
+    func test_stream_emitsLinesInOrder() async throws {
+        let runner = LiveSubprocessRunner()
+        let box = LineCollector()
+        let code = try await runner.stream("printf", ["a\\nb\\nc\\n"], cwd: nil) { box.add($0) }
+        XCTAssertEqual(code, 0)
+        XCTAssertEqual(box.lines, ["a", "b", "c"])
+    }
+
+    func test_stream_cancellationTerminatesProcess() async throws {
+        let runner = LiveSubprocessRunner()
+        let task = Task { try await runner.stream("sleep", ["30"], cwd: nil) { _ in } }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        task.cancel()
+        let code = try await task.value     // must return promptly, not after 30s
+        XCTAssertNotEqual(code, 0)          // terminated by signal → non-zero
+    }
 }
 
 /// Lock-guarded one-shot holder for a runner result, so the test can poll for
@@ -177,4 +196,12 @@ private final class AtomicCounter: @unchecked Sendable {
     private var count = 0
     func increment() { lock.lock(); count += 1; lock.unlock() }
     var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
+/// Thread-safe line collector for stream tests.
+final class LineCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _lines: [String] = []
+    func add(_ s: String) { lock.lock(); _lines.append(s); lock.unlock() }
+    var lines: [String] { lock.lock(); defer { lock.unlock() }; return _lines }
 }
