@@ -203,6 +203,7 @@ struct WorktreeContext: Identifiable, Equatable {
 /// auto-refresh and the toast overlay are tracked as Known Issues in the plan.
 struct MainShell: View {
     private let services = AppServices.shared
+    private let claudeReview: ClaudeReviewService = LiveClaudeReviewService()
     @Environment(\.openWindow) private var openWindow
     @State private var appVM = AppViewModel()
     @State private var prsVM: PRsViewModel
@@ -273,7 +274,24 @@ struct MainShell: View {
                 },
                 accountsProvider: { await services.auth.allAccounts() },
                 onBack: { reviewing = nil },
-                onApprove: { presentedApprove = $0 }
+                onApprove: { presentedApprove = $0 },
+                runReview: { r, diff in
+                    await claudeReview.review(
+                        owner: r.repo.githubOwner,
+                        repo: r.repo.githubRepo,
+                        number: r.pr.number,
+                        title: r.pr.title,
+                        author: r.pr.authorLogin,
+                        sourceBranch: r.pr.sourceBranch,
+                        diff: diff,
+                        localPath: r.repo.localPath)
+                },
+                submitApprove: { r, body in
+                    await approveOrComment(row: r, body: body, approve: true)
+                },
+                submitComment: { r, body in
+                    await approveOrComment(row: r, body: body, approve: false)
+                }
             )
             .id(row.id)
         } else {
@@ -533,6 +551,36 @@ struct MainShell: View {
                 },
                 onCancel: { presentedApprove = nil }
             )
+        }
+    }
+
+    /// Shared back-end for the AI-review auto-actions. Resolves the default
+    /// approver (the AI-review button is gated on one existing), then either
+    /// approves (carrying Claude's summary) or posts a comment, and refreshes.
+    /// Returns nil on success or a message on failure.
+    private func approveOrComment(row: PRRow, body: String, approve: Bool) async -> String? {
+        let accounts = await services.auth.allAccounts()
+        let resolution = ApproverResolver.resolve(
+            accounts: accounts,
+            boundAccountId: row.repo.primaryAccountId,
+            authorLogin: row.pr.authorLogin)
+        guard let approver = resolution.defaultApprover else {
+            return "無合格的 approver。"
+        }
+        do {
+            if approve {
+                _ = try await services.multiApi.approvePR(
+                    owner: row.repo.githubOwner, repo: row.repo.githubRepo,
+                    number: row.pr.number, body: body, accountId: approver.id)
+            } else {
+                _ = try await services.multiApi.addIssueComment(
+                    owner: row.repo.githubOwner, repo: row.repo.githubRepo,
+                    number: row.pr.number, body: body, accountId: approver.id)
+            }
+            await services.refreshNow()
+            return nil
+        } catch {
+            return error.localizedDescription
         }
     }
 
