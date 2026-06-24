@@ -9,6 +9,9 @@ protocol SubprocessRunner: Sendable {
     /// trailing newline) until EOF, returning the child's exit code. Honors
     /// task cancellation by terminating the child process. stderr is drained
     /// but discarded.
+    ///
+    /// `onLine` is invoked on an unspecified background thread — callers that
+    /// touch `@MainActor`/`@Observable` state must hop to the main actor themselves.
     func stream(
         _ command: String, _ args: [String], cwd: URL?,
         onLine: @escaping @Sendable (String) -> Void
@@ -147,6 +150,7 @@ struct LiveSubprocessRunner: SubprocessRunner {
 
         let buffer = StreamLineBuffer(onLine: onLine)
         let proc = UncheckedBox(p)
+        let launch = StreamLaunchState()
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Int32, Error>) in
@@ -159,17 +163,26 @@ struct LiveSubprocessRunner: SubprocessRunner {
                     }
                 }
                 p.terminationHandler = { proc in
+                    // NOTE: a readabilityHandler invocation already dispatched just
+                    // before this nil-assignment may still run after we resume; in
+                    // that case availableData is empty (EOF) so it self-nils and is a
+                    // no-op. Any late non-empty feed reaches onLine after stream()
+                    // returns — downstream (AIReviewStore) ignores lines once the
+                    // phase has left .running, so it's harmless.
                     outPipe.fileHandleForReading.readabilityHandler = nil
-                    buffer.flush()                        // emit any trailing partial line
+                    buffer.flush()
                     cont.resume(returning: proc.terminationStatus)
                 }
-                do { try p.run() } catch {
+                do {
+                    try p.run()
+                    if launch.markLaunched() { p.terminate() }   // cancelled before launch finished → kill now
+                } catch {
                     outPipe.fileHandleForReading.readabilityHandler = nil
                     cont.resume(throwing: error)
                 }
             }
         } onCancel: {
-            proc.value.terminate()
+            if launch.markCancelled() { proc.value.terminate() }  // only terminate a launched process
         }
     }
 }
@@ -262,4 +275,27 @@ private final class StreamLineBuffer: @unchecked Sendable {
 private final class UncheckedBox<T>: @unchecked Sendable {
     let value: T
     init(_ v: T) { value = v }
+}
+
+/// Synchronizes process launch with task cancellation so we only ever
+/// `terminate()` a process that actually started — regardless of which side
+/// wins the race. Both methods return true when the caller should terminate now.
+private final class StreamLaunchState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var launched = false
+    private var cancelled = false
+    /// Called right after `p.run()` succeeds. Returns true if cancellation
+    /// already arrived (so we must terminate now).
+    func markLaunched() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        launched = true
+        return cancelled
+    }
+    /// Called from the cancellation handler. Returns true if the process is
+    /// already launched (so we must terminate now).
+    func markCancelled() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        cancelled = true
+        return launched
+    }
 }
