@@ -85,6 +85,7 @@ final class PRReviewViewModel {
     /// Requires an eligible approver up front — without one this feature can't meet
     /// its purpose, so it fails fast rather than running Claude for nothing.
     func runAIReview() async {
+        guard aiReview != .running else { return }   // ignore re-entry while a review is in flight
         guard resolution.canApprove else {
             aiReview = .failed("無合格的 approver(你不能 approve 自己的 PR,也沒有其他帳號可用),無法使用 AI Review。")
             return

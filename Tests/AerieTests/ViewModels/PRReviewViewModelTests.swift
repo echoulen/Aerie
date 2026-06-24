@@ -169,4 +169,69 @@ final class PRReviewViewModelTests: XCTestCase {
         guard case .failed(let msg) = vm.aiReview else { return XCTFail("expected .failed") }
         XCTAssertTrue(msg.contains("403"))
     }
+
+    func test_runAIReview_whileRunning_ignoresReentrantCall() async {
+        // Park the first runReview on a continuation so it stays `.running`.
+        let gate = Gate()
+        var runReviewCalls = 0
+        let vm = PRReviewViewModel(
+            row: row(author: "octocat"),
+            loadFiles: { _ in [self.file] },
+            accountsProvider: { self.reviewer() },
+            runReview: { _, _ in
+                runReviewCalls += 1
+                await gate.wait()
+                return .success(ClaudeReview(verdict: .approve, summary: "ok", issues: [], raw: ""))
+            },
+            submitApprove: { _, _ in nil },
+            submitComment: { _, _ in nil })
+        await vm.load()
+
+        async let first: Void = vm.runAIReview()     // enters, sets .running, parks in runReview
+        // Let `first` advance to the parked await before the second call.
+        for _ in 0..<5 { await Task.yield() }
+        await vm.runAIReview()                        // hits the guard, returns immediately
+
+        await gate.open()                             // release the first call
+        await first
+
+        XCTAssertEqual(runReviewCalls, 1, "re-entrant call must not run a second review")
+    }
+
+    func test_runAIReview_emptyDiff_passesEmptyStringToReview() async {
+        var capturedDiff: String?
+        let vm = PRReviewViewModel(
+            row: row(author: "octocat"),
+            loadFiles: { _ in [] },                 // → state becomes .empty
+            accountsProvider: { self.reviewer() },
+            runReview: { _, diff in capturedDiff = diff; return .success(
+                ClaudeReview(verdict: .approve, summary: "ok", issues: [], raw: "")) },
+            submitApprove: { _, _ in nil },
+            submitComment: { _, _ in nil })
+        await vm.load()
+        await vm.runAIReview()
+        XCTAssertEqual(capturedDiff, "")
+    }
+
+    func test_commentBody_noIssues_omitsBulletList() {
+        let body = PRReviewViewModel.commentBody(
+            from: ClaudeReview(verdict: .issuesFound, summary: "flagged but no list", issues: [], raw: ""))
+        XCTAssertTrue(body.contains("flagged but no list"))
+        XCTAssertFalse(body.contains("- "))
+    }
+}
+
+/// A one-shot async gate: `wait()` suspends until `open()` is called.
+private actor Gate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var opened = false
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+    func open() {
+        opened = true
+        continuation?.resume()
+        continuation = nil
+    }
 }
