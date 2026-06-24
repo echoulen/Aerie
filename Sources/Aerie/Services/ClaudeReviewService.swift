@@ -208,85 +208,122 @@ protocol ClaudeReviewService: Sendable {
     func review(
         owner: String, repo: String, number: Int,
         title: String, author: String, sourceBranch: String,
-        diff: String, localPath: URL
+        diff: String, localPath: URL,
+        onLine: @escaping @Sendable (String) -> Void
     ) async -> ClaudeReviewOutcome
 }
 
 struct LiveClaudeReviewService: ClaudeReviewService {
     private let runner: SubprocessRunner
-    private let timeout: TimeInterval
+    private let idleTimeout: TimeInterval
+    private let totalTimeout: TimeInterval
 
-    init(runner: SubprocessRunner = LiveSubprocessRunner(), timeout: TimeInterval = 120) {
+    init(runner: SubprocessRunner = LiveSubprocessRunner(),
+         idleTimeout: TimeInterval = 90, totalTimeout: TimeInterval = 600) {
         self.runner = runner
-        self.timeout = timeout
+        self.idleTimeout = idleTimeout
+        self.totalTimeout = totalTimeout
     }
 
     func review(
         owner: String, repo: String, number: Int,
         title: String, author: String, sourceBranch: String,
-        diff: String, localPath: URL
+        diff: String, localPath: URL,
+        onLine: @escaping @Sendable (String) -> Void
     ) async -> ClaudeReviewOutcome {
-        // 1. Claude installed? A throw (missing PATH entry, etc.) or a non-zero /
-        //    empty result all mean "can't run claude".
+        // 1. Claude installed?
         let probe = try? await runner.run("which", ["claude"])
         guard let probe, probe.2 == 0,
               !probe.0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
-            return .failed("找不到 claude CLI。請先安裝 Claude Code 並確認可在終端機執行 `claude`。")
-        }
+        else { return .failed("找不到 claude CLI。請先安裝 Claude Code 並確認可在終端機執行 `claude`。") }
 
-        // 2. cwd = repo checkout when it exists on disk, else nil (pure-diff mode).
+        // 2. cwd = repo checkout when present.
         var isDir: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: localPath.path, isDirectory: &isDir)
         let cwd: URL? = (exists && isDir.boolValue) ? localPath : nil
 
-        // 3. Build prompt + args.
+        // 3. Prompt + streaming args.
         let prompt = ClaudeReviewPrompt.build(
             owner: owner, repo: repo, number: number,
             title: title, author: author, sourceBranch: sourceBranch, diff: diff)
-        let args = ["-p", prompt, "--output-format", "json", "--allowedTools", "Read,Grep,Glob"]
+        let args = ["-p", prompt, "--output-format", "stream-json", "--verbose",
+                    "--allowedTools", "Read,Grep,Glob"]
 
-        // 4. Run with a timeout. A timed-out claude is read-only and harmless;
-        //    we just stop waiting and report it. Cancelling the task unblocks the
-        //    awaiting continuation, but the underlying `Process` is not killed —
-        //    it runs until it exits on its own (LiveSubprocessRunner exposes no
-        //    handle to terminate it).
-        do {
-            let runner = self.runner
-            let (out, err, code) = try await withTimeout(seconds: timeout) {
-                try await runner.run("claude", args, cwd: cwd)
+        // 4. Stream with idle + total watchdog. Each shown line bumps the activity
+        //    clock; the watchdog cancels (→ terminate process) if idle or total
+        //    elapses. A box collects the final result text.
+        let activity = ActivityClock()
+        let finalText = TextBox()
+        let runner = self.runner
+        let idle = idleTimeout, total = totalTimeout
+
+        return await withTaskGroup(of: ReviewStep.self) { group -> ClaudeReviewOutcome in
+            group.addTask {
+                do {
+                    let code = try await runner.stream("claude", args, cwd: cwd) { line in
+                        switch ClaudeStreamParsing.parseLine(line) {
+                        case .progress(let s): activity.bump(); onLine(s)
+                        case .finalResult(let t): activity.bump(); finalText.set(t)
+                        case .ignored: break
+                        }
+                    }
+                    return .finished(code)
+                } catch is CancellationError { return .cancelled }
+                catch { return .error(error.localizedDescription) }
             }
-            guard code == 0 else {
-                let detail = err.isEmpty ? out : err
-                return .failed("AI Review 失敗(exit \(code)):\(detail.prefix(300))")
+            group.addTask {
+                let start = ContinuousClock.now
+                while true {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    if Task.isCancelled { return .cancelled }
+                    if activity.secondsSinceLast() > idle { return .timedOutIdle }
+                    if start.duration(to: .now) > .seconds(total) { return .timedOutTotal }
+                }
             }
-            guard let review = ClaudeReviewParsing.parse(stdout: out) else {
-                return .failed("無法解析 Claude 的回覆,為求保險不予 approve。")
+            let first = await group.next()!
+            group.cancelAll()
+            for await _ in group {}   // drain
+
+            switch first {
+            case .timedOutIdle:
+                return .failed("AI Review 已 \(Int(idle)) 秒沒有新進度,可能卡住了。")
+            case .timedOutTotal:
+                return .failed("AI Review 超過 \(Int(total/60)) 分鐘上限。")
+            case .cancelled:
+                return .failed("AI Review 已取消。")
+            case .error(let m):
+                return .failed("AI Review 發生錯誤:\(m)")
+            case .finished(let code):
+                guard code == 0 else { return .failed("AI Review 失敗(exit \(code))。") }
+                guard let review = ClaudeReviewParsing.parse(stdout: finalText.get()) else {
+                    return .failed("無法解析 Claude 的回覆,為求保險不予 approve。")
+                }
+                return .success(review)
             }
-            return .success(review)
-        } catch is ClaudeReviewTimeout {
-            return .failed("AI Review 逾時(超過 \(Int(timeout)) 秒)。")
-        } catch {
-            return .failed("AI Review 發生錯誤:\(error.localizedDescription)")
         }
     }
 }
 
-private struct ClaudeReviewTimeout: Error {}
+private enum ReviewStep: Sendable {
+    case finished(Int32), timedOutIdle, timedOutTotal, cancelled, error(String)
+}
 
-/// Runs `work`, throwing `ClaudeReviewTimeout` if it doesn't finish in time.
-private func withTimeout<T: Sendable>(
-    seconds: TimeInterval,
-    _ work: @escaping @Sendable () async throws -> T
-) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask { try await work() }
-        group.addTask {
-            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            throw ClaudeReviewTimeout()
-        }
-        defer { group.cancelAll() }
-        let result = try await group.next()!
-        return result
+/// Tracks the time of the last activity, thread-safe.
+private final class ActivityClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = ContinuousClock.now
+    func bump() { lock.lock(); last = ContinuousClock.now; lock.unlock() }
+    func secondsSinceLast() -> Double {
+        lock.lock(); defer { lock.unlock() }
+        let d = last.duration(to: .now)
+        return Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18
     }
+}
+
+/// Thread-safe holder for the final result text.
+private final class TextBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var text = ""
+    func set(_ t: String) { lock.lock(); text = t; lock.unlock() }
+    func get() -> String { lock.lock(); defer { lock.unlock() }; return text }
 }

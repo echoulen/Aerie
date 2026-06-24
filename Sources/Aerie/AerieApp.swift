@@ -284,7 +284,8 @@ struct MainShell: View {
                         author: r.pr.authorLogin,
                         sourceBranch: r.pr.sourceBranch,
                         diff: diff,
-                        localPath: r.repo.localPath)
+                        localPath: r.repo.localPath,
+                        onLine: { _ in })
                 },
                 submitApprove: { r, body in
                     await approveOrComment(row: r, body: body, approve: true)

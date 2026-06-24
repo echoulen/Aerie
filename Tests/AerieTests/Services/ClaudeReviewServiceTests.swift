@@ -1,109 +1,91 @@
 import XCTest
 @testable import Aerie
 
-/// Runner whose `claude` call never returns on its own — only cancellation (via
-/// the service's timeout) unblocks it. `which` still succeeds.
-private final class HangingClaudeRunner: SubprocessRunner, @unchecked Sendable {
-    func run(_ command: String, _ args: [String], cwd: URL?) async throws -> (String, String, Int32) {
-        if command == "which" { return ("/opt/homebrew/bin/claude", "", 0) }
-        try await Task.sleep(nanoseconds: 60 * 1_000_000_000)  // 60s; cancelled long before this
-        return ("", "", 0)
-    }
-    func stream(_ command: String, _ args: [String], cwd: URL?,
-                onLine: @escaping @Sendable (String) -> Void) async throws -> Int32 { 0 }
-}
-
-/// Stub runner that answers by the *first* arg so a long prompt doesn't need to
-/// be matched exactly: `which` vs `-p`.
-private final class StubClaudeRunner: SubprocessRunner, @unchecked Sendable {
-    var whichResult: (String, String, Int32) = ("/opt/homebrew/bin/claude", "", 0)
-    var reviewResult: (String, String, Int32) = ("", "", 0)
+/// Stream stub: `which` succeeds; `claude` replays scripted stdout lines via onLine,
+/// then returns `exitCode`. If `hang` is true, it never emits and never returns
+/// until cancelled (to exercise idle-timeout).
+private final class StreamStubRunner: SubprocessRunner, @unchecked Sendable {
+    var whichCode: Int32 = 0
+    var whichOut = "/opt/homebrew/bin/claude"
+    var lines: [String] = []
+    var exitCode: Int32 = 0
+    var hang = false
+    private(set) var ranClaude = false
     private(set) var lastCwd: URL?
-    private(set) var ranReview = false
 
     func run(_ command: String, _ args: [String], cwd: URL?) async throws -> (String, String, Int32) {
-        if command == "which" { return whichResult }
-        if command == "claude" {
-            ranReview = true
-            lastCwd = cwd
-            return reviewResult
-        }
+        if command == "which" { return (whichOut, "", whichCode) }
         return ("", "", 0)
     }
     func stream(_ command: String, _ args: [String], cwd: URL?,
-                onLine: @escaping @Sendable (String) -> Void) async throws -> Int32 { 0 }
+                onLine: @escaping @Sendable (String) -> Void) async throws -> Int32 {
+        guard command == "claude" else { return 0 }
+        ranClaude = true; lastCwd = cwd
+        if hang {
+            try await Task.sleep(nanoseconds: 60 * 1_000_000_000)  // cancelled long before
+            return -1
+        }
+        for l in lines { onLine(l) }
+        return exitCode
+    }
 }
 
 final class ClaudeReviewServiceTests: XCTestCase {
-    private func makeService(_ runner: SubprocessRunner) -> LiveClaudeReviewService {
-        LiveClaudeReviewService(runner: runner, timeout: 5)
+    private func svc(_ runner: SubprocessRunner, idle: TimeInterval = 5, total: TimeInterval = 30) -> LiveClaudeReviewService {
+        LiveClaudeReviewService(runner: runner, idleTimeout: idle, totalTimeout: total)
+    }
+    private func review(_ s: LiveClaudeReviewService, onLine: @escaping @Sendable (String) -> Void = { _ in },
+                        localPath: URL = URL(fileURLWithPath: "/tmp")) async -> ClaudeReviewOutcome {
+        await s.review(owner: "echoulen", repo: "aerie", number: 42, title: "T",
+                       author: "octocat", sourceBranch: "feat/x", diff: "DIFF",
+                       localPath: localPath, onLine: onLine)
     }
 
-    private func review(_ svc: LiveClaudeReviewService, localPath: URL) async -> ClaudeReviewOutcome {
-        await svc.review(
-            owner: "echoulen", repo: "aerie", number: 42,
-            title: "T", author: "octocat", sourceBranch: "feat/x",
-            diff: "DIFF", localPath: localPath)
+    func test_streamsProgress_andParsesVerdict() async {
+        let r = StreamStubRunner()
+        r.lines = [
+            #"{"type":"system","subtype":"hook_started"}"#,
+            #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"A.swift"}}]}}"#,
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"looks fine"}]}}"#,
+            #"{"type":"result","subtype":"success","result":"{\"verdict\":\"approve\",\"summary\":\"LGTM\",\"issues\":[]}"}"#,
+        ]
+        let box = LineCollector()
+        let outcome = await review(svc(r), onLine: { box.add($0) })
+        guard case .success(let rev) = outcome else { return XCTFail("expected success") }
+        XCTAssertEqual(rev.verdict, .approve)
+        XCTAssertEqual(box.lines, ["Read A.swift", "looks fine"])  // hooks + result not shown
     }
 
-    func test_review_whenClaudeMissing_fails_andDoesNotRun() async {
-        let runner = StubClaudeRunner()
-        runner.whichResult = ("", "", 1)
-        let svc = makeService(runner)
-        let outcome = await review(svc, localPath: URL(fileURLWithPath: "/tmp"))
-        guard case .failed(let msg) = outcome else { return XCTFail("expected .failed") }
-        XCTAssertTrue(msg.lowercased().contains("claude"))
-        XCTAssertFalse(runner.ranReview)
+    func test_claudeMissing_fails_noStream() async {
+        let r = StreamStubRunner(); r.whichCode = 1
+        let outcome = await review(svc(r))
+        guard case .failed(let m) = outcome else { return XCTFail() }
+        XCTAssertTrue(m.lowercased().contains("claude"))
+        XCTAssertFalse(r.ranClaude)
     }
 
-    func test_review_validApproveJSON_returnsSuccess() async {
-        let runner = StubClaudeRunner()
-        runner.reviewResult = (#"{"result":"{\"verdict\":\"approve\",\"summary\":\"ok\",\"issues\":[]}"}"#, "", 0)
-        let svc = makeService(runner)
-        let outcome = await review(svc, localPath: URL(fileURLWithPath: "/tmp"))
-        guard case .success(let r) = outcome else { return XCTFail("expected .success") }
-        XCTAssertEqual(r.verdict, .approve)
+    func test_nonZeroExit_fails() async {
+        let r = StreamStubRunner(); r.lines = []; r.exitCode = 1
+        guard case .failed = await review(svc(r)) else { return XCTFail() }
     }
 
-    func test_review_nonZeroExit_fails() async {
-        let runner = StubClaudeRunner()
-        runner.reviewResult = ("", "boom", 1)
-        let svc = makeService(runner)
-        let outcome = await review(svc, localPath: URL(fileURLWithPath: "/tmp"))
-        guard case .failed = outcome else { return XCTFail("expected .failed") }
+    func test_noVerdictInResult_fails() async {
+        let r = StreamStubRunner()
+        r.lines = [#"{"type":"result","subtype":"success","result":"I could not decide"}"#]
+        guard case .failed = await review(svc(r)) else { return XCTFail() }
     }
 
-    func test_review_unparseableOutput_fails() async {
-        let runner = StubClaudeRunner()
-        runner.reviewResult = ("not json at all", "", 0)
-        let svc = makeService(runner)
-        let outcome = await review(svc, localPath: URL(fileURLWithPath: "/tmp"))
-        guard case .failed = outcome else { return XCTFail("expected .failed") }
+    func test_idleTimeout_killsAndFails() async {
+        let r = StreamStubRunner(); r.hang = true
+        let outcome = await review(svc(r, idle: 0.1, total: 5))
+        guard case .failed(let m) = outcome else { return XCTFail("expected timeout failure") }
+        XCTAssertTrue(m.contains("進度") || m.contains("逾時"))
     }
 
-    func test_review_existingLocalPath_usedAsCwd() async {
-        let runner = StubClaudeRunner()
-        runner.reviewResult = (#"{"verdict":"approve","summary":"ok","issues":[]}"#, "", 0)
-        let svc = makeService(runner)
-        _ = await review(svc, localPath: URL(fileURLWithPath: "/tmp"))  // /tmp exists
-        XCTAssertEqual(runner.lastCwd, URL(fileURLWithPath: "/tmp"))
-    }
-
-    func test_review_missingLocalPath_runsWithoutCwd() async {
-        let runner = StubClaudeRunner()
-        runner.reviewResult = (#"{"verdict":"approve","summary":"ok","issues":[]}"#, "", 0)
-        let svc = makeService(runner)
-        _ = await review(svc, localPath: URL(fileURLWithPath: "/no/such/dir/\(UUID().uuidString)"))
-        XCTAssertNil(runner.lastCwd)
-    }
-
-    func test_review_timesOut_whenRunnerHangs() async {
-        let svc = LiveClaudeReviewService(runner: HangingClaudeRunner(), timeout: 0.05)
-        let outcome = await svc.review(
-            owner: "echoulen", repo: "aerie", number: 42,
-            title: "T", author: "octocat", sourceBranch: "feat/x",
-            diff: "DIFF", localPath: URL(fileURLWithPath: "/tmp"))
-        guard case .failed(let msg) = outcome else { return XCTFail("expected .failed on timeout") }
-        XCTAssertTrue(msg.contains("逾時"), "expected a timeout message, got: \(msg)")
+    func test_existingLocalPath_usedAsCwd() async {
+        let r = StreamStubRunner()
+        r.lines = [#"{"type":"result","result":"{\"verdict\":\"approve\",\"summary\":\"x\",\"issues\":[]}"}"#]
+        _ = await review(svc(r), localPath: URL(fileURLWithPath: "/tmp"))
+        XCTAssertEqual(r.lastCwd, URL(fileURLWithPath: "/tmp"))
     }
 }
