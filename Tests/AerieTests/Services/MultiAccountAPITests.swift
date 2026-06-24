@@ -136,6 +136,14 @@ actor StubGitHubAPIClient: GitHubAPIClient {
         if let err = approveErrorByToken[token] { throw err }
     }
 
+    // MARK: Comment recording
+    private(set) var commentCalls: [(token: String, body: String)] = []
+    func addIssueComment(
+        owner: String, repo: String, number: Int, body: String, token: String
+    ) async throws {
+        commentCalls.append((token, body))
+    }
+
     // MARK: PR files (review screen / get_pr_diff)
     var prFilesByToken: [String: [PRFileChange]] = [:]
     var prFilesErrorByToken: [String: GitHubAPIError] = [:]
@@ -767,6 +775,32 @@ final class MultiAccountAPITests: XCTestCase {
         let out = try await stub.fetchPRFiles(owner: "o", repo: "r", number: 1, token: "tok")
         XCTAssertEqual(out.count, 1)
         XCTAssertEqual(out.first?.filename, "a.swift")
+    }
+
+    // MARK: addIssueComment
+
+    func test_addIssueComment_usesGivenAccountToken() async throws {
+        let commenter = UUID()
+        let other = UUID()
+        let commenterToken = "commenter_tok"
+        let otherToken = "other_tok"
+        let stub = StubGitHubAPIClient()
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [commenter: commenterToken, other: otherToken] },
+            accountsInOrder: { [other, commenter] } // 'other' is first in order…
+        )
+
+        let result = try await api.addIssueComment(
+            owner: "acme", repo: "widgets", number: 148,
+            body: "hi", accountId: commenter // …but we picked 'commenter' explicitly
+        )
+        XCTAssertEqual(result.successfulAccountId, commenter)
+        let calls = await stub.commentCalls
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.token, commenterToken)
+        XCTAssertEqual(calls.first?.body, "hi")
     }
 
     func test_approvePR_doesNotFallBackOnError() async throws {

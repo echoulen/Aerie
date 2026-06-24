@@ -248,6 +248,26 @@ actor MultiAccountAPI {
         }
     }
 
+    /// Posts a comment on a PR using exactly `accountId`'s token. Like `approvePR`,
+    /// the identity is chosen by the caller, so **no** cross-account fallback.
+    func addIssueComment(
+        owner: String,
+        repo: String,
+        number: Int,
+        body: String,
+        accountId: UUID
+    ) async throws -> MultiAccountAPIResult<Void> {
+        try await withAccount(accountId) { token in
+            try await self.client.addIssueComment(
+                owner: owner,
+                repo: repo,
+                number: number,
+                body: body,
+                token: token
+            )
+        }
+    }
+
     /// Snapshot of the last response's rate-limit headers for the given
     /// account, or nil if we have no record (account unknown, or no call
     /// made yet on its token).
