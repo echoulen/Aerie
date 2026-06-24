@@ -79,4 +79,94 @@ final class PRReviewViewModelTests: XCTestCase {
         await vm.load()
         XCTAssertEqual(vm.resolution.defaultApprover?.id, other.id)
     }
+
+    // MARK: - AI Review Tests
+
+    private func reviewer() -> [GitHubAccount] {
+        [GitHubAccount(id: boundId, login: "reviewer", host: "github.com")]
+    }
+
+    func test_runAIReview_noEligibleApprover_failsWithoutRunning() async {
+        var reviewRan = false
+        let vm = PRReviewViewModel(
+            row: row(author: "reviewer"),               // only account == author → no approver
+            loadFiles: { _ in [self.file] },
+            accountsProvider: { self.reviewer() },
+            runReview: { _, _ in reviewRan = true; return .success(
+                ClaudeReview(verdict: .approve, summary: "x", issues: [], raw: "")) },
+            submitApprove: { _, _ in nil },
+            submitComment: { _, _ in nil })
+        await vm.load()
+        await vm.runAIReview()
+        XCTAssertFalse(reviewRan)
+        guard case .failed(let msg) = vm.aiReview else { return XCTFail("expected .failed") }
+        XCTAssertTrue(msg.contains("approver"))
+    }
+
+    func test_runAIReview_approveVerdict_callsApprove_andDone() async {
+        var approveBody: String?
+        var commentCalled = false
+        let vm = PRReviewViewModel(
+            row: row(author: "octocat"),
+            loadFiles: { _ in [self.file] },
+            accountsProvider: { self.reviewer() },
+            runReview: { _, _ in .success(
+                ClaudeReview(verdict: .approve, summary: "LGTM", issues: [], raw: "")) },
+            submitApprove: { _, body in approveBody = body; return nil },
+            submitComment: { _, _ in commentCalled = true; return nil })
+        await vm.load()
+        await vm.runAIReview()
+        XCTAssertEqual(approveBody, "LGTM")
+        XCTAssertFalse(commentCalled)
+        guard case .done(let r) = vm.aiReview else { return XCTFail("expected .done") }
+        XCTAssertEqual(r.verdict, .approve)
+    }
+
+    func test_runAIReview_issuesFound_callsComment_notApprove() async {
+        var approveCalled = false
+        var commentBody: String?
+        let vm = PRReviewViewModel(
+            row: row(author: "octocat"),
+            loadFiles: { _ in [self.file] },
+            accountsProvider: { self.reviewer() },
+            runReview: { _, _ in .success(
+                ClaudeReview(verdict: .issuesFound, summary: "bug", issues: ["null deref"], raw: "")) },
+            submitApprove: { _, _ in approveCalled = true; return nil },
+            submitComment: { _, body in commentBody = body; return nil })
+        await vm.load()
+        await vm.runAIReview()
+        XCTAssertFalse(approveCalled)
+        XCTAssertNotNil(commentBody)
+        XCTAssertTrue(commentBody!.contains("null deref"))
+        guard case .done = vm.aiReview else { return XCTFail("expected .done") }
+    }
+
+    func test_runAIReview_reviewFailed_setsFailed() async {
+        let vm = PRReviewViewModel(
+            row: row(author: "octocat"),
+            loadFiles: { _ in [self.file] },
+            accountsProvider: { self.reviewer() },
+            runReview: { _, _ in .failed("claude missing") },
+            submitApprove: { _, _ in nil },
+            submitComment: { _, _ in nil })
+        await vm.load()
+        await vm.runAIReview()
+        guard case .failed(let msg) = vm.aiReview else { return XCTFail("expected .failed") }
+        XCTAssertEqual(msg, "claude missing")
+    }
+
+    func test_runAIReview_approveSubmitError_setsFailed() async {
+        let vm = PRReviewViewModel(
+            row: row(author: "octocat"),
+            loadFiles: { _ in [self.file] },
+            accountsProvider: { self.reviewer() },
+            runReview: { _, _ in .success(
+                ClaudeReview(verdict: .approve, summary: "ok", issues: [], raw: "")) },
+            submitApprove: { _, _ in "403 forbidden" },
+            submitComment: { _, _ in nil })
+        await vm.load()
+        await vm.runAIReview()
+        guard case .failed(let msg) = vm.aiReview else { return XCTFail("expected .failed") }
+        XCTAssertTrue(msg.contains("403"))
+    }
 }
