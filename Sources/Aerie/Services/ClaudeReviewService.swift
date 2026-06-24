@@ -85,7 +85,7 @@ enum ClaudeReviewParsing {
         // `result` field; if that decode fails (e.g. a bare JSON fixture), fall
         // back to treating the whole stdout as the text to scan.
         let text = decodeEnvelopeResult(stdout) ?? stdout
-        guard let objectJSON = firstJSONObject(in: text),
+        guard let objectJSON = lastJSONObject(in: text),
               let data = objectJSON.data(using: .utf8),
               let raw = try? JSONDecoder().decode(Raw.self, from: data),
               let verdict = mapVerdict(raw.verdict)
@@ -105,14 +105,25 @@ enum ClaudeReviewParsing {
         return env.result
     }
 
-    /// Extracts the substring from the first `{` to the last `}` — the verdict
-    /// JSON Claude is asked to put at the end of its message.
-    private static func firstJSONObject(in text: String) -> String? {
-        guard let open = text.firstIndex(of: "{"),
-              let close = text.lastIndex(of: "}"),
-              open < close
-        else { return nil }
-        return String(text[open...close])
+    /// Extracts the last balanced `{…}` object in the text — the verdict JSON
+    /// Claude is asked to put at the end of its message. Scanning from the final
+    /// `}` backwards (rather than first-`{`/last-`}`) means stray braces in the
+    /// prose before the JSON don't corrupt the span.
+    private static func lastJSONObject(in text: String) -> String? {
+        guard let close = text.lastIndex(of: "}") else { return nil }
+        var depth = 0
+        var idx = close
+        while true {
+            let ch = text[idx]
+            if ch == "}" { depth += 1 }
+            else if ch == "{" {
+                depth -= 1
+                if depth == 0 { return String(text[idx...close]) }
+            }
+            if idx == text.startIndex { break }
+            idx = text.index(before: idx)
+        }
+        return nil
     }
 
     private static func mapVerdict(_ s: String) -> ClaudeReviewVerdict? {

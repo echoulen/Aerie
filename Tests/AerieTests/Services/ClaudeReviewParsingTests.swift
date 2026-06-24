@@ -44,6 +44,15 @@ final class ClaudeReviewParsingTests: XCTestCase {
         XCTAssertNil(ClaudeReviewParsing.parse(stdout: "{not valid json"))
     }
 
+    func test_parse_proseWithStrayBraceBeforeJSON_stillParses() {
+        // Claude's analysis mentions `{something}` before the real trailing JSON.
+        let stdout = #"{"type":"result","result":"The code does {something} wrong.\n{\"verdict\":\"issues_found\",\"summary\":\"bug\",\"issues\":[\"x\"]}"}"#
+        let review = ClaudeReviewParsing.parse(stdout: stdout)
+        XCTAssertEqual(review?.verdict, .issuesFound)
+        XCTAssertEqual(review?.summary, "bug")
+        XCTAssertEqual(review?.issues, ["x"])
+    }
+
     // MARK: diffText
 
     func test_diffText_includesFilenameStatusAndPatch() {
