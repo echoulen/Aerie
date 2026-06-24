@@ -135,6 +135,73 @@ enum ClaudeReviewParsing {
     }
 }
 
+// MARK: - Stream parsing (pure)
+
+/// One parsed line of `claude --output-format stream-json`.
+enum ClaudeStreamEvent: Equatable {
+    case progress(String)     // a human-readable progress line to show
+    case finalResult(String)  // the `result` event's text (feed to ClaudeReviewParsing)
+    case ignored              // system/hook/tool_result/noise
+}
+
+enum ClaudeStreamParsing {
+    private struct Line: Decodable {
+        let type: String
+        let result: String?
+        let message: Message?
+        struct Message: Decodable { let content: [Block]? }
+        struct Block: Decodable {
+            let type: String
+            let text: String?
+            let name: String?
+            let input: [String: JSONScalar]?
+        }
+    }
+    /// Minimal decoder for tool_use `input` values we care about (strings).
+    private enum JSONScalar: Decodable {
+        case string(String), other
+        init(from d: Decoder) throws {
+            let c = try d.singleValueContainer()
+            if let s = try? c.decode(String.self) { self = .string(s) } else { self = .other }
+        }
+        var string: String? { if case .string(let s) = self { return s }; return nil }
+    }
+
+    static func parseLine(_ line: String) -> ClaudeStreamEvent {
+        guard let data = line.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(Line.self, from: data)
+        else { return .ignored }
+
+        switch parsed.type {
+        case "result":
+            if let r = parsed.result { return .finalResult(r) }
+            return .ignored
+        case "assistant":
+            for block in parsed.message?.content ?? [] {
+                if block.type == "text" {
+                    let t = (block.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !t.isEmpty { return .progress(t) }
+                } else if block.type == "tool_use" {
+                    return .progress(describeTool(name: block.name ?? "?", input: block.input ?? [:]))
+                }
+            }
+            return .ignored
+        default:
+            // system (incl. hook_*), user (tool_result), anything else
+            return .ignored
+        }
+    }
+
+    private static func describeTool(name: String, input: [String: JSONScalar]) -> String {
+        switch name {
+        case "Read":  return "Read \(input["file_path"]?.string ?? "")".trimmingCharacters(in: .whitespaces)
+        case "Grep":  return "Grep \"\(input["pattern"]?.string ?? "")\""
+        case "Glob":  return "Glob \(input["pattern"]?.string ?? "")".trimmingCharacters(in: .whitespaces)
+        default:      return "Using \(name)"
+        }
+    }
+}
+
 // MARK: - Service
 
 protocol ClaudeReviewService: Sendable {
