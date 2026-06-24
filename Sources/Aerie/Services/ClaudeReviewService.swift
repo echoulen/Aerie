@@ -134,3 +134,89 @@ enum ClaudeReviewParsing {
         }
     }
 }
+
+// MARK: - Service
+
+protocol ClaudeReviewService: Sendable {
+    func review(
+        owner: String, repo: String, number: Int,
+        title: String, author: String, sourceBranch: String,
+        diff: String, localPath: URL
+    ) async -> ClaudeReviewOutcome
+}
+
+struct LiveClaudeReviewService: ClaudeReviewService {
+    private let runner: SubprocessRunner
+    private let timeout: TimeInterval
+
+    init(runner: SubprocessRunner = LiveSubprocessRunner(), timeout: TimeInterval = 120) {
+        self.runner = runner
+        self.timeout = timeout
+    }
+
+    func review(
+        owner: String, repo: String, number: Int,
+        title: String, author: String, sourceBranch: String,
+        diff: String, localPath: URL
+    ) async -> ClaudeReviewOutcome {
+        // 1. Claude installed? A throw (missing PATH entry, etc.) or a non-zero /
+        //    empty result all mean "can't run claude".
+        let probe = try? await runner.run("which", ["claude"])
+        guard let probe, probe.2 == 0,
+              !probe.0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return .failed("找不到 claude CLI。請先安裝 Claude Code 並確認可在終端機執行 `claude`。")
+        }
+
+        // 2. cwd = repo checkout when it exists on disk, else nil (pure-diff mode).
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: localPath.path, isDirectory: &isDir)
+        let cwd: URL? = (exists && isDir.boolValue) ? localPath : nil
+
+        // 3. Build prompt + args.
+        let prompt = ClaudeReviewPrompt.build(
+            owner: owner, repo: repo, number: number,
+            title: title, author: author, sourceBranch: sourceBranch, diff: diff)
+        let args = ["-p", prompt, "--output-format", "json", "--allowedTools", "Read,Grep,Glob"]
+
+        // 4. Run with a timeout. A timed-out claude is read-only and harmless;
+        //    we just stop waiting and report it.
+        do {
+            let runner = self.runner
+            let (out, err, code) = try await withTimeout(seconds: timeout) {
+                try await runner.run("claude", args, cwd: cwd)
+            }
+            guard code == 0 else {
+                let detail = err.isEmpty ? out : err
+                return .failed("AI Review 失敗(exit \(code)):\(detail.prefix(300))")
+            }
+            guard let review = ClaudeReviewParsing.parse(stdout: out) else {
+                return .failed("無法解析 Claude 的回覆,為求保險不予 approve。")
+            }
+            return .success(review)
+        } catch is ClaudeReviewTimeout {
+            return .failed("AI Review 逾時(超過 \(Int(timeout)) 秒)。")
+        } catch {
+            return .failed("AI Review 發生錯誤:\(error.localizedDescription)")
+        }
+    }
+}
+
+private struct ClaudeReviewTimeout: Error {}
+
+/// Runs `work`, throwing `ClaudeReviewTimeout` if it doesn't finish in time.
+private func withTimeout<T: Sendable>(
+    seconds: TimeInterval,
+    _ work: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await work() }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw ClaudeReviewTimeout()
+        }
+        defer { group.cancelAll() }
+        let result = try await group.next()!
+        return result
+    }
+}
