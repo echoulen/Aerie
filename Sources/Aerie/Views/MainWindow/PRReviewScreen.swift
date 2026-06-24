@@ -86,6 +86,7 @@ struct PRReviewScreen: View {
             Spacer(minLength: 16)
             AIReviewButton(
                 phase: vm.aiReview,
+                canApprove: vm.resolution.canApprove,
                 action: { Task { await vm.runAIReview() } }
             )
             ApproveButton(
@@ -226,6 +227,7 @@ private struct ApproveButton: View {
 /// runs. Styled like the other glass header buttons.
 private struct AIReviewButton: View {
     let phase: AIReviewPhase
+    let canApprove: Bool
     let action: () -> Void
 
     private var isRunning: Bool { phase == .running }
@@ -249,8 +251,10 @@ private struct AIReviewButton: View {
             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(isRunning)
-        .help("Review this PR with the Claude CLI; auto-approves when there are no major problems")
+        .disabled(isRunning || !canApprove)
+        .help(canApprove
+            ? "Review this PR with the Claude CLI; auto-approves when there are no major problems"
+            : "No account is eligible to approve this PR, so AI Review is unavailable.")
     }
 }
 

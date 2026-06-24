@@ -170,6 +170,21 @@ final class PRReviewViewModelTests: XCTestCase {
         XCTAssertTrue(msg.contains("403"))
     }
 
+    func test_runAIReview_commentSubmitError_setsFailed() async {
+        let vm = PRReviewViewModel(
+            row: row(author: "octocat"),
+            loadFiles: { _ in [self.file] },
+            accountsProvider: { self.reviewer() },
+            runReview: { _, _ in .success(
+                ClaudeReview(verdict: .issuesFound, summary: "bug", issues: ["x"], raw: "")) },
+            submitApprove: { _, _ in nil },
+            submitComment: { _, _ in "422 unprocessable" })
+        await vm.load()
+        await vm.runAIReview()
+        guard case .failed(let msg) = vm.aiReview else { return XCTFail("expected .failed") }
+        XCTAssertTrue(msg.contains("422"))
+    }
+
     func test_runAIReview_whileRunning_ignoresReentrantCall() async {
         // Park the first runReview on a continuation so it stays `.running`.
         let gate = Gate()
