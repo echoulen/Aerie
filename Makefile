@@ -12,7 +12,7 @@ ZIP_NAME   = $(APP_NAME)-macOS-$(ARCH).zip
 ICON_SRC   = Sources/Aerie/Resources/Assets.xcassets/AppIcon.appiconset
 ICNS_OUT   = Resources/AppIcon.icns
 
-.PHONY: build app run dev clean icon install test
+.PHONY: build app run dev clean icon install test release
 
 build:
 	swift build -c release
@@ -169,3 +169,27 @@ clean:
 
 test:
 	swift test
+
+# Half-automated release: tag first (so `git describe` in `app` embeds the
+# about-to-publish version), build + zip, then create the GitHub release with an
+# install-instructions block prepended to the auto-generated notes, and upload.
+# Usage: make release VERSION=vX.Y.Z
+# Note: gh targets echoulen/Aerie with the echoulen token (active account can't
+# resolve the repo).
+release:
+	@if [ -z "$(VERSION)" ]; then echo "Usage: make release VERSION=vX.Y.Z"; exit 1; fi
+	git tag $(VERSION)
+	$(MAKE) app
+	rm -rf $(DIST_DIR)
+	mkdir -p $(DIST_DIR)
+	ditto -c -k --sequesterRsrc --keepParent $(APP_BUNDLE) $(DIST_DIR)/$(ZIP_NAME)
+	rm -rf $(APP_BUNDLE)
+	@export GH_TOKEN=$$(gh auth token --user echoulen); \
+	gh release create $(VERSION) --repo echoulen/Aerie --title "$(VERSION)" \
+		--generate-notes --target "$$(git rev-parse HEAD)"; \
+	BODY=$$(gh release view $(VERSION) --repo echoulen/Aerie --json body -q .body); \
+	{ printf '## Install\n\n1. Unzip the download.\n2. Drag Aerie.app to /Applications.\n3. %s\n\n---\n\n' "First launch: right-click Aerie.app → Open (macOS blocks the first open of a self-signed build)."; \
+	  printf '%s\n' "$$BODY"; } > $(DIST_DIR)/release-notes.md; \
+	gh release edit $(VERSION) --repo echoulen/Aerie --notes-file $(DIST_DIR)/release-notes.md; \
+	gh release upload $(VERSION) --repo echoulen/Aerie $(DIST_DIR)/$(ZIP_NAME) --clobber
+	@echo "Released $(VERSION)"
