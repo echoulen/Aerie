@@ -85,8 +85,10 @@ struct PRReviewScreen: View {
             Spacer(minLength: 16)
             AIReviewButton(
                 phase: aiPhase,
-                canApprove: vm.resolution.canApprove,
-                action: { store.start(row: vm.row) }
+                resolution: vm.resolution,
+                selectedApproverId: store.selectedApproverId(for: vm.row),
+                onSelectApprover: { store.selectApprover($0, for: vm.row) },
+                onStart: { store.start(row: vm.row) }
             )
             ApproveButton(
                 row: vm.row,
@@ -222,38 +224,98 @@ private struct ApproveButton: View {
     }
 }
 
-/// "AI Review" affordance: triggers `store.start(row:)`, shows a spinner while
-/// the review runs. Styled like the other glass header buttons.
+/// "AI Review" affordance: a split button. The primary region triggers the
+/// review (auto-approving as the currently-selected account); when more than one
+/// account is eligible, a trailing `⌄` opens a menu to pick which one acts. With
+/// a single eligible account it degrades to a plain one-tap button. Shows a
+/// spinner (and hides the picker) while a review runs.
 private struct AIReviewButton: View {
     let phase: AIReviewPhase
-    let canApprove: Bool
-    let action: () -> Void
+    let resolution: ApproverResolution
+    /// The user's per-repo pick, or nil to fall back to the resolved default.
+    let selectedApproverId: UUID?
+    let onSelectApprover: (UUID) -> Void
+    let onStart: () -> Void
 
     private var isRunning: Bool { if case .running = phase { return true }; return false }
+    private var canApprove: Bool { resolution.canApprove }
+    /// Which account the review will act as right now — the basis for the menu
+    /// checkmark. Mirrors `AIReviewStore.effectiveApprover`: the pick when still
+    /// eligible, else the default.
+    private var effectiveApproverId: UUID? {
+        if let selectedApproverId,
+           resolution.eligible.contains(where: { $0.id == selectedApproverId }) {
+            return selectedApproverId
+        }
+        return resolution.defaultApprover?.id
+    }
+    private var showsPicker: Bool { resolution.needsPicker && !isRunning && canApprove }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                if isRunning {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "sparkles").font(.system(size: 12, weight: .semibold))
-                }
-                Text(isRunning ? "Reviewing…" : "AI Review")
-                    .aerieFont(AerieFont.custom(.sans, size: 13).weight(.semibold))
+        HStack(spacing: 0) {
+            Button(action: onStart) {
+                primaryLabel
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 9)
+                    .contentShape(Rectangle())
             }
-            .foregroundStyle(AerieColor.text1)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(AerieColor.glass2))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .buttonStyle(.plain)
+            .disabled(isRunning || !canApprove)
+            .help(canApprove
+                ? "Review this PR with the Claude CLI; auto-approves when there are no major problems"
+                : "No account is eligible to approve this PR, so AI Review is unavailable.")
+
+            if showsPicker {
+                // Fixed height: a width-only frame leaves the Rectangle greedy
+                // in the vertical axis, which inflates the header's ideal height
+                // and balloons the whole capsule.
+                Rectangle()
+                    .fill(AerieColor.glassLine)
+                    .frame(width: 1, height: 22)
+                pickerMenu
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(isRunning || !canApprove)
-        .help(canApprove
-            ? "Review this PR with the Claude CLI; auto-approves when there are no major problems"
-            : "No account is eligible to approve this PR, so AI Review is unavailable.")
+        .foregroundStyle(AerieColor.text1)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(AerieColor.glass2))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+
+    private var primaryLabel: some View {
+        HStack(spacing: 7) {
+            if isRunning {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: "sparkles").font(.system(size: 12, weight: .semibold))
+            }
+            Text(isRunning ? "Reviewing…" : "AI Review")
+                .aerieFont(AerieFont.custom(.sans, size: 13).weight(.semibold))
+        }
+    }
+
+    private var pickerMenu: some View {
+        Menu {
+            ForEach(resolution.eligible) { acc in
+                Button { onSelectApprover(acc.id) } label: {
+                    if acc.id == effectiveApproverId {
+                        Label("\(acc.login) · \(acc.host)", systemImage: "checkmark")
+                    } else {
+                        Text("\(acc.login) · \(acc.host)")
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(AerieColor.text2)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 11)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Choose which account approves as")
     }
 }
 

@@ -560,7 +560,7 @@ struct MainShell: View {
                 let accounts = await services.auth.allAccounts()
                 return ApproverResolver.resolve(
                     accounts: accounts, boundAccountId: r.repo.primaryAccountId,
-                    authorLogin: r.pr.authorLogin).defaultApprover
+                    authorLogin: r.pr.authorLogin)
             },
             approve: { r, approver, body in
                 do {
