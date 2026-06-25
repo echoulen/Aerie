@@ -40,3 +40,27 @@ struct UpdateAlertContent: Equatable {
         }
     }
 }
+
+/// Thin `@MainActor` driver: run the check, then show the alert and, on the
+/// download button, open the release page in the browser. AppKit boundary — no
+/// unit test; the mapping it relies on (`UpdateAlertContent`) is tested instead.
+@MainActor
+enum UpdatePresenter {
+    static func checkAndPresent(checker: UpdateChecker = UpdateChecker()) {
+        Task { @MainActor in
+            let outcome = await checker.check()
+            present(UpdateAlertContent(outcome: outcome))
+        }
+    }
+
+    static func present(_ content: UpdateAlertContent) {
+        let alert = NSAlert()
+        alert.messageText = content.title
+        alert.informativeText = content.informative
+        for title in content.buttons { alert.addButton(withTitle: title) }
+        let response = alert.runModal()
+        if let url = content.downloadURL, response == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(url)
+        }
+    }
+}
