@@ -12,7 +12,7 @@ ZIP_NAME   = $(APP_NAME)-macOS-$(ARCH).zip
 ICON_SRC   = Sources/Aerie/Resources/Assets.xcassets/AppIcon.appiconset
 ICNS_OUT   = Resources/AppIcon.icns
 
-.PHONY: build app run dev clean icon install test
+.PHONY: build app run dev clean icon install test release
 
 build:
 	swift build -c release
@@ -61,6 +61,14 @@ app: build icon
 		/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $$COUNT" $(CONTENTS)/Info.plist; \
 		echo "Injected CFBundleVersion=$$COUNT"; \
 	fi
+	@TAG=$$(git describe --tags --abbrev=0 2>/dev/null); \
+	if [ -n "$$TAG" ]; then \
+		VER=$${TAG#v}; \
+		/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $$VER" $(CONTENTS)/Info.plist; \
+		echo "Injected CFBundleShortVersionString=$$VER"; \
+	else \
+		echo "No git tag found; leaving CFBundleShortVersionString as-is"; \
+	fi
 	@bash scripts/ensure_signing_cert.sh "$(CERT_NAME)" || true
 	@if security find-certificate -c "$(CERT_NAME)" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1; then \
 		codesign --force --deep --sign "$(CERT_NAME)" $(APP_BUNDLE); \
@@ -99,6 +107,14 @@ dev:
 		fi; \
 	done
 	cp Sources/Aerie/Resources/Info.plist $(CONTENTS)/Info.plist
+	@TAG=$$(git describe --tags --abbrev=0 2>/dev/null); \
+	if [ -n "$$TAG" ]; then \
+		VER=$${TAG#v}; \
+		/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $$VER" $(CONTENTS)/Info.plist; \
+		echo "Injected CFBundleShortVersionString=$$VER"; \
+	else \
+		echo "No git tag found; leaving CFBundleShortVersionString as-is"; \
+	fi
 	@[ -f $(ICNS_OUT) ] && cp $(ICNS_OUT) $(RESOURCES)/AppIcon.icns || true
 	@if security find-certificate -c "$(CERT_NAME)" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1; then \
 		codesign --force --deep --sign "$(CERT_NAME)" $(APP_BUNDLE); \
@@ -153,3 +169,33 @@ clean:
 
 test:
 	swift test
+
+# Half-automated release: tag first (so `git describe` in `app` embeds the
+# about-to-publish version), build + zip, then create the GitHub release with an
+# install-instructions block prepended to the auto-generated notes, and upload.
+# Usage: make release VERSION=vX.Y.Z
+# Note: gh targets echoulen/Aerie with the echoulen token (active account can't
+# resolve the repo).
+release:
+	@if [ -z "$(VERSION)" ]; then echo "Usage: make release VERSION=vX.Y.Z"; exit 1; fi
+	@# Re-running after a partial failure? A local tag from the prior run lingers.
+	@# This preflight stops early with a hint instead of a confusing git error.
+	@if git rev-parse --verify --quiet "refs/tags/$(VERSION)" >/dev/null; then \
+		echo "Tag $(VERSION) already exists locally. If retrying a failed release, first run: git tag -d $(VERSION)"; \
+		exit 1; \
+	fi
+	git tag $(VERSION)
+	$(MAKE) app
+	rm -rf $(DIST_DIR)
+	mkdir -p $(DIST_DIR)
+	ditto -c -k --sequesterRsrc --keepParent $(APP_BUNDLE) $(DIST_DIR)/$(ZIP_NAME)
+	rm -rf $(APP_BUNDLE)
+	@export GH_TOKEN=$$(gh auth token --user echoulen); \
+	gh release create $(VERSION) --repo echoulen/Aerie --title "$(VERSION)" \
+		--generate-notes --target "$$(git rev-parse HEAD)"; \
+	BODY=$$(gh release view $(VERSION) --repo echoulen/Aerie --json body -q .body); \
+	{ printf '## Install\n\n1. Unzip the download.\n2. Drag Aerie.app to /Applications.\n3. %s\n\n---\n\n' "First launch: right-click Aerie.app → Open (macOS blocks the first open of a self-signed build)."; \
+	  printf '%s\n' "$$BODY"; } > $(DIST_DIR)/release-notes.md; \
+	gh release edit $(VERSION) --repo echoulen/Aerie --notes-file $(DIST_DIR)/release-notes.md; \
+	gh release upload $(VERSION) --repo echoulen/Aerie $(DIST_DIR)/$(ZIP_NAME) --clobber
+	@echo "Released $(VERSION)"

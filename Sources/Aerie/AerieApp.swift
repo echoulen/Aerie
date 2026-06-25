@@ -27,6 +27,9 @@ struct AerieApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
+            CommandGroup(after: .appInfo) {
+                UpdateCommand()
+            }
             CommandGroup(replacing: .appSettings) {
                 SettingsCommand()
             }
@@ -111,6 +114,14 @@ struct AerieApp: App {
                 // log it — the rest of the app still works without MCP.
                 NSLog("MCP start failed: \(error)")
             }
+        }
+    }
+}
+
+private struct UpdateCommand: View {
+    var body: some View {
+        Button("Check for Updates…") {
+            UpdatePresenter.checkAndPresent()
         }
     }
 }
