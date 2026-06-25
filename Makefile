@@ -178,6 +178,12 @@ test:
 # resolve the repo).
 release:
 	@if [ -z "$(VERSION)" ]; then echo "Usage: make release VERSION=vX.Y.Z"; exit 1; fi
+	@# Re-running after a partial failure? A local tag from the prior run lingers.
+	@# This preflight stops early with a hint instead of a confusing git error.
+	@if git rev-parse --verify --quiet "refs/tags/$(VERSION)" >/dev/null; then \
+		echo "Tag $(VERSION) already exists locally. If retrying a failed release, first run: git tag -d $(VERSION)"; \
+		exit 1; \
+	fi
 	git tag $(VERSION)
 	$(MAKE) app
 	rm -rf $(DIST_DIR)
