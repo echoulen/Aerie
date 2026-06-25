@@ -61,6 +61,14 @@ app: build icon
 		/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $$COUNT" $(CONTENTS)/Info.plist; \
 		echo "Injected CFBundleVersion=$$COUNT"; \
 	fi
+	@TAG=$$(git describe --tags --abbrev=0 2>/dev/null); \
+	if [ -n "$$TAG" ]; then \
+		VER=$${TAG#v}; \
+		/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $$VER" $(CONTENTS)/Info.plist; \
+		echo "Injected CFBundleShortVersionString=$$VER"; \
+	else \
+		echo "No git tag found; leaving CFBundleShortVersionString as-is"; \
+	fi
 	@bash scripts/ensure_signing_cert.sh "$(CERT_NAME)" || true
 	@if security find-certificate -c "$(CERT_NAME)" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1; then \
 		codesign --force --deep --sign "$(CERT_NAME)" $(APP_BUNDLE); \
@@ -99,6 +107,14 @@ dev:
 		fi; \
 	done
 	cp Sources/Aerie/Resources/Info.plist $(CONTENTS)/Info.plist
+	@TAG=$$(git describe --tags --abbrev=0 2>/dev/null); \
+	if [ -n "$$TAG" ]; then \
+		VER=$${TAG#v}; \
+		/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $$VER" $(CONTENTS)/Info.plist; \
+		echo "Injected CFBundleShortVersionString=$$VER"; \
+	else \
+		echo "No git tag found; leaving CFBundleShortVersionString as-is"; \
+	fi
 	@[ -f $(ICNS_OUT) ] && cp $(ICNS_OUT) $(RESOURCES)/AppIcon.icns || true
 	@if security find-certificate -c "$(CERT_NAME)" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1; then \
 		codesign --force --deep --sign "$(CERT_NAME)" $(APP_BUNDLE); \
