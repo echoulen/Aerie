@@ -330,7 +330,8 @@ struct MainShell: View {
                     await services.refreshNow()
                 },
                 onCheckout: { presentedCheckout = $0 },
-                onReview: { reviewing = $0 }
+                onReview: { reviewing = $0 },
+                isReviewing: { aiReviewStore.isRunning(for: $0) }
             )
         case .issues:
             IssuesScreen(

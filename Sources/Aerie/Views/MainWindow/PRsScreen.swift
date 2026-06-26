@@ -40,6 +40,10 @@ struct PRsScreen: View {
     /// Asks the shell to open the code review screen for `row`. The detail-page
     /// navigation state (`reviewing`) lives in `MainShell` (mirrors `onMerge`).
     var onReview: (PRRow) -> Void = { _ in }
+    /// Whether an AI review is currently running for `row` — drives the spinner
+    /// on the card's Review button. Reads `AIReviewStore` (held by `MainShell`);
+    /// defaulted to "never" for snapshot tests and previews.
+    var isReviewing: (PRRow) -> Bool = { _ in false }
 
     var body: some View {
         switch viewModel.state {
@@ -131,6 +135,7 @@ struct PRsScreen: View {
                         onOpen: { handleOpen(row) },
                         onCheckout: { onCheckout(row) },
                         onReview: { onReview(row) },
+                        isReviewing: isReviewing(row),
                         onUpdateBranch: { await onUpdateBranch(row) },
                         now: now
                     )
