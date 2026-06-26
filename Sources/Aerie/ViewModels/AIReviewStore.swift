@@ -56,6 +56,13 @@ final class AIReviewStore {
 
     func phase(for row: PRRow) -> AIReviewPhase { phases[Self.key(row)] ?? .idle }
 
+    /// Whether a review is currently in flight for `row` — drives the spinner on
+    /// the PR card's Review button, mirroring the detail screen's `AIReviewButton`.
+    func isRunning(for row: PRRow) -> Bool {
+        if case .running = phase(for: row) { return true }
+        return false
+    }
+
     /// The account the user picked to act as for `row`'s repo, if any. `nil`
     /// means "use the resolved default".
     func selectedApproverId(for row: PRRow) -> UUID? { selectedApproverByRepo[row.repo.id] }

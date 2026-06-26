@@ -23,6 +23,11 @@ struct PRCard: View {
     /// Opens the code review screen for this PR. Defaulted to a no-op for
     /// snapshot tests and previews.
     var onReview: () -> Void = {}
+    /// Whether an AI review is currently running for this PR. When true the
+    /// Review button swaps its chevron glyph for a spinner and reads
+    /// "Reviewing…", mirroring the detail screen's `AIReviewButton`. Defaulted to
+    /// `false` for snapshot tests and previews.
+    var isReviewing: Bool = false
     /// Runs the base-branch update for this PR's checkout. Awaited by the
     /// status-row "Update branch" pill so it can spin until the row's sync
     /// settles. Defaulted to a no-op for snapshot tests and previews.
@@ -128,9 +133,13 @@ struct PRCard: View {
     private var reviewButton: some View {
         Button(action: onReview) {
             HStack(spacing: 6) {
-                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                Text("Review")
+                if isReviewing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                Text(isReviewing ? "Reviewing…" : "Review")
             }
             .aerieFont(AerieFont.custom(.sans, size: 12))
             .foregroundStyle(AerieColor.text1)
