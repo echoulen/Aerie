@@ -219,7 +219,7 @@ struct LiveClaudeReviewService: ClaudeReviewService {
     private let totalTimeout: TimeInterval
 
     init(runner: SubprocessRunner = LiveSubprocessRunner(),
-         idleTimeout: TimeInterval = 90, totalTimeout: TimeInterval = 600) {
+         idleTimeout: TimeInterval = 600, totalTimeout: TimeInterval = 600) {
         self.runner = runner
         self.idleTimeout = idleTimeout
         self.totalTimeout = totalTimeout
