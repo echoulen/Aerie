@@ -33,10 +33,12 @@ struct ApprovePRTool: MCPTool {
         guard let pr = prs.first(where: { $0.number == num }) else {
             throw JSONRPCError(code: -32602, message: "Unknown PR \(num) for this repo", data: nil)
         }
+        let lastApprover = LastApproverStore(settings: db.settings)
         let resolution = ApproverResolver.resolve(
             accounts: await accounts(),
             boundAccountId: repo.primaryAccountId,
-            authorLogin: pr.authorLogin
+            authorLogin: pr.authorLogin,
+            preferredLogin: await lastApprover.login(forRepo: repoId)
         )
         guard let approver = resolution.defaultApprover else {
             throw JSONRPCError(
@@ -50,6 +52,7 @@ struct ApprovePRTool: MCPTool {
                 owner: repo.githubOwner, repo: repo.githubRepo,
                 number: num, body: body, accountId: approver.id
             )
+            await lastApprover.record(approver.login, forRepo: repoId)
             Task { await refresh(repoId) }
             return .object([
                 "approved": .bool(true),

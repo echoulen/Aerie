@@ -61,4 +61,53 @@ final class ApproverResolverTests: XCTestCase {
             accounts: accounts, boundAccountId: boundId, authorLogin: "octocat")
         XCTAssertFalse(r.needsPicker)
     }
+
+    // MARK: - preferredLogin (per-repo last-approver memory)
+
+    func test_preferredLogin_eligible_winsOverBound() {
+        let boundId = UUID()
+        let teammate = acc("teammate")
+        let accounts = [acc("reviewer", boundId), teammate, acc("third")]
+        let r = ApproverResolver.resolve(
+            accounts: accounts, boundAccountId: boundId, authorLogin: "octocat",
+            preferredLogin: "teammate")
+        XCTAssertEqual(r.defaultApprover?.id, teammate.id)
+    }
+
+    func test_preferredLogin_caseInsensitive() {
+        let boundId = UUID()
+        let teammate = acc("TeamMate")
+        let accounts = [acc("reviewer", boundId), teammate]
+        let r = ApproverResolver.resolve(
+            accounts: accounts, boundAccountId: boundId, authorLogin: "octocat",
+            preferredLogin: "teammate")
+        XCTAssertEqual(r.defaultApprover?.id, teammate.id)
+    }
+
+    func test_preferredLogin_isAuthor_ignored_fallsBackToBound() {
+        let boundId = UUID()
+        let accounts = [acc("reviewer", boundId), acc("teammate")]
+        let r = ApproverResolver.resolve(
+            accounts: accounts, boundAccountId: boundId, authorLogin: "echoulen",
+            preferredLogin: "echoulen")
+        XCTAssertEqual(r.defaultApprover?.id, boundId)
+    }
+
+    func test_preferredLogin_notConfigured_fallsBackToBound() {
+        let boundId = UUID()
+        let accounts = [acc("reviewer", boundId), acc("teammate")]
+        let r = ApproverResolver.resolve(
+            accounts: accounts, boundAccountId: boundId, authorLogin: "octocat",
+            preferredLogin: "ghost")
+        XCTAssertEqual(r.defaultApprover?.id, boundId)
+    }
+
+    func test_preferredLogin_nil_keepsBoundDefault() {
+        let boundId = UUID()
+        let accounts = [acc("reviewer", boundId), acc("teammate")]
+        let r = ApproverResolver.resolve(
+            accounts: accounts, boundAccountId: boundId, authorLogin: "octocat",
+            preferredLogin: nil)
+        XCTAssertEqual(r.defaultApprover?.id, boundId)
+    }
 }

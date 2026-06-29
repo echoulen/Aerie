@@ -23,14 +23,23 @@ enum ApproverResolver {
     static func resolve(
         accounts: [GitHubAccount],
         boundAccountId: UUID,
-        authorLogin: String
+        authorLogin: String,
+        preferredLogin: String? = nil
     ) -> ApproverResolution {
         let author = authorLogin.lowercased()
         let eligible = accounts.filter { $0.login.lowercased() != author }
 
+        // Per-repo last-approver memory wins when it still points at an eligible
+        // account; otherwise fall back to the bound account, then first eligible.
+        let remembered = preferredLogin
+            .map { $0.lowercased() }
+            .flatMap { wanted in eligible.first { $0.login.lowercased() == wanted } }
+
         let bound = accounts.first { $0.id == boundAccountId }
         let preferred: GitHubAccount?
-        if let bound, bound.login.lowercased() != author {
+        if let remembered {
+            preferred = remembered
+        } else if let bound, bound.login.lowercased() != author {
             preferred = bound
         } else {
             preferred = eligible.first
