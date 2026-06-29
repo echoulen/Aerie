@@ -23,12 +23,14 @@ struct PRReviewScreen: View {
         store: AIReviewStore,
         loadFiles: @escaping (PRRow) async throws -> [PRFileChange],
         accountsProvider: @escaping () async -> [GitHubAccount],
+        lastApproverProvider: @escaping (UUID) async -> String? = { _ in nil },
         highlighter: CodeHighlighter = SplashCodeHighlighter(),
         onBack: @escaping () -> Void = {},
         onApprove: @escaping (PRReviewApproveContext) -> Void = { _ in }
     ) {
         _vm = State(initialValue: PRReviewViewModel(
-            row: row, loadFiles: loadFiles, accountsProvider: accountsProvider))
+            row: row, loadFiles: loadFiles, accountsProvider: accountsProvider,
+            lastApproverProvider: lastApproverProvider))
         self.store = store
         self.highlighter = highlighter
         self.onBack = onBack

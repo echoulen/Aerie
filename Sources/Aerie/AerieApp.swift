@@ -285,6 +285,7 @@ struct MainShell: View {
                     ).value
                 },
                 accountsProvider: { await services.auth.allAccounts() },
+                lastApproverProvider: { repoId in await services.lastApprover.login(forRepo: repoId) },
                 onBack: { reviewing = nil },
                 onApprove: { presentedApprove = $0 }
             )
@@ -534,6 +535,7 @@ struct MainShell: View {
                             body: comment,
                             accountId: approver.id
                         )
+                        await services.lastApprover.record(approver.login, forRepo: ctx.row.repo.id)
                         await services.refreshNow()
                         presentedApprove = nil
                         // Approve done → leave the diff detail page and return to
@@ -570,15 +572,17 @@ struct MainShell: View {
             },
             resolveApprover: { r in
                 let accounts = await services.auth.allAccounts()
+                let preferred = await services.lastApprover.login(forRepo: r.repo.id)
                 return ApproverResolver.resolve(
                     accounts: accounts, boundAccountId: r.repo.primaryAccountId,
-                    authorLogin: r.pr.authorLogin)
+                    authorLogin: r.pr.authorLogin, preferredLogin: preferred)
             },
             approve: { r, approver, body in
                 do {
                     _ = try await services.multiApi.approvePR(
                         owner: r.repo.githubOwner, repo: r.repo.githubRepo,
                         number: r.pr.number, body: body, accountId: approver.id)
+                    await services.lastApprover.record(approver.login, forRepo: r.repo.id)
                     await services.refreshNow()
                     return nil
                 } catch { return error.localizedDescription }

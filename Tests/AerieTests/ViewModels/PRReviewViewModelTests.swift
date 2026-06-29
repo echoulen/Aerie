@@ -79,4 +79,17 @@ final class PRReviewViewModelTests: XCTestCase {
         await vm.load()
         XCTAssertEqual(vm.resolution.defaultApprover?.id, other.id)
     }
+
+    func test_load_prefersRememberedApprover() async {
+        let remembered = GitHubAccount(id: UUID(), login: "teammate", host: "github.com")
+        let vm = PRReviewViewModel(
+            row: row(author: "octocat"),
+            loadFiles: { _ in [self.file] },
+            accountsProvider: {
+                [GitHubAccount(id: self.boundId, login: "reviewer", host: "github.com"), remembered]
+            },
+            lastApproverProvider: { _ in "teammate" })
+        await vm.load()
+        XCTAssertEqual(vm.resolution.defaultApprover?.id, remembered.id)
+    }
 }

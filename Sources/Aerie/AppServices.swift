@@ -86,6 +86,10 @@ final class AppServices {
     let discovery: DiscoveryFileWriter
     let configWriter: ClaudeCodeConfigWriter
 
+    /// Per-repo memory of the account the last approval was submitted as. Used to
+    /// default the approver picker (manual + AI Review) to the user's last choice.
+    var lastApprover: LastApproverStore { LastApproverStore(settings: db.settings) }
+
     /// Fires after each polling tick upserts fresh git status. The main shell
     /// subscribes (throttled) to re-read its `ReposViewModel` so the cards
     /// reflect the live branch / dirty state without a manual refresh.
