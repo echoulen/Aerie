@@ -109,7 +109,8 @@ enum ClaudeReviewParsing {
     /// Claude is asked to put at the end of its message. Scanning from the final
     /// `}` backwards (rather than first-`{`/last-`}`) means stray braces in the
     /// prose before the JSON don't corrupt the span.
-    private static func lastJSONObject(in text: String) -> String? {
+    /// Internal (not private): `PRCreateParsing` shares this scanner.
+    static func lastJSONObject(in text: String) -> String? {
         guard let close = text.lastIndex(of: "}") else { return nil }
         var depth = 0
         var idx = close
