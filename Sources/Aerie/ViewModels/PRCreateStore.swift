@@ -23,6 +23,9 @@ enum PRCreatePhase: Equatable {
 final class PRCreateStore {
     private(set) var phases: [UUID: PRCreatePhase] = [:]
     private var running: Set<UUID> = []
+    /// In-flight nothingToDo → idle revert timers, cancelled when a new run
+    /// starts so a stale timer can't truncate a later occurrence's window.
+    private var revertTasks: [UUID: Task<Void, Never>] = [:]
     private let maxLines = 200
 
     private let runCreate: (RepoRow, @escaping @Sendable (String) -> Void) async -> PRCreateOutcome
@@ -55,6 +58,7 @@ final class PRCreateStore {
         let id = row.repo.id
         guard !running.contains(id) else { return }
         running.insert(id)
+        revertTasks.removeValue(forKey: id)?.cancel()
         phases[id] = .running([])
 
         Task {
@@ -76,9 +80,11 @@ final class PRCreateStore {
     }
 
     private func scheduleNothingToDoRevert(_ id: UUID) {
-        Task { [weak self, nothingToDoRevertNanos] in
+        revertTasks.removeValue(forKey: id)?.cancel()
+        revertTasks[id] = Task { [weak self, nothingToDoRevertNanos] in
             try? await Task.sleep(nanoseconds: nothingToDoRevertNanos)
-            guard let self, case .nothingToDo = self.phases[id] else { return }
+            guard !Task.isCancelled, let self,
+                  case .nothingToDo = self.phases[id] else { return }
             self.phases[id] = .idle
         }
     }

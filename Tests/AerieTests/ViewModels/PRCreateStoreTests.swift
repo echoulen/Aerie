@@ -70,6 +70,28 @@ final class PRCreateStoreTests: XCTestCase {
         }
     }
 
+    func test_restartDuringNothingToDo_getsFreshRevertWindow() async {
+        let store = makeStore(run: { _, _ in .nothingToDo(summary: "") },
+                              revertSeconds: 0.3)
+        let row = repoRow()
+        store.start(row: row)
+        await settle(store, row)                        // → .nothingToDo (t≈0)
+        try? await Task.sleep(nanoseconds: 100_000_000) // t≈0.1
+        store.start(row: row)                           // must cancel timer 1
+        await settle(store, row)                        // → .nothingToDo again
+        // t≈0.35: timer 1 (t=0.3) would have fired by now — the phase must
+        // still be .nothingToDo because timer 2 (t≈0.4+) owns the window.
+        try? await Task.sleep(nanoseconds: 250_000_000)
+        guard case .nothingToDo = store.phase(for: row) else {
+            return XCTFail("stale timer truncated the second window")
+        }
+        // t≈0.6: timer 2 has fired — now it reverts.
+        try? await Task.sleep(nanoseconds: 250_000_000)
+        guard case .idle = store.phase(for: row) else {
+            return XCTFail("expected revert to .idle after the fresh window")
+        }
+    }
+
     func test_progressLines_accumulate_whileRunning() async {
         let gate = AsyncGate()
         let store = makeStore(run: { _, onLine in
