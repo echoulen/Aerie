@@ -87,4 +87,19 @@ final class SettingsDAOTests: XCTestCase {
         let got = try await db.settings.getString("name")
         XCTAssertEqual(got, "Aerie")
     }
+
+    func test_delete_removesKey() async throws {
+        let db = try makeDB()
+        try await db.settings.setString("pr_publish.template", "custom")
+        try await db.settings.delete("pr_publish.template")
+        let got = try await db.settings.getString("pr_publish.template")
+        XCTAssertNil(got)
+    }
+
+    func test_delete_missingKey_isNoop() async throws {
+        let db = try makeDB()
+        try await db.settings.delete("never.existed")   // must not throw
+        let got = try await db.settings.get("never.existed")
+        XCTAssertNil(got)
+    }
 }
