@@ -198,6 +198,9 @@ enum ClaudeStreamParsing {
         case "Read":  return "Read \(input["file_path"]?.string ?? "")".trimmingCharacters(in: .whitespaces)
         case "Grep":  return "Grep \"\(input["pattern"]?.string ?? "")\""
         case "Glob":  return "Glob \(input["pattern"]?.string ?? "")".trimmingCharacters(in: .whitespaces)
+        case "Bash":
+            let cmd = input["command"]?.string ?? ""
+            return cmd.isEmpty ? "Using Bash" : "Using Bash: \(cmd)"
         default:      return "Using \(name)"
         }
     }

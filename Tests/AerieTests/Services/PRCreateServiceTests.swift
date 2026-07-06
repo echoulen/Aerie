@@ -70,7 +70,7 @@ final class PRCreateServiceTests: XCTestCase {
         guard case .created(let n, let url, _) = outcome else { return XCTFail("expected created, got \(outcome)") }
         XCTAssertEqual(n, 7)
         XCTAssertEqual(url.absoluteString, "https://github.com/echoulen/aerie/pull/7")
-        XCTAssertEqual(box.lines, ["Using Bash", "pushing branch"])
+        XCTAssertEqual(box.lines, ["Using Bash: git push -u origin feat/x", "pushing branch"])
     }
 
     func test_promptRendered_andWhitelistArgs() async {
