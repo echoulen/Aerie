@@ -128,3 +128,140 @@ enum DefaultPRPublishTemplate {
     """
 }
 
+// MARK: - Service
+
+protocol PRCreateService: Sendable {
+    func createPR(
+        template: String,
+        owner: String, repo: String,
+        defaultBranch: String, currentBranch: String,
+        statusSummary: String, localPath: URL,
+        onLine: @escaping @Sendable (String) -> Void
+    ) async -> PRCreateOutcome
+}
+
+/// Runs `claude -p` in the repo checkout with a Bash whitelist limited to
+/// git/gh, streaming progress and parsing the final outcome JSON. Structure
+/// (probe → stream → idle/total watchdog) mirrors `LiveClaudeReviewService`;
+/// the ~40-line watchdog duplication is a deliberate spec decision (no shared
+/// runner refactor until a third claude-driven feature needs it).
+struct LivePRCreateService: PRCreateService {
+    private let runner: SubprocessRunner
+    private let idleTimeout: TimeInterval
+    private let totalTimeout: TimeInterval
+
+    init(runner: SubprocessRunner = LiveSubprocessRunner(),
+         idleTimeout: TimeInterval = 600, totalTimeout: TimeInterval = 600) {
+        self.runner = runner
+        self.idleTimeout = idleTimeout
+        self.totalTimeout = totalTimeout
+    }
+
+    func createPR(
+        template: String,
+        owner: String, repo: String,
+        defaultBranch: String, currentBranch: String,
+        statusSummary: String, localPath: URL,
+        onLine: @escaping @Sendable (String) -> Void
+    ) async -> PRCreateOutcome {
+        // 1. Claude installed?
+        let probe = try? await runner.run("which", ["claude"])
+        guard let probe, probe.2 == 0,
+              !probe.0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return .failed("找不到 claude CLI。請先安裝 Claude Code 並確認可在終端機執行 `claude`。") }
+
+        // 2. Unlike review (which can work from the diff alone), publishing
+        //    REQUIRES the checkout — hard-fail when it's missing.
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: localPath.path, isDirectory: &isDir)
+        guard exists, isDir.boolValue else {
+            return .failed("找不到本地 repo 目錄:\(localPath.path)")
+        }
+
+        // 3. Prompt + args. Bash is whitelisted to git/gh only — the template
+        //    can steer *what* gets run, not escalate beyond those commands.
+        let prompt = PRCreatePrompt.render(
+            template: template, owner: owner, repo: repo,
+            defaultBranch: defaultBranch, currentBranch: currentBranch,
+            statusSummary: statusSummary)
+        let args = ["-p", prompt, "--output-format", "stream-json", "--verbose",
+                    "--allowedTools", "Read,Grep,Glob,Bash(git:*),Bash(gh:*)"]
+
+        // 4. Stream with idle + total watchdog (same shape as review).
+        let activity = PRCreateActivityClock()
+        let finalText = PRCreateTextBox()
+        let runner = self.runner
+        let idle = idleTimeout, total = totalTimeout
+
+        return await withTaskGroup(of: PRCreateStep.self) { group -> PRCreateOutcome in
+            group.addTask {
+                do {
+                    let code = try await runner.stream("claude", args, cwd: localPath) { line in
+                        switch ClaudeStreamParsing.parseLine(line) {
+                        case .progress(let s): activity.bump(); onLine(s)
+                        case .finalResult(let t): activity.bump(); finalText.set(t)
+                        case .ignored: break
+                        }
+                    }
+                    return .finished(code)
+                } catch is CancellationError { return .cancelled }
+                catch { return .error(error.localizedDescription) }
+            }
+            group.addTask {
+                let start = ContinuousClock.now
+                while true {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    if Task.isCancelled { return .cancelled }
+                    if activity.secondsSinceLast() > idle { return .timedOutIdle }
+                    if start.duration(to: .now) > .seconds(total) { return .timedOutTotal }
+                }
+            }
+            let first = await group.next()!
+            group.cancelAll()
+            for await _ in group {}   // drain
+
+            switch first {
+            case .timedOutIdle:
+                return .failed("發 PR 已 \(Int(idle)) 秒沒有新進度,可能卡住了。")
+            case .timedOutTotal:
+                return .failed("發 PR 超過 \(Int(total / 60)) 分鐘上限。")
+            case .cancelled:
+                return .failed("發 PR 已取消。")
+            case .error(let m):
+                return .failed("發 PR 發生錯誤:\(m)")
+            case .finished(let code):
+                guard code == 0 else { return .failed("發 PR 失敗(exit \(code))。") }
+                guard let outcome = PRCreateParsing.parse(text: finalText.get()) else {
+                    return .failed("無法解析 Claude 的回覆,無法確認 PR 是否已建立,請到 GitHub 檢查。")
+                }
+                return outcome
+            }
+        }
+    }
+}
+
+private enum PRCreateStep: Sendable {
+    case finished(Int32), timedOutIdle, timedOutTotal, cancelled, error(String)
+}
+
+/// Tracks the time of the last activity, thread-safe. (Deliberate duplicate of
+/// the review service's private helper — see the struct doc above.)
+private final class PRCreateActivityClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = ContinuousClock.now
+    func bump() { lock.lock(); last = ContinuousClock.now; lock.unlock() }
+    func secondsSinceLast() -> Double {
+        lock.lock(); defer { lock.unlock() }
+        let d = last.duration(to: .now)
+        return Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18
+    }
+}
+
+/// Thread-safe holder for the final result text.
+private final class PRCreateTextBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var text = ""
+    func set(_ t: String) { lock.lock(); text = t; lock.unlock() }
+    func get() -> String { lock.lock(); defer { lock.unlock() }; return text }
+}
+
