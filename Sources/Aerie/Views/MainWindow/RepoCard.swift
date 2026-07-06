@@ -136,21 +136,25 @@ struct RepoCard: View {
                         .disabled(isCreating)
                         .opacity(isCreating ? 0.45 : 1)
                 }
-                HStack(spacing: 8) {
-                    if Self.shouldShowCreatePR(row) || isCreating {
-                        CreatePRButton(isCreating: isCreating, action: onCreatePR)
-                    }
-                    if Self.shouldShowDiscard(row.status) {
-                        DiscardButton(action: onDiscard)
-                            .disabled(isCreating)
-                            .opacity(isCreating ? 0.45 : 1)
+                if Self.shouldShowCreatePR(row) || isCreating || Self.shouldShowDiscard(row.status) {
+                    HStack(spacing: 8) {
+                        if Self.shouldShowCreatePR(row) || isCreating {
+                            CreatePRButton(isCreating: isCreating, action: onCreatePR)
+                        }
+                        if Self.shouldShowDiscard(row.status) {
+                            DiscardButton(action: onDiscard)
+                                .disabled(isCreating)
+                                .opacity(isCreating ? 0.45 : 1)
+                        }
                     }
                 }
             }
         } footer: {
             if !row.worktrees.isEmpty || !createFooterIsEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    createStatusFooter
+                    if !createFooterIsEmpty {
+                        createStatusFooter
+                    }
                     if !row.worktrees.isEmpty {
                         WorktreeRail(
                             worktrees: row.worktrees,
