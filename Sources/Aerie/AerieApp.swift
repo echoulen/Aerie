@@ -612,8 +612,7 @@ struct MainShell: View {
             runCreate: { row, onLine in
                 // Read the user's custom template on every run (not at store
                 // construction) so Settings edits apply to the next click.
-                // Key literal is PRPublishViewModel.settingsKey (Task 9).
-                let stored = (try? await services.db.settings.getString("pr_publish.template")) ?? nil
+                let stored = (try? await services.db.settings.getString(PRPublishViewModel.settingsKey)) ?? nil
                 return await claude.createPR(
                     template: DefaultPRPublishTemplate.resolve(stored: stored),
                     owner: row.repo.githubOwner,
