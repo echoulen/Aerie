@@ -30,4 +30,18 @@ final class SettingsRouteTests: XCTestCase {
     func test_appearance_hasDisplayNameAppearance() {
         XCTAssertEqual(SettingsRoute.appearance.displayName, "Appearance")
     }
+
+    func test_pullRequests_sitsBetweenRepositoriesAndMCP() {
+        let order = SettingsRoute.allCases
+        let repositories = order.firstIndex(of: .repositories)
+        let pullRequests = order.firstIndex(of: .pullRequests)
+        let mcp = order.firstIndex(of: .mcp)
+        XCTAssertNotNil(pullRequests)
+        XCTAssertEqual(pullRequests, repositories.map { $0 + 1 })
+        XCTAssertEqual(mcp, pullRequests.map { $0 + 1 })
+    }
+
+    func test_pullRequests_displayName() {
+        XCTAssertEqual(SettingsRoute.pullRequests.displayName, "Pull Requests")
+    }
 }

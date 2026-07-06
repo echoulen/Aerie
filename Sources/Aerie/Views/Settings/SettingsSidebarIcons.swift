@@ -5,7 +5,7 @@ import SwiftUI
 /// the requested point size, stroked at the design's 1.4 px weight with round
 /// caps/joins — matching the thin-line house style rather than SF Symbols.
 struct SidebarIcon: View {
-    enum Kind { case key, folder, plug, appearance, sliders, info }
+    enum Kind { case key, folder, pullRequest, plug, appearance, sliders, info }
 
     let kind: Kind
     var size: CGFloat = 14
@@ -35,6 +35,17 @@ struct SidebarIcon: View {
                 stroke.addLine(to: P(3, 13))
                 stroke.addQuadCurve(to: P(2, 12), control: P(2, 13))
                 stroke.closeSubpath()
+
+            case .pullRequest:
+                // Git pull-request glyph: left rail (top commit → base commit),
+                // right rail branching off the top commit into the merge commit.
+                stroke.addEllipse(in: CGRect(x: 2.5 * s, y: 2.5 * s, width: 3.5 * s, height: 3.5 * s))
+                stroke.move(to: P(4.25, 6)); stroke.addLine(to: P(4.25, 10))
+                stroke.addEllipse(in: CGRect(x: 2.5 * s, y: 10 * s, width: 3.5 * s, height: 3.5 * s))
+                stroke.move(to: P(6, 4.25)); stroke.addLine(to: P(9, 4.25))
+                stroke.addQuadCurve(to: P(11.75, 7), control: P(11.75, 4.25))
+                stroke.addLine(to: P(11.75, 10))
+                stroke.addEllipse(in: CGRect(x: 10 * s, y: 10 * s, width: 3.5 * s, height: 3.5 * s))
 
             case .plug:
                 stroke.move(to: P(5, 2));  stroke.addLine(to: P(5, 5))

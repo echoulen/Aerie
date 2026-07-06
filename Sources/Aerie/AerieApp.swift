@@ -215,6 +215,7 @@ struct WorktreeContext: Identifiable, Equatable {
 struct MainShell: View {
     private let services = AppServices.shared
     @State private var aiReviewStore: AIReviewStore = MainShell.makeAIReviewStore()
+    @State private var prCreateStore: PRCreateStore = MainShell.makePRCreateStore()
     @Environment(\.openWindow) private var openWindow
     @State private var appVM = AppViewModel()
     @State private var prsVM: PRsViewModel
@@ -377,7 +378,9 @@ struct MainShell: View {
                 },
                 onDeleteWorktree: { row, wt in
                     presentedDeleteWorktree = WorktreeContext(repo: row.repo, worktree: wt)
-                }
+                },
+                createPhase: { prCreateStore.phase(for: $0) },
+                onCreatePR: { prCreateStore.start(row: $0) }
             )
         }
     }
@@ -595,6 +598,35 @@ struct MainShell: View {
                     await services.refreshNow()
                     return nil
                 } catch { return error.localizedDescription }
+            })
+    }
+
+    /// Builds the PR-publish store, wiring its closures to live services.
+    /// Static so it can seed the `@State` initial value without touching
+    /// `self` (same pattern as `makeAIReviewStore`).
+    @MainActor
+    private static func makePRCreateStore() -> PRCreateStore {
+        let services = AppServices.shared
+        let claude: PRCreateService = LivePRCreateService()
+        return PRCreateStore(
+            runCreate: { row, onLine in
+                // Read the user's custom template on every run (not at store
+                // construction) so Settings edits apply to the next click.
+                let stored = (try? await services.db.settings.getString(PRPublishViewModel.settingsKey)) ?? nil
+                return await claude.createPR(
+                    template: DefaultPRPublishTemplate.resolve(stored: stored),
+                    owner: row.repo.githubOwner,
+                    repo: row.repo.githubRepo,
+                    defaultBranch: row.repo.defaultBranch,
+                    currentBranch: row.status?.currentBranch ?? row.repo.defaultBranch,
+                    statusSummary: PRCreatePrompt.statusSummary(row.status),
+                    localPath: row.repo.localPath,
+                    onLine: onLine)
+            },
+            onCreated: {
+                // Refresh PR cache + git status so the new PR appears in the
+                // PRs tab and the card settles back to clean.
+                await services.refreshNow()
             })
     }
 

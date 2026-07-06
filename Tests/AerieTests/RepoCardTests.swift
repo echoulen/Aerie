@@ -126,4 +126,47 @@ final class RepoCardTests: XCTestCase {
         row.mergedBranch = makeMergedInfo()
         XCTAssertEqual(RepoCard.resetTitle(row), "Reset & delete branch")
     }
+
+    // MARK: - shouldShowCreatePR
+
+    func test_createPR_hidden_whenCleanAndInSync() {
+        let row = RepoRow(repo: makeRepo(), status: makeStatus())
+        XCTAssertFalse(RepoCard.shouldShowCreatePR(row))
+    }
+
+    func test_createPR_hidden_whenNoStatus() {
+        let row = RepoRow(repo: makeRepo(), status: nil)
+        XCTAssertFalse(RepoCard.shouldShowCreatePR(row))
+    }
+
+    func test_createPR_shown_whenDirty() {
+        let row = RepoRow(repo: makeRepo(), status: makeStatus(isDirty: true, dirtyFileCount: 1))
+        XCTAssertTrue(RepoCard.shouldShowCreatePR(row))
+    }
+
+    func test_createPR_shown_whenAhead() {
+        let row = RepoRow(repo: makeRepo(), status: makeStatus(ahead: 2))
+        XCTAssertTrue(RepoCard.shouldShowCreatePR(row))
+    }
+
+    func test_createPR_shown_whenUnpushed() {
+        let row = RepoRow(repo: makeRepo(), status: makeStatus(unpushed: 1))
+        XCTAssertTrue(RepoCard.shouldShowCreatePR(row))
+    }
+
+    func test_createPR_shown_whenOffDefaultBranch() {
+        let row = RepoRow(repo: makeRepo(), status: makeStatus(currentBranch: "feat/x"))
+        XCTAssertTrue(RepoCard.shouldShowCreatePR(row))
+    }
+
+    func test_createPR_hidden_whenBranchAlreadyMerged() {
+        let merged = MergedBranchInfo(
+            repoId: repoId, branch: "feat/x", prNumber: 5,
+            prUrl: URL(string: "https://github.com/e/r/pull/5")!,
+            headOid: "deadbeef", mergedAt: Date(timeIntervalSince1970: 1))
+        let row = RepoRow(repo: makeRepo(),
+                          status: makeStatus(currentBranch: "feat/x", ahead: 1),
+                          mergedBranch: merged)
+        XCTAssertFalse(RepoCard.shouldShowCreatePR(row))
+    }
 }

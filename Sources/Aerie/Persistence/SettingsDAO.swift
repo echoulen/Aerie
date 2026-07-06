@@ -29,6 +29,17 @@ struct SettingsDAO {
         }
     }
 
+    /// Removes `key` entirely (vs. writing an empty value), so `get` returns
+    /// nil and callers fall back to their built-in default. No-op when absent.
+    func delete(_ key: String) async throws {
+        try await dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM settings WHERE key = ?",
+                arguments: [key]
+            )
+        }
+    }
+
     // MARK: - Bool
 
     func setBool(_ key: String, _ value: Bool) async throws {
