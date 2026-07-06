@@ -49,6 +49,7 @@ struct SettingsSidebar: View {
         switch route {
         case .accounts:     return .key
         case .repositories: return .folder
+        case .pullRequests: return .pullRequest
         case .mcp:          return .plug
         case .appearance:   return .appearance
         case .advanced:     return .sliders

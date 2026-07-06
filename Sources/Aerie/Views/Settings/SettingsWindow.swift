@@ -16,6 +16,7 @@ struct SettingsWindow: View {
     @State private var advancedVM: AdvancedViewModel
     @State private var appearanceVM: AppearanceViewModel
     @State private var mcpVM: MCPSettingsViewModel
+    @State private var prPublishVM: PRPublishViewModel
     @State private var showAddRepo: Bool = false
     @State private var addRepoVM = AddRepoSheetViewModel()
     /// The account whose "Sign out…" confirmation dialog is showing, plus the
@@ -75,6 +76,7 @@ struct SettingsWindow: View {
             },
             runConfigRemove: { try? configWriter.removeAerie() }
         ))
+        _prPublishVM = State(initialValue: PRPublishViewModel(db: db))
     }
 
     var body: some View {
@@ -230,6 +232,8 @@ struct SettingsWindow: View {
                     showAddRepo = true
                 }
             )
+        case .pullRequests:
+            PRPublishScreen(viewModel: prPublishVM)
         case .mcp:
             MCPSettingsScreen(viewModel: mcpVM)
         case .appearance:
@@ -245,6 +249,7 @@ struct SettingsWindow: View {
         switch route {
         case .accounts:     await accountsVM.refresh()
         case .repositories: await reposVM.refresh()
+        case .pullRequests: await prPublishVM.refresh()
         case .mcp:          await mcpVM.refresh()
         case .appearance:   await appearanceVM.refresh()
         case .advanced:     await advancedVM.refresh()
