@@ -28,6 +28,11 @@ struct RepoCard: View {
     var onMergeWorktree: (WorktreeRow) async -> String? = { _ in nil }
     var onDiscardWorktree: (WorktreeRow) -> Void = { _ in }
     var onDeleteWorktree: (WorktreeRow) -> Void = { _ in }
+    /// The repo's PR-publish phase (from `PRCreateStore`). Defaulted so
+    /// previews / snapshot tests can omit it.
+    var createPhase: PRCreatePhase = .idle
+    /// Starts (or retries) a claude-driven PR publish for this repo.
+    var onCreatePR: () -> Void = {}
 
     // MARK: - Derived presentation bits
 
@@ -36,6 +41,27 @@ struct RepoCard: View {
     /// so it's unit-testable without rendering the view.
     static func shouldShowDiscard(_ status: LocalGitStatus?) -> Bool {
         status?.isDirty == true
+    }
+
+    /// Whether "Create Pull Request" shows — only when there is something to
+    /// publish (dirty tree, commits ahead/unpushed, or an off-default branch).
+    /// Always hidden once the branch is merged: the right action there is
+    /// "Reset & delete branch", not another PR. `nil` status reads as clean.
+    static func shouldShowCreatePR(_ row: RepoRow) -> Bool {
+        guard row.mergedBranch == nil else { return false }
+        guard let s = row.status else { return false }
+        let offDefault = s.currentBranch != row.repo.defaultBranch
+        return s.isDirty || s.aheadOfDefault > 0 || s.unpushedCommits > 0 || offDefault
+    }
+
+    private var isCreating: Bool {
+        if case .running = createPhase { return true }
+        return false
+    }
+
+    private var createFooterIsEmpty: Bool {
+        if case .idle = createPhase { return true }
+        return false
     }
 
     /// The danger button's title. When the checked-out branch is already merged,
@@ -99,25 +125,41 @@ struct RepoCard: View {
             StatusPill(text: statusText, tone: statusTone, showsDot: true)
         } actions: {
             // Stack vertically: the uniform Open ↗ / Reset row stays on top so
-            // those line up across cards; the quieter, dirty-only "Discard all
-            // unstaged" sits right-aligned directly below (per the design).
+            // those line up across cards; the conditional second row holds the
+            // amber Create PR button and the quieter dirty-only Discard.
+            // Destructive actions are disabled while claude is running git —
+            // a hard reset mid-publish would corrupt the flow.
             VStack(alignment: .trailing, spacing: 8) {
                 HStack(spacing: 8) {
                     CardOpenButton(action: onOpen)
                     DangerButton(title: Self.resetTitle(row), action: onHardReset)
+                        .disabled(isCreating)
+                        .opacity(isCreating ? 0.45 : 1)
                 }
-                if Self.shouldShowDiscard(row.status) {
-                    DiscardButton(action: onDiscard)
+                HStack(spacing: 8) {
+                    if Self.shouldShowCreatePR(row) || isCreating {
+                        CreatePRButton(isCreating: isCreating, action: onCreatePR)
+                    }
+                    if Self.shouldShowDiscard(row.status) {
+                        DiscardButton(action: onDiscard)
+                            .disabled(isCreating)
+                            .opacity(isCreating ? 0.45 : 1)
+                    }
                 }
             }
         } footer: {
-            if !row.worktrees.isEmpty {
-                WorktreeRail(
-                    worktrees: row.worktrees,
-                    defaultBranch: row.repo.defaultBranch,
-                    onMerge: onMergeWorktree,
-                    onDiscard: onDiscardWorktree,
-                    onDelete: onDeleteWorktree)
+            if !row.worktrees.isEmpty || !createFooterIsEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    createStatusFooter
+                    if !row.worktrees.isEmpty {
+                        WorktreeRail(
+                            worktrees: row.worktrees,
+                            defaultBranch: row.repo.defaultBranch,
+                            onMerge: onMergeWorktree,
+                            onDiscard: onDiscardWorktree,
+                            onDelete: onDeleteWorktree)
+                    }
+                }
             }
         }
     }
@@ -150,6 +192,56 @@ struct RepoCard: View {
         }
         .buttonStyle(.plain)
         .help("Open merged PR #\(merged.prNumber)")
+    }
+
+    /// PR-publish status line in the card footer: live progress while running,
+    /// a clickable PR pill on success (mergedPill's palette), an error + Retry
+    /// on failure, and a transient neutral line for "nothing to publish".
+    @ViewBuilder
+    private var createStatusFooter: some View {
+        switch createPhase {
+        case .idle:
+            EmptyView()
+        case .running(let lines):
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini).tint(AerieColor.amber)
+                Text(lines.last ?? "Starting claude…")
+                    .aerieFont(AerieFont.custom(.sans, size: 12))
+                    .foregroundStyle(AerieColor.text3)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        case .done(let n, let url):
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                Text("PR #\(n) ↗")
+                    .aerieFont(AerieFont.custom(.sans, size: 10))
+                    .foregroundStyle(AerieColor.amber)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 1)
+                    .background(Capsule(style: .continuous).fill(AerieColor.amberSoft))
+                    .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.amberLine, lineWidth: 1))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Open PR #\(n)")
+        case .failed(let message):
+            HStack(spacing: 8) {
+                Text(message)
+                    .aerieFont(AerieFont.custom(.sans, size: 12))
+                    .foregroundStyle(AerieColor.err)
+                    .lineLimit(2)
+                Button("Retry", action: onCreatePR)
+                    .buttonStyle(.plain)
+                    .aerieFont(AerieFont.custom(.sans, size: 12).weight(.medium))
+                    .foregroundStyle(AerieColor.text2)
+            }
+        case .nothingToDo:
+            Text("沒有可發佈的變更")
+                .aerieFont(AerieFont.custom(.sans, size: 12))
+                .foregroundStyle(AerieColor.text3)
+        }
     }
 }
 
@@ -210,5 +302,43 @@ private struct DiscardButton: View {
         .onHover { hovering = $0 }
         .help("Discard all unstaged changes in the working tree")
         .animation(.easeOut(duration: 0.15), value: hovering)
+    }
+}
+
+/// The amber "Create Pull Request" action — amber text on `amberSoft` fill
+/// with an `amberLine` hairline (mergedPill's palette at button scale), so it
+/// reads constructive next to the red danger button and grey ghosts. Swaps to
+/// a spinner + "Creating PR…" while a publish runs.
+private struct CreatePRButton: View {
+    let isCreating: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if isCreating {
+                    ProgressView().controlSize(.small).tint(AerieColor.amber)
+                }
+                Text(isCreating ? "Creating PR…" : "Create Pull Request")
+                    .aerieFont(AerieFont.custom(.sans, size: 13).weight(.medium))
+            }
+            .foregroundStyle(AerieColor.amber)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(AerieColor.amberSoft.opacity(hovering && !isCreating ? 0.75 : 1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(AerieColor.amberLine, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isCreating)
+        .onHover { hovering = $0 }
+        .help("用本地 claude 依 Settings 的 PR 發布模板建立 pull request")
     }
 }
