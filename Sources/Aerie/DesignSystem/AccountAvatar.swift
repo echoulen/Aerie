@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// A round avatar that stands in for a GitHub identity. Picks a colour from a
-/// fixed palette by hashing the login (so the same account always renders in
-/// the same tone across sessions) and overlays uppercase initials in mono.
+/// A round avatar for a GitHub identity. Renders the account's real GitHub
+/// avatar (fetched once per session via `AvatarStore`) and falls back to the
+/// original design — a palette-hashed radial-gradient circle with uppercase
+/// mono initials — while loading, offline, or for logins GitHub doesn't know.
 ///
 /// Visual contract: `docs/superpowers/design/v2/settings.jsx` AccountCard and
 /// `advanced.jsx` ACTIVE GH ACCOUNT card both render the same shape — a
@@ -12,7 +13,48 @@ struct AccountAvatar: View {
     let login: String
     var size: CGFloat = 42
 
+    @State private var remote: NSImage?
+
     var body: some View {
+        // Prefer the freshly-loaded image, then the store's cache (so a
+        // second view of the same login shows the avatar on its first frame,
+        // before its own `.task` fires), then the initials fallback.
+        let image = remote ?? AvatarStore.shared.cachedImage(for: login)
+        ZStack {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+            } else {
+                fallbackCircle
+            }
+            // Inset highlight on the top edge — matches the spec's
+            // `boxShadow:'inset 0 1px 0 0 rgba(255,255,255,0.35)'`. Kept over
+            // the photo too so both states share the design's glass finish.
+            Circle()
+                .strokeBorder(Color.white.opacity(0.35), lineWidth: 1)
+                .mask(
+                    LinearGradient(
+                        stops: [.init(color: .white, location: 0), .init(color: .clear, location: 0.35)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+        }
+        .frame(width: size, height: size)
+        .task(id: login) {
+            // Reset before awaiting so a reused view never shows the previous
+            // login's photo while the new one loads.
+            remote = AvatarStore.shared.cachedImage(for: login)
+            if remote == nil {
+                remote = await AvatarStore.shared.image(for: login)
+            }
+        }
+    }
+
+    private var fallbackCircle: some View {
         let tone = Self.tone(for: login)
         return ZStack {
             Circle()
@@ -24,21 +66,10 @@ struct AccountAvatar: View {
                         endRadius: size * 0.85
                     )
                 )
-            // Inset highlight on the top edge — matches the spec's
-            // `boxShadow:'inset 0 1px 0 0 rgba(255,255,255,0.35)'`.
-            Circle()
-                .strokeBorder(Color.white.opacity(0.35), lineWidth: 1)
-                .mask(
-                    LinearGradient(
-                        stops: [.init(color: .white, location: 0), .init(color: .clear, location: 0.35)],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
             Text(Self.initials(for: login))
                 .font(.system(size: size * 0.30, weight: .medium, design: .monospaced))
                 .foregroundStyle(Color(red: 0.16, green: 0.13, blue: 0.10))
         }
-        .frame(width: size, height: size)
     }
 
     // MARK: - Static helpers (exposed for tests / re-use in Advanced)
