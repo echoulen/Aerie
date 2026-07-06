@@ -40,6 +40,12 @@ struct ReposScreen: View {
     var onDiscardWorktree: (RepoRow, WorktreeRow) -> Void = { _, _ in }
     /// Asks the shell to delete the specified worktree for `row`.
     var onDeleteWorktree: (RepoRow, WorktreeRow) -> Void = { _, _ in }
+    /// The repo's PR-publish phase, looked up in the shell-owned
+    /// `PRCreateStore`. Defaulted to idle for previews / snapshot tests.
+    var createPhase: (RepoRow) -> PRCreatePhase = { _ in .idle }
+    /// Starts a claude-driven PR publish for `row` (lives in `MainShell`,
+    /// like the other repo actions — the screen stays state-free).
+    var onCreatePR: (RepoRow) -> Void = { _ in }
 
     var body: some View {
         switch viewModel.state {
@@ -130,7 +136,9 @@ struct ReposScreen: View {
                         onDiscard: { onDiscard(row) },
                         onMergeWorktree: { await onMergeWorktree(row, $0) },
                         onDiscardWorktree: { onDiscardWorktree(row, $0) },
-                        onDeleteWorktree: { onDeleteWorktree(row, $0) }
+                        onDeleteWorktree: { onDeleteWorktree(row, $0) },
+                        createPhase: createPhase(row),
+                        onCreatePR: { onCreatePR(row) }
                     )
                     .padding(.bottom, AerieMetric.cardGap)
                 }
