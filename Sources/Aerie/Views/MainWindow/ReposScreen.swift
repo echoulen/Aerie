@@ -46,6 +46,9 @@ struct ReposScreen: View {
     /// Starts a claude-driven PR publish for `row` (lives in `MainShell`,
     /// like the other repo actions — the screen stays state-free).
     var onCreatePR: (RepoRow) -> Void = { _ in }
+    /// Pauses or resumes `row`'s GitHub API sync (lives in `MainShell`, like
+    /// the other repo actions — the screen stays state-free).
+    var onToggleApiSync: (RepoRow) -> Void = { _ in }
 
     var body: some View {
         switch viewModel.state {
@@ -138,7 +141,8 @@ struct ReposScreen: View {
                         onDiscardWorktree: { onDiscardWorktree(row, $0) },
                         onDeleteWorktree: { onDeleteWorktree(row, $0) },
                         createPhase: createPhase(row),
-                        onCreatePR: { onCreatePR(row) }
+                        onCreatePR: { onCreatePR(row) },
+                        onToggleApiSync: { onToggleApiSync(row) }
                     )
                     .padding(.bottom, AerieMetric.cardGap)
                 }
