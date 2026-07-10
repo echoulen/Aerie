@@ -56,7 +56,8 @@ final class ListReposToolTests: XCTestCase {
             defaultBranch: "develop",
             primaryAccountId: acct,
             sortOrder: 1,
-            hidden: true
+            hidden: true,
+            apiSyncDisabled: true
         )
         try await db.repos.insert(r1)
         try await db.repos.insert(r2)
@@ -82,6 +83,7 @@ final class ListReposToolTests: XCTestCase {
         XCTAssertEqual(first["repo"], .string("alpha"))
         XCTAssertEqual(first["default_branch"], .string("main"))
         XCTAssertEqual(first["hidden"], .bool(false))
+        XCTAssertEqual(first["api_sync_disabled"], .bool(false))
 
         guard case .object(let second) = items[1] else {
             XCTFail("expected second entry to be object")
@@ -90,6 +92,7 @@ final class ListReposToolTests: XCTestCase {
         XCTAssertEqual(second["name"], .string("Bravo"))
         XCTAssertEqual(second["default_branch"], .string("develop"))
         XCTAssertEqual(second["hidden"], .bool(true))
+        XCTAssertEqual(second["api_sync_disabled"], .bool(true))
     }
 
     func test_handle_emptyDB_returnsEmptyArray() async throws {
