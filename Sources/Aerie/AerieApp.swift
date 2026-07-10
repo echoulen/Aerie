@@ -571,7 +571,7 @@ struct MainShell: View {
                 await claude.review(
                     owner: r.repo.githubOwner, repo: r.repo.githubRepo, number: r.pr.number,
                     title: r.pr.title, author: r.pr.authorLogin, sourceBranch: r.pr.sourceBranch,
-                    diff: diff, localPath: r.repo.localPath, onLine: onLine)
+                    diff: diff, localPath: r.repo.localPath, model: .default, onLine: onLine)
             },
             resolveApprover: { r in
                 let accounts = await services.auth.allAccounts()
