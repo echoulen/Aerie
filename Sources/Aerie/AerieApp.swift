@@ -21,7 +21,7 @@ struct AerieApp: App {
         WindowGroup("Aerie") {
             InterfaceZoom(appearance: appearance) {
                 AppRoot(bootstrapper: bootstrapper, onAuthOK: startMCPServer)
-                    .frame(minWidth: 1240, minHeight: 880)
+                    .frame(minWidth: AerieMetric.mainWindowW, minHeight: AerieMetric.mainWindowH)
             }
             .task { await appearance.refresh() }
         }
@@ -575,10 +575,14 @@ struct MainShell: View {
                     number: r.pr.number, accountId: r.repo.primaryAccountId).value
             },
             runReview: { r, diff, onLine in
-                await claude.review(
+                // Read the model fresh on every run (not at store construction)
+                // so Settings edits apply to the next click.
+                let storedModel = (try? await services.db.settings.getString(AIModelViewModel.settingsKey)) ?? nil
+                let model = storedModel.flatMap(ClaudeModel.init(rawValue:)) ?? .default
+                return await claude.review(
                     owner: r.repo.githubOwner, repo: r.repo.githubRepo, number: r.pr.number,
                     title: r.pr.title, author: r.pr.authorLogin, sourceBranch: r.pr.sourceBranch,
-                    diff: diff, localPath: r.repo.localPath, onLine: onLine)
+                    diff: diff, localPath: r.repo.localPath, model: model, onLine: onLine)
             },
             resolveApprover: { r in
                 let accounts = await services.auth.allAccounts()
@@ -617,9 +621,11 @@ struct MainShell: View {
         let claude: PRCreateService = LivePRCreateService()
         return PRCreateStore(
             runCreate: { row, onLine in
-                // Read the user's custom template on every run (not at store
+                // Read the template and model fresh on every run (not at store
                 // construction) so Settings edits apply to the next click.
                 let stored = (try? await services.db.settings.getString(PRPublishViewModel.settingsKey)) ?? nil
+                let storedModel = (try? await services.db.settings.getString(AIModelViewModel.settingsKey)) ?? nil
+                let model = storedModel.flatMap(ClaudeModel.init(rawValue:)) ?? .default
                 return await claude.createPR(
                     template: DefaultPRPublishTemplate.resolve(stored: stored),
                     owner: row.repo.githubOwner,
@@ -628,6 +634,7 @@ struct MainShell: View {
                     currentBranch: row.status?.currentBranch ?? row.repo.defaultBranch,
                     statusSummary: PRCreatePrompt.statusSummary(row.status),
                     localPath: row.repo.localPath,
+                    model: model,
                     onLine: onLine)
             },
             onCreated: {
@@ -697,6 +704,9 @@ struct MainShell: View {
         ) {
             tabContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Publishes `\.isCompactWidth` so the list screens and cards
+                // switch to their narrow layouts when the window shrinks.
+                .readsCompactWidth()
         }
         // Confirmation dialogs — each carries its own full-window scrim (via
         // `DialogShell`), so overlaying here dims the titlebar too. Content is

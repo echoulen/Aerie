@@ -135,7 +135,7 @@ protocol PRCreateService: Sendable {
         template: String,
         owner: String, repo: String,
         defaultBranch: String, currentBranch: String,
-        statusSummary: String, localPath: URL,
+        statusSummary: String, localPath: URL, model: ClaudeModel,
         onLine: @escaping @Sendable (String) -> Void
     ) async -> PRCreateOutcome
 }
@@ -161,7 +161,7 @@ struct LivePRCreateService: PRCreateService {
         template: String,
         owner: String, repo: String,
         defaultBranch: String, currentBranch: String,
-        statusSummary: String, localPath: URL,
+        statusSummary: String, localPath: URL, model: ClaudeModel,
         onLine: @escaping @Sendable (String) -> Void
     ) async -> PRCreateOutcome {
         // 1. Claude installed?
@@ -184,8 +184,8 @@ struct LivePRCreateService: PRCreateService {
             template: template, owner: owner, repo: repo,
             defaultBranch: defaultBranch, currentBranch: currentBranch,
             statusSummary: statusSummary)
-        let args = ["-p", prompt, "--output-format", "stream-json", "--verbose",
-                    "--allowedTools", "Read,Grep,Glob,Bash(git:*),Bash(gh:*)"]
+        let args = ["-p", prompt, "--model", model.rawValue, "--output-format", "stream-json",
+                    "--verbose", "--allowedTools", "Read,Grep,Glob,Bash(git:*),Bash(gh:*)"]
 
         // 4. Stream with idle + total watchdog (same shape as review).
         let activity = PRCreateActivityClock()

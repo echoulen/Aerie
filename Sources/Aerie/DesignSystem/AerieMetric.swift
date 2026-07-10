@@ -10,6 +10,10 @@ enum AerieMetric {
 
     // Spacing
     static let pagePadding: CGFloat = 44
+    /// Page gutter when the window is narrower than
+    /// ``compactWidthBreakpoint`` — the 44pt gutters eat too much of a narrow
+    /// window, so the list screens drop to this.
+    static let pagePaddingCompact: CGFloat = 24
     static let cardPaddingV: CGFloat = 22
     static let cardPaddingH: CGFloat = 26
     static let cardGap:     CGFloat = 14
@@ -21,8 +25,12 @@ enum AerieMetric {
     /// 26 pt; the native traffic lights are pinned by the system at 16 pt, so by
     /// design the brand sits a touch below them in exchange for the padding.
     static let titlebarHeight: CGFloat = 52
-    static let mainWindowW: CGFloat = 1240
+    static let mainWindowW: CGFloat = 420
     static let mainWindowH: CGFloat = 880
+    /// Below this content width the main-window lists switch to the compact
+    /// layout (actions under the card content, tighter gutters). See
+    /// `\.isCompactWidth` in AdaptiveLayout.swift.
+    static let compactWidthBreakpoint: CGFloat = 640
     static let settingsWindowW: CGFloat = 1040
     static let settingsWindowH: CGFloat = 760
 }

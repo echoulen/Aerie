@@ -33,31 +33,66 @@ struct PageHeader: View {
                 .tracking(2.2)                       // 0.22em @ 10pt
                 .foregroundStyle(AerieColor.text4)
 
-            HStack(alignment: .bottom) {
-                // Title + count share a baseline; the action buttons centre on
-                // the title cluster (per the v2 `Header` row).
-                HStack(alignment: .center, spacing: 14) {
-                    HStack(alignment: .firstTextBaseline, spacing: 14) {
-                        Text(title)
-                            .aerieFont(AerieFont.pageTitle())
-                            .tracking(-0.3)          // -0.012em @ 26pt
-                            .foregroundStyle(AerieColor.text1)
-                        Text(count)
-                            .aerieFont(AerieFont.code(13))
-                            .tracking(0.26)          // 0.02em @ 13pt
-                            .foregroundStyle(AerieColor.text3)
-                    }
-                    RefreshButton(action: onRefresh)
-                    if let trailing {
-                        trailing
-                    }
-                }
-                Spacer(minLength: 16)
-                if let tabSelection {
-                    SegmentedToggle(selection: tabSelection)
-                }
+            // The one-line header needs ~800pt; when it doesn't fit the count
+            // and the tab toggle drop onto their own rows instead of forcing
+            // the window wider. All the labels here are short fixed strings,
+            // so ViewThatFits measures them reliably.
+            ViewThatFits(in: .horizontal) {
+                wideRow
+                narrowRows
             }
         }
         .padding(.top, 22)
+    }
+
+    private var wideRow: some View {
+        HStack(alignment: .bottom) {
+            // Title + count share a baseline; the action buttons centre on
+            // the title cluster (per the v2 `Header` row).
+            HStack(alignment: .center, spacing: 14) {
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    Text(title)
+                        .aerieFont(AerieFont.pageTitle())
+                        .tracking(-0.3)          // -0.012em @ 26pt
+                        .foregroundStyle(AerieColor.text1)
+                    Text(count)
+                        .aerieFont(AerieFont.code(13))
+                        .tracking(0.26)          // 0.02em @ 13pt
+                        .foregroundStyle(AerieColor.text3)
+                }
+                RefreshButton(action: onRefresh)
+                if let trailing {
+                    trailing
+                }
+            }
+            Spacer(minLength: 16)
+            if let tabSelection {
+                SegmentedToggle(selection: tabSelection)
+            }
+        }
+    }
+
+    private var narrowRows: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 14) {
+                Text(title)
+                    .aerieFont(AerieFont.pageTitle())
+                    .tracking(-0.3)
+                    .foregroundStyle(AerieColor.text1)
+                    .lineLimit(1)
+                RefreshButton(action: onRefresh)
+                if let trailing {
+                    trailing
+                }
+                Spacer(minLength: 0)
+            }
+            Text(count)
+                .aerieFont(AerieFont.code(13))
+                .tracking(0.26)
+                .foregroundStyle(AerieColor.text3)
+            if let tabSelection {
+                SegmentedToggle(selection: tabSelection)
+            }
+        }
     }
 }

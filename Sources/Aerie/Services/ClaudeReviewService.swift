@@ -212,7 +212,7 @@ protocol ClaudeReviewService: Sendable {
     func review(
         owner: String, repo: String, number: Int,
         title: String, author: String, sourceBranch: String,
-        diff: String, localPath: URL,
+        diff: String, localPath: URL, model: ClaudeModel,
         onLine: @escaping @Sendable (String) -> Void
     ) async -> ClaudeReviewOutcome
 }
@@ -232,7 +232,7 @@ struct LiveClaudeReviewService: ClaudeReviewService {
     func review(
         owner: String, repo: String, number: Int,
         title: String, author: String, sourceBranch: String,
-        diff: String, localPath: URL,
+        diff: String, localPath: URL, model: ClaudeModel,
         onLine: @escaping @Sendable (String) -> Void
     ) async -> ClaudeReviewOutcome {
         // 1. Claude installed?
@@ -250,8 +250,8 @@ struct LiveClaudeReviewService: ClaudeReviewService {
         let prompt = ClaudeReviewPrompt.build(
             owner: owner, repo: repo, number: number,
             title: title, author: author, sourceBranch: sourceBranch, diff: diff)
-        let args = ["-p", prompt, "--output-format", "stream-json", "--verbose",
-                    "--allowedTools", "Read,Grep,Glob"]
+        let args = ["-p", prompt, "--model", model.rawValue, "--output-format", "stream-json",
+                    "--verbose", "--allowedTools", "Read,Grep,Glob"]
 
         // 4. Stream with idle + total watchdog. Each shown line bumps the activity
         //    clock; the watchdog cancels (→ terminate process) if idle or total

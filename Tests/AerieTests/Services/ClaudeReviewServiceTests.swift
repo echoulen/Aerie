@@ -12,6 +12,7 @@ private final class StreamStubRunner: SubprocessRunner, @unchecked Sendable {
     var hang = false
     private(set) var ranClaude = false
     private(set) var lastCwd: URL?
+    private(set) var lastArgs: [String] = []
 
     func run(_ command: String, _ args: [String], cwd: URL?) async throws -> (String, String, Int32) {
         if command == "which" { return (whichOut, "", whichCode) }
@@ -20,7 +21,7 @@ private final class StreamStubRunner: SubprocessRunner, @unchecked Sendable {
     func stream(_ command: String, _ args: [String], cwd: URL?,
                 onLine: @escaping @Sendable (String) -> Void) async throws -> Int32 {
         guard command == "claude" else { return 0 }
-        ranClaude = true; lastCwd = cwd
+        ranClaude = true; lastCwd = cwd; lastArgs = args
         if hang {
             try await Task.sleep(nanoseconds: 60 * 1_000_000_000)  // cancelled long before
             return -1
@@ -34,11 +35,12 @@ final class ClaudeReviewServiceTests: XCTestCase {
     private func svc(_ runner: SubprocessRunner, idle: TimeInterval = 5, total: TimeInterval = 30) -> LiveClaudeReviewService {
         LiveClaudeReviewService(runner: runner, idleTimeout: idle, totalTimeout: total)
     }
-    private func review(_ s: LiveClaudeReviewService, onLine: @escaping @Sendable (String) -> Void = { _ in },
+    private func review(_ s: LiveClaudeReviewService, model: ClaudeModel = .sonnet5,
+                        onLine: @escaping @Sendable (String) -> Void = { _ in },
                         localPath: URL = URL(fileURLWithPath: "/tmp")) async -> ClaudeReviewOutcome {
         await s.review(owner: "echoulen", repo: "aerie", number: 42, title: "T",
                        author: "octocat", sourceBranch: "feat/x", diff: "DIFF",
-                       localPath: localPath, onLine: onLine)
+                       localPath: localPath, model: model, onLine: onLine)
     }
 
     func test_streamsProgress_andParsesVerdict() async {
@@ -87,5 +89,13 @@ final class ClaudeReviewServiceTests: XCTestCase {
         r.lines = [#"{"type":"result","result":"{\"verdict\":\"approve\",\"summary\":\"x\",\"issues\":[]}"}"#]
         _ = await review(svc(r), localPath: URL(fileURLWithPath: "/tmp"))
         XCTAssertEqual(r.lastCwd, URL(fileURLWithPath: "/tmp"))
+    }
+
+    func test_modelFlag_passedToArgs() async {
+        let r = StreamStubRunner()
+        r.lines = [#"{"type":"result","result":"{\"verdict\":\"approve\",\"summary\":\"x\",\"issues\":[]}"}"#]
+        _ = await review(svc(r), model: .opus48)
+        guard let i = r.lastArgs.firstIndex(of: "--model") else { return XCTFail("no --model flag") }
+        XCTAssertEqual(r.lastArgs[i + 1], "claude-opus-4-8")
     }
 }

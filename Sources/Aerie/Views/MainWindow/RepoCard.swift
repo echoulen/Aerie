@@ -144,36 +144,7 @@ struct RepoCard: View {
             BranchTag(name: branchName, isCurrent: !isOnDefault)
             StatusPill(text: statusText, tone: statusTone, showsDot: true)
         } actions: {
-            // Stack vertically: the uniform Open ↗ / Reset row stays on top so
-            // those line up across cards; the conditional second row holds the
-            // amber Create PR button and the quieter dirty-only Discard.
-            // Destructive actions are disabled while claude is running git —
-            // a hard reset mid-publish would corrupt the flow.
-            VStack(alignment: .trailing, spacing: 8) {
-                HStack(spacing: 8) {
-                    ApiSyncToggleButton(
-                        icon: Self.apiSyncToggleIcon(row),
-                        isDisabled: row.repo.apiSyncDisabled,
-                        help: Self.apiSyncToggleHelp(row),
-                        action: onToggleApiSync)
-                    CardOpenButton(action: onOpen)
-                    DangerButton(title: Self.resetTitle(row), action: onHardReset)
-                        .disabled(isCreating)
-                        .opacity(isCreating ? 0.45 : 1)
-                }
-                if Self.shouldShowCreatePR(row) || isCreating || Self.shouldShowDiscard(row.status) {
-                    HStack(spacing: 8) {
-                        if Self.shouldShowCreatePR(row) || isCreating {
-                            CreatePRButton(isCreating: isCreating, action: onCreatePR)
-                        }
-                        if Self.shouldShowDiscard(row.status) {
-                            DiscardButton(action: onDiscard)
-                                .disabled(isCreating)
-                                .opacity(isCreating ? 0.45 : 1)
-                        }
-                    }
-                }
-            }
+            actionCluster
         } footer: {
             if !row.worktrees.isEmpty || !createFooterIsEmpty {
                 VStack(alignment: .leading, spacing: 8) {
@@ -190,6 +161,66 @@ struct RepoCard: View {
                     }
                 }
             }
+        }
+    }
+
+    @Environment(\.isCompactWidth) private var isCompact
+
+    // The trailing action cluster. Wide: the uniform Open ↗ / Reset row stays
+    // on top so those line up across cards; the conditional second row holds
+    // the amber Create PR button and the quieter dirty-only Discard. Compact:
+    // CardContent puts this slot under the content, so the same buttons wrap
+    // as a flow instead of forcing fixed rows wider than the card.
+    // Destructive actions are disabled while claude is running git —
+    // a hard reset mid-publish would corrupt the flow.
+    @ViewBuilder
+    private var actionCluster: some View {
+        if isCompact {
+            FlowLayout(itemSpacing: 8, rowSpacing: 8) {
+                actionButtons
+            }
+        } else {
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 8) {
+                    actionButtons
+                }
+                if Self.shouldShowCreatePR(row) || isCreating || Self.shouldShowDiscard(row.status) {
+                    HStack(spacing: 8) {
+                        secondaryActionButtons
+                    }
+                }
+            }
+        }
+    }
+
+    /// Pause/resume toggle + Open ↗ + Reset — the always-present trio. In
+    /// compact mode the flow layout receives these and the secondary buttons
+    /// as one flat run.
+    @ViewBuilder
+    private var actionButtons: some View {
+        ApiSyncToggleButton(
+            icon: Self.apiSyncToggleIcon(row),
+            isDisabled: row.repo.apiSyncDisabled,
+            help: Self.apiSyncToggleHelp(row),
+            action: onToggleApiSync)
+        CardOpenButton(action: onOpen)
+        DangerButton(title: Self.resetTitle(row), action: onHardReset)
+            .disabled(isCreating)
+            .opacity(isCreating ? 0.45 : 1)
+        if isCompact {
+            secondaryActionButtons
+        }
+    }
+
+    @ViewBuilder
+    private var secondaryActionButtons: some View {
+        if Self.shouldShowCreatePR(row) || isCreating {
+            CreatePRButton(isCreating: isCreating, action: onCreatePR)
+        }
+        if Self.shouldShowDiscard(row.status) {
+            DiscardButton(action: onDiscard)
+                .disabled(isCreating)
+                .opacity(isCreating ? 0.45 : 1)
         }
     }
 

@@ -50,6 +50,11 @@ struct ReposScreen: View {
     /// the other repo actions — the screen stays state-free).
     var onToggleApiSync: (RepoRow) -> Void = { _ in }
 
+    @Environment(\.isCompactWidth) private var isCompact
+    private var pagePadding: CGFloat {
+        isCompact ? AerieMetric.pagePaddingCompact : AerieMetric.pagePadding
+    }
+
     var body: some View {
         switch viewModel.state {
         case .loading:
@@ -73,7 +78,7 @@ struct ReposScreen: View {
     private func nonReadyLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             header(total: 0, withDirty: 0)
-                .padding(.horizontal, AerieMetric.pagePadding)
+                .padding(.horizontal, pagePadding)
                 .padding(.top, 12)
                 .padding(.bottom, 18)
             content()
@@ -147,7 +152,7 @@ struct ReposScreen: View {
                     .padding(.bottom, AerieMetric.cardGap)
                 }
             }
-            .padding(.horizontal, AerieMetric.pagePadding)
+            .padding(.horizontal, pagePadding)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
         }

@@ -179,10 +179,14 @@ struct WorktreeRowView: View {
     var onDelete: () -> Void
 
     @State private var phase: MergePhase = .idle
+    @Environment(\.isCompactWidth) private var isCompact
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 18) {
+            // Compact: the fixed-size action cluster (~230pt) drops under the
+            // chip row instead of sharing it — side by side they exceed a
+            // narrow card's width.
+            rowLayout {
                 HStack(spacing: 14) {
                     WorktreeBranchChip(worktree: worktree)
                     WorktreeStatusView(worktree: worktree)
@@ -209,6 +213,16 @@ struct WorktreeRowView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: phase)
+    }
+
+    /// Wide → one row (chips left, actions right); compact → two stacked rows.
+    @ViewBuilder
+    private func rowLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        if isCompact {
+            VStack(alignment: .leading, spacing: 10) { content() }
+        } else {
+            HStack(spacing: 18) { content() }
+        }
     }
 
     private func runMerge() {

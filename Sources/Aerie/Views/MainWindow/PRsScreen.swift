@@ -45,6 +45,11 @@ struct PRsScreen: View {
     /// defaulted to "never" for snapshot tests and previews.
     var isReviewing: (PRRow) -> Bool = { _ in false }
 
+    @Environment(\.isCompactWidth) private var isCompact
+    private var pagePadding: CGFloat {
+        isCompact ? AerieMetric.pagePaddingCompact : AerieMetric.pagePadding
+    }
+
     var body: some View {
         switch viewModel.state {
         case .loading:
@@ -68,7 +73,7 @@ struct PRsScreen: View {
     private func nonReadyLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             header(open: 0, ready: 0)
-                .padding(.horizontal, AerieMetric.pagePadding)
+                .padding(.horizontal, pagePadding)
                 .padding(.top, 12)
                 .padding(.bottom, 18)
             content()
@@ -142,7 +147,7 @@ struct PRsScreen: View {
                     .padding(.bottom, AerieMetric.cardGap)
                 }
             }
-            .padding(.horizontal, AerieMetric.pagePadding)
+            .padding(.horizontal, pagePadding)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
