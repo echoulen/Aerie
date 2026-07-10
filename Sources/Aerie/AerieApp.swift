@@ -21,7 +21,7 @@ struct AerieApp: App {
         WindowGroup("Aerie") {
             InterfaceZoom(appearance: appearance) {
                 AppRoot(bootstrapper: bootstrapper, onAuthOK: startMCPServer)
-                    .frame(minWidth: 1240, minHeight: 880)
+                    .frame(minWidth: AerieMetric.mainWindowW, minHeight: AerieMetric.mainWindowH)
             }
             .task { await appearance.refresh() }
         }
@@ -690,6 +690,9 @@ struct MainShell: View {
         ) {
             tabContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Publishes `\.isCompactWidth` so the list screens and cards
+                // switch to their narrow layouts when the window shrinks.
+                .readsCompactWidth()
         }
         // Confirmation dialogs — each carries its own full-window scrim (via
         // `DialogShell`), so overlaying here dims the titlebar too. Content is

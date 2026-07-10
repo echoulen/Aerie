@@ -59,6 +59,8 @@ struct CardContent<Meta: View, Chips: View, Actions: View, Footer: View>: View {
     @ViewBuilder var actions: () -> Actions
     @ViewBuilder var footer: () -> Footer
 
+    @Environment(\.isCompactWidth) private var isCompact
+
     private var updatedAgo: String? {
         guard let updatedAt else { return nil }
         return CardRelativeTime.label(for: updatedAt, now: now)
@@ -66,34 +68,20 @@ struct CardContent<Meta: View, Chips: View, Actions: View, Footer: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 28) {
-                // Leading content column — uniform 12pt rhythm between meta · title
-                // · chips (the design's `col { gap: 12 }`).
+            if isCompact {
+                // Narrow window: the actions slot moves under the content
+                // column so the text column keeps the full card width.
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 10) {
-                        meta()
-                        Spacer(minLength: 0)
-                        if let updatedAgo {
-                            Text(updatedAgo)
-                                .aerieFont(AerieFont.code(11))
-                                .foregroundStyle(AerieColor.text4)
-                        }
-                    }
-
-                    Text(title)
-                        .aerieFont(AerieFont.custom(.sans, size: 20).weight(.medium))
-                        .foregroundStyle(AerieColor.text1)
-                        .lineLimit(2)
-
-                    HStack(spacing: 10) {
-                        chips()
-                        Spacer(minLength: 0)
-                    }
-                    .frame(minHeight: 24, alignment: .leading)
+                    contentColumn
+                    actions()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                actions()
+            } else {
+                HStack(alignment: .center, spacing: 28) {
+                    contentColumn
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    actions()
+                }
             }
 
             footer()
@@ -101,6 +89,36 @@ struct CardContent<Meta: View, Chips: View, Actions: View, Footer: View>: View {
         .padding(.vertical, 24)
         .padding(.horizontal, 28)
         .glass(.card)
+    }
+
+    // Leading content column — uniform 12pt rhythm between meta · title
+    // · chips (the design's `col { gap: 12 }`).
+    private var contentColumn: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                meta()
+                Spacer(minLength: 0)
+                if let updatedAgo {
+                    Text(updatedAgo)
+                        .aerieFont(AerieFont.code(11))
+                        .foregroundStyle(AerieColor.text4)
+                        .fixedSize()
+                }
+            }
+
+            Text(title)
+                .aerieFont(AerieFont.custom(.sans, size: 20).weight(.medium))
+                .foregroundStyle(AerieColor.text1)
+                .lineLimit(2)
+
+            // Chips wrap onto extra rows when the card is narrow — they're
+            // fixed-size pills, so a plain HStack would force the card wider
+            // than the window instead of breaking the line.
+            FlowLayout(itemSpacing: 10, rowSpacing: 8) {
+                chips()
+            }
+            .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+        }
     }
 }
 
@@ -132,21 +150,26 @@ struct CardMeta: View {
     var badge: String? = nil
 
     var body: some View {
+        // lineLimit(1) lets the name/author truncate on narrow cards instead
+        // of forcing the meta row (and the card) wider than the window.
         HStack(spacing: 10) {
             Text(name)
                 .aerieFont(AerieFont.code(11))
                 .foregroundStyle(AerieColor.text2)
+                .lineLimit(1)
             if let number {
                 MetaDot()
                 Text("#\(number)")
                     .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text4)
+                    .fixedSize()
             }
             if let author {
                 MetaDot()
                 Text(author)
                     .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text4)
+                    .lineLimit(1)
             }
             if let badge {
                 CardBadge(text: badge)

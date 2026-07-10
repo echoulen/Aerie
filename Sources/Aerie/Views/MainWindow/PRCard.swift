@@ -115,17 +115,38 @@ struct PRCard: View {
 
     private static let actionColumnWidth: CGFloat = 132
 
+    @Environment(\.isCompactWidth) private var isCompact
+
+    @ViewBuilder
     private var actionColumn: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                openButton
-                CopyLinkButton(url: row.pr.htmlUrl)
+        if isCompact {
+            // Narrow window: CardContent puts this slot under the content, so
+            // spread the four actions across two full-width rows instead of
+            // the fixed 132pt column.
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    openButton
+                    CopyLinkButton(url: row.pr.htmlUrl)
+                    reviewButton
+                }
+                HStack(spacing: 8) {
+                    mergeButton
+                    checkoutButton
+                }
             }
-            reviewButton
-            mergeButton
-            checkoutButton
+            .frame(maxWidth: .infinity)
+        } else {
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    openButton
+                    CopyLinkButton(url: row.pr.htmlUrl)
+                }
+                reviewButton
+                mergeButton
+                checkoutButton
+            }
+            .frame(width: Self.actionColumnWidth)
         }
-        .frame(width: Self.actionColumnWidth)
     }
 
     // Glass-chrome button (matches Checkout) that drills into the code review
