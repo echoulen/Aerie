@@ -33,6 +33,9 @@ struct RepoCard: View {
     var createPhase: PRCreatePhase = .idle
     /// Starts (or retries) a claude-driven PR publish for this repo.
     var onCreatePR: () -> Void = {}
+    /// Pauses or resumes this repo's GitHub API sync (PRs, Issues,
+    /// merged-branch check). Local git operations are unaffected either way.
+    var onToggleApiSync: () -> Void = {}
 
     // MARK: - Derived presentation bits
 
@@ -52,6 +55,19 @@ struct RepoCard: View {
         guard let s = row.status else { return false }
         let offDefault = s.currentBranch != row.repo.defaultBranch
         return s.isDirty || s.aheadOfDefault > 0 || s.unpushedCommits > 0 || offDefault
+    }
+
+    /// The toggle button's SF Symbol name — swaps between "pause" (sync
+    /// active, click to pause) and "play" (sync paused, click to resume) so
+    /// the icon always reflects `Repository.apiSyncDisabled`. Static +
+    /// internal so it's unit-testable without rendering the view.
+    static func apiSyncToggleIcon(_ row: RepoRow) -> String {
+        row.repo.apiSyncDisabled ? "play.circle" : "pause.circle"
+    }
+
+    /// The toggle button's tooltip, mirroring `apiSyncToggleIcon`'s state split.
+    static func apiSyncToggleHelp(_ row: RepoRow) -> String {
+        row.repo.apiSyncDisabled ? "Resume API sync" : "Pause API sync (PR / Issue)"
     }
 
     private var isCreating: Bool {
@@ -112,6 +128,10 @@ struct RepoCard: View {
                 Text(owner)
                     .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text2)
+                if row.repo.apiSyncDisabled {
+                    MetaDot()
+                    apiSyncPausedPill
+                }
                 if let merged = row.mergedBranch {
                     MetaDot()
                     mergedPill(merged)
@@ -131,6 +151,11 @@ struct RepoCard: View {
             // a hard reset mid-publish would corrupt the flow.
             VStack(alignment: .trailing, spacing: 8) {
                 HStack(spacing: 8) {
+                    ApiSyncToggleButton(
+                        icon: Self.apiSyncToggleIcon(row),
+                        isDisabled: row.repo.apiSyncDisabled,
+                        help: Self.apiSyncToggleHelp(row),
+                        action: onToggleApiSync)
                     CardOpenButton(action: onOpen)
                     DangerButton(title: Self.resetTitle(row), action: onHardReset)
                         .disabled(isCreating)
@@ -170,6 +195,19 @@ struct RepoCard: View {
 
     private var offDefaultPill: some View {
         Text("off default")
+            .aerieFont(AerieFont.custom(.sans, size: 10))
+            .foregroundStyle(AerieColor.text3)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 1)
+            .background(Capsule(style: .continuous).fill(AerieColor.glass2))
+            .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+    }
+
+    /// Grey pill shown when `apiSyncDisabled` is true — the sibling of
+    /// `offDefaultPill`, same styling, independent of it (both can show
+    /// together).
+    private var apiSyncPausedPill: some View {
+        Text("API sync paused")
             .aerieFont(AerieFont.custom(.sans, size: 10))
             .foregroundStyle(AerieColor.text3)
             .padding(.horizontal, 7)
@@ -306,6 +344,31 @@ private struct DiscardButton: View {
         .onHover { hovering = $0 }
         .help("Discard all unstaged changes in the working tree")
         .animation(.easeOut(duration: 0.15), value: hovering)
+    }
+}
+
+/// Icon-only ghost toggle that pauses/resumes this repo's GitHub API sync.
+/// Mirrors `DiscardButton`'s scale (icon-only, `.plain` style, hover color
+/// shift) but swaps to amber when paused so a glance at the card row shows
+/// whether sync is active.
+private struct ApiSyncToggleButton: View {
+    let icon: String
+    let isDisabled: Bool
+    let help: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(isDisabled ? AerieColor.amber : (hovering ? AerieColor.text2 : AerieColor.text4))
+                .padding(6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(help)
     }
 }
 

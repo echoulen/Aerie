@@ -18,7 +18,7 @@ final class RepoCardTests: XCTestCase {
     private let repoId   = UUID(uuidString: "00000000-0000-0000-0000-0000000000a1")!
     private let acctId   = UUID(uuidString: "00000000-0000-0000-0000-0000000000b1")!
 
-    private func makeRepo(name: String = "Aerie", repo: String = "aerie") -> Repository {
+    private func makeRepo(name: String = "Aerie", repo: String = "aerie", apiSyncDisabled: Bool = false) -> Repository {
         Repository(
             id: repoId,
             name: name,
@@ -30,7 +30,8 @@ final class RepoCardTests: XCTestCase {
             defaultBranch: "main",
             primaryAccountId: acctId,
             sortOrder: 0,
-            hidden: false
+            hidden: false,
+            apiSyncDisabled: apiSyncDisabled
         )
     }
 
@@ -168,5 +169,24 @@ final class RepoCardTests: XCTestCase {
                           status: makeStatus(currentBranch: "feat/x", ahead: 1),
                           mergedBranch: merged)
         XCTAssertFalse(RepoCard.shouldShowCreatePR(row))
+    }
+
+    // MARK: - API sync toggle
+
+    func test_apiSyncToggleIcon_pauseWhenActive() {
+        let row = RepoRow(repo: makeRepo(apiSyncDisabled: false), status: makeStatus())
+        XCTAssertEqual(RepoCard.apiSyncToggleIcon(row), "pause.circle")
+    }
+
+    func test_apiSyncToggleIcon_playWhenDisabled() {
+        let row = RepoRow(repo: makeRepo(apiSyncDisabled: true), status: makeStatus())
+        XCTAssertEqual(RepoCard.apiSyncToggleIcon(row), "play.circle")
+    }
+
+    func test_apiSyncToggleHelp_reflectsState() {
+        let active = RepoRow(repo: makeRepo(apiSyncDisabled: false), status: makeStatus())
+        let paused = RepoRow(repo: makeRepo(apiSyncDisabled: true), status: makeStatus())
+        XCTAssertEqual(RepoCard.apiSyncToggleHelp(active), "Pause API sync (PR / Issue)")
+        XCTAssertEqual(RepoCard.apiSyncToggleHelp(paused), "Resume API sync")
     }
 }
