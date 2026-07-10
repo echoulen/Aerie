@@ -5,7 +5,7 @@ import SwiftUI
 /// the requested point size, stroked at the design's 1.4 px weight with round
 /// caps/joins — matching the thin-line house style rather than SF Symbols.
 struct SidebarIcon: View {
-    enum Kind { case key, folder, pullRequest, plug, appearance, sliders, info }
+    enum Kind { case key, folder, pullRequest, cpu, plug, appearance, sliders, info }
 
     let kind: Kind
     var size: CGFloat = 14
@@ -46,6 +46,21 @@ struct SidebarIcon: View {
                 stroke.addQuadCurve(to: P(11.75, 7), control: P(11.75, 4.25))
                 stroke.addLine(to: P(11.75, 10))
                 stroke.addEllipse(in: CGRect(x: 10 * s, y: 10 * s, width: 3.5 * s, height: 3.5 * s))
+
+            case .cpu:
+                // A small chip: square body + 4 pins per side, matching the
+                // thin-line house style of the other glyphs.
+                stroke.addRect(CGRect(x: 5 * s, y: 5 * s, width: 6 * s, height: 6 * s))
+                stroke.move(to: P(6, 5));  stroke.addLine(to: P(6, 3))
+                stroke.move(to: P(8, 5));  stroke.addLine(to: P(8, 3))
+                stroke.move(to: P(10, 5)); stroke.addLine(to: P(10, 3))
+                stroke.move(to: P(6, 11));  stroke.addLine(to: P(6, 13))
+                stroke.move(to: P(8, 11));  stroke.addLine(to: P(8, 13))
+                stroke.move(to: P(10, 11)); stroke.addLine(to: P(10, 13))
+                stroke.move(to: P(5, 6));  stroke.addLine(to: P(3, 6))
+                stroke.move(to: P(5, 10)); stroke.addLine(to: P(3, 10))
+                stroke.move(to: P(11, 6));  stroke.addLine(to: P(13, 6))
+                stroke.move(to: P(11, 10)); stroke.addLine(to: P(13, 10))
 
             case .plug:
                 stroke.move(to: P(5, 2));  stroke.addLine(to: P(5, 5))

@@ -117,4 +117,31 @@ final class ModelsTests: XCTestCase {
         let decoded = try JSONDecoder().decode(PRLocalState.self, from: data)
         XCTAssertEqual(decoded, original)
     }
+
+    func test_claudeModel_rawValuesAndDisplayNames() {
+        XCTAssertEqual(ClaudeModel.sonnet5.rawValue, "claude-sonnet-5")
+        XCTAssertEqual(ClaudeModel.opus48.rawValue, "claude-opus-4-8")
+        XCTAssertEqual(ClaudeModel.haiku45.rawValue, "claude-haiku-4-5-20251001")
+        XCTAssertEqual(ClaudeModel.fable5.rawValue, "claude-fable-5")
+
+        XCTAssertEqual(ClaudeModel.sonnet5.displayName, "Sonnet 5")
+        XCTAssertEqual(ClaudeModel.opus48.displayName, "Opus 4.8")
+        XCTAssertEqual(ClaudeModel.haiku45.displayName, "Haiku 4.5")
+        XCTAssertEqual(ClaudeModel.fable5.displayName, "Fable 5")
+    }
+
+    func test_claudeModel_allCases_hasExactlyFourInOrder() {
+        XCTAssertEqual(ClaudeModel.allCases, [.sonnet5, .opus48, .haiku45, .fable5])
+    }
+
+    func test_claudeModel_default_isSonnet5() {
+        XCTAssertEqual(ClaudeModel.default, .sonnet5)
+    }
+
+    func test_claudeModel_rawValueRoundTrip() {
+        for model in ClaudeModel.allCases {
+            XCTAssertEqual(ClaudeModel(rawValue: model.rawValue), model)
+        }
+        XCTAssertNil(ClaudeModel(rawValue: "not-a-real-model"))
+    }
 }

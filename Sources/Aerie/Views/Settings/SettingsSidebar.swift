@@ -50,6 +50,7 @@ struct SettingsSidebar: View {
         case .accounts:     return .key
         case .repositories: return .folder
         case .pullRequests: return .pullRequest
+        case .aiModel:      return .cpu
         case .mcp:          return .plug
         case .appearance:   return .appearance
         case .advanced:     return .sliders
