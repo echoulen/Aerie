@@ -14,8 +14,8 @@ struct RepoDAO {
         try await dbQueue.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO repos (id, name, local_path, owner, repo, default_branch, account_id, sort_order, hidden)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO repos (id, name, local_path, owner, repo, default_branch, account_id, sort_order, hidden, api_sync_disabled)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: Self.arguments(for: r)
             )
@@ -34,7 +34,8 @@ struct RepoDAO {
                        default_branch = ?,
                        account_id = ?,
                        sort_order = ?,
-                       hidden = ?
+                       hidden = ?,
+                       api_sync_disabled = ?
                  WHERE id = ?
                 """,
                 arguments: [
@@ -46,6 +47,7 @@ struct RepoDAO {
                     r.primaryAccountId.uuidString,
                     r.sortOrder,
                     r.hidden ? 1 : 0,
+                    r.apiSyncDisabled ? 1 : 0,
                     r.id.uuidString,
                 ]
             )
@@ -80,6 +82,15 @@ struct RepoDAO {
             try db.execute(
                 sql: "UPDATE repos SET hidden = ? WHERE id = ?",
                 arguments: [hidden ? 1 : 0, id.uuidString]
+            )
+        }
+    }
+
+    func setApiSyncDisabled(id: UUID, _ disabled: Bool) async throws {
+        try await dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE repos SET api_sync_disabled = ? WHERE id = ?",
+                arguments: [disabled ? 1 : 0, id.uuidString]
             )
         }
     }
@@ -147,6 +158,7 @@ struct RepoDAO {
             r.primaryAccountId.uuidString,
             r.sortOrder,
             r.hidden ? 1 : 0,
+            r.apiSyncDisabled ? 1 : 0,
         ]
     }
 
@@ -154,6 +166,7 @@ struct RepoDAO {
         let idString: String = row["id"]
         let accountString: String = row["account_id"]
         let hidden: Int = row["hidden"]
+        let apiSyncDisabled: Int = row["api_sync_disabled"]
         let localPath: String = row["local_path"]
         return Repository(
             id: UUID(uuidString: idString)!,
@@ -164,7 +177,8 @@ struct RepoDAO {
             defaultBranch: row["default_branch"],
             primaryAccountId: UUID(uuidString: accountString)!,
             sortOrder: row["sort_order"],
-            hidden: hidden != 0
+            hidden: hidden != 0,
+            apiSyncDisabled: apiSyncDisabled != 0
         )
     }
 }
