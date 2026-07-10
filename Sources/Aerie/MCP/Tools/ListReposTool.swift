@@ -24,6 +24,7 @@ struct ListReposTool: MCPTool {
                 "repo": .string(r.githubRepo),
                 "default_branch": .string(r.defaultBranch),
                 "hidden": .bool(r.hidden),
+                "api_sync_disabled": .bool(r.apiSyncDisabled),
             ])
         }
         return .object(["repos": .array(items)])

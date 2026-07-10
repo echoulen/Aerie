@@ -276,6 +276,27 @@ final class PRSyncServiceTests: XCTestCase {
         XCTAssertEqual(changes, 0, "no successful sync → no notification")
     }
 
+    func test_sync_apiSyncDisabled_isNoOp() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let repo = try await insertRepo(db, accountId: acct)
+        try await db.repos.setApiSyncDisabled(id: repo.id, true)
+
+        let fetcher = StubPRFetcher()
+        await fetcher.setResult([makePR(repoId: repo.id, number: 1)], forRepo: repo.id)
+        let counter = ChangeCounter()
+
+        let service = PRSyncService(db: db, api: fetcher, git: LiveGitService(), onChange: { await counter.bump() })
+        await service.sync(repoId: repo.id)
+
+        let count = await fetcher.callCount()
+        XCTAssertEqual(count, 0, "api-sync-disabled repo → no fetch")
+        let cached = try await db.prCache.prs(forRepo: repo.id)
+        XCTAssertEqual(cached, [], "no fetch → cache stays empty")
+        let changes = await counter.value()
+        XCTAssertEqual(changes, 0, "no fetch → no notification")
+    }
+
     // MARK: syncAll()
 
     func test_syncAll_syncsVisibleRepos_skipsHidden() async throws {

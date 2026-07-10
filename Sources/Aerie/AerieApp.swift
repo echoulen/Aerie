@@ -380,7 +380,14 @@ struct MainShell: View {
                     presentedDeleteWorktree = WorktreeContext(repo: row.repo, worktree: wt)
                 },
                 createPhase: { prCreateStore.phase(for: $0) },
-                onCreatePR: { prCreateStore.start(row: $0) }
+                onCreatePR: { prCreateStore.start(row: $0) },
+                onToggleApiSync: { row in
+                    Task {
+                        try? await services.db.repos.setApiSyncDisabled(
+                            id: row.repo.id, !row.repo.apiSyncDisabled)
+                        await reposVM.refresh()
+                    }
+                }
             )
         }
     }

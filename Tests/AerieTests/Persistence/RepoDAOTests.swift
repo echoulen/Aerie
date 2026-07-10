@@ -184,6 +184,50 @@ final class RepoDAOTests: XCTestCase {
         XCTAssertEqual(afterFalse?.hidden, false)
     }
 
+    func test_insert_defaultsApiSyncDisabledToFalse() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let r = makeRepo(accountId: acct)
+        try await db.repos.insert(r)
+
+        let found = try await db.repos.find(id: r.id)
+        XCTAssertEqual(found?.apiSyncDisabled, false)
+    }
+
+    func test_setApiSyncDisabled_togglesFlag() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let r = makeRepo(accountId: acct)
+        try await db.repos.insert(r)
+
+        try await db.repos.setApiSyncDisabled(id: r.id, true)
+        let afterTrue = try await db.repos.find(id: r.id)
+        XCTAssertEqual(afterTrue?.apiSyncDisabled, true)
+
+        try await db.repos.setApiSyncDisabled(id: r.id, false)
+        let afterFalse = try await db.repos.find(id: r.id)
+        XCTAssertEqual(afterFalse?.apiSyncDisabled, false)
+    }
+
+    func test_update_changesApiSyncDisabled() async throws {
+        // Dedicated coverage for the new column's position in `update`'s SQL
+        // + `arguments(for:)` — `test_update_changesPersistedFields` doesn't
+        // touch this field, so a column-order mistake there wouldn't be
+        // caught without this test.
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        var r = makeRepo(accountId: acct)
+        try await db.repos.insert(r)
+
+        r.apiSyncDisabled = true
+        try await db.repos.update(r)
+
+        let found = try await db.repos.find(id: r.id)
+        XCTAssertEqual(found?.apiSyncDisabled, true)
+        XCTAssertEqual(found?.name, r.name, "other fields unaffected")
+        XCTAssertEqual(found?.hidden, false, "other fields unaffected")
+    }
+
     func test_setSortOrder_updatesOrder() async throws {
         let db = try makeDB()
         let acct = try insertAccount(db)

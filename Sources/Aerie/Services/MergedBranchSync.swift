@@ -36,6 +36,7 @@ actor MergedBranchSync {
     func sync(repoId: UUID) async {
         do {
             guard let repo = try await db.repos.find(id: repoId) else { return }
+            guard !repo.apiSyncDisabled else { return }
             guard let status = try await db.gitStatusCache.status(forRepo: repoId),
                   status.currentBranch != repo.defaultBranch else {
                 // On default branch (or no status yet) → nothing to detect.

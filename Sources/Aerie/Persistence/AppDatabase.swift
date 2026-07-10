@@ -39,6 +39,9 @@ actor AppDatabase {
         m.registerMigration("v3") { db in
             try db.execute(sql: AppDatabase.schemaV3)
         }
+        m.registerMigration("v4") { db in
+            try db.execute(sql: AppDatabase.schemaV4)
+        }
         return m
     }
 
@@ -125,5 +128,12 @@ actor AppDatabase {
         payload_json TEXT NOT NULL,
         fetched_at REAL NOT NULL
     );
+    """
+
+    /// v4 — per-repo pause switch for the GitHub-hitting sync services (PRs,
+    /// Issues, merged-branch check). Local git status refresh is unaffected;
+    /// see `PRSyncService`/`IssueSyncService`/`MergedBranchSync`.
+    static let schemaV4: String = """
+    ALTER TABLE repos ADD COLUMN api_sync_disabled INTEGER NOT NULL DEFAULT 0;
     """
 }
