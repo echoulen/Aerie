@@ -122,6 +122,30 @@ final class MergedBranchSyncTests: XCTestCase {
         XCTAssertNil(info)
     }
 
+    func test_apiSyncDisabled_skipsFetchAndLeavesCacheUntouched() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let repo = try await insertRepo(db, accountId: acct)
+        try await db.repos.setApiSyncDisabled(id: repo.id, true)
+        try await upsertStatus(db, repoId: repo.id, branch: "IOE-3017")
+        // Seed a stale cache entry — disabling must not touch it either way.
+        try await db.mergedBranchCache.upsert(MergedBranchInfo(
+            repoId: repo.id, branch: "IOE-3017", prNumber: 62,
+            prUrl: URL(string: "https://github.com/octocat/hello-world/pull/62")!,
+            headOid: "abc1234", mergedAt: Date(timeIntervalSince1970: 1_700_000_000)))
+
+        let fetcher = StubMergedFetcher()
+        await fetcher.setRef(ref(99), forBranch: "IOE-3017")
+
+        let sync = MergedBranchSync(db: db, api: fetcher)
+        await sync.sync(repoId: repo.id)
+
+        let callCount = await fetcher.callCount()
+        XCTAssertEqual(callCount, 0, "api-sync-disabled repo → no fetch")
+        let info = try await db.mergedBranchCache.info(forRepo: repo.id)
+        XCTAssertEqual(info?.prNumber, 62, "stale entry left untouched, not cleared")
+    }
+
     func test_unknownRepo_isNoOp() async throws {
         let db = try makeDB()
         let fetcher = StubMergedFetcher()

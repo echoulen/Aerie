@@ -46,6 +46,7 @@ actor IssueSyncService {
     func sync(repoId: UUID) async {
         do {
             guard let repo = try await db.repos.find(id: repoId) else { return }
+            guard !repo.apiSyncDisabled else { return }
             let result = try await api.listOpenIssues(
                 owner: repo.githubOwner,
                 repo: repo.githubRepo,
