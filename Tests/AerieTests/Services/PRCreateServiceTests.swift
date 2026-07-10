@@ -49,13 +49,14 @@ final class PRCreateServiceTests: XCTestCase {
         _ s: LivePRCreateService,
         template: String = "publish {{OWNER}}/{{REPO}}",
         localPath: URL = URL(fileURLWithPath: "/tmp"),
+        model: ClaudeModel = .sonnet5,
         onLine: @escaping @Sendable (String) -> Void = { _ in }
     ) async -> PRCreateOutcome {
         await s.createPR(
             template: template, owner: "echoulen", repo: "aerie",
             defaultBranch: "main", currentBranch: "main",
             statusSummary: "working tree dirty (2 files)",
-            localPath: localPath, onLine: onLine)
+            localPath: localPath, model: model, onLine: onLine)
     }
 
     func test_streamsProgress_andParsesCreated() async {
@@ -120,5 +121,13 @@ final class PRCreateServiceTests: XCTestCase {
         let r = StreamStubRunner(); r.hang = true
         guard case .failed(let m) = await create(svc(r, idle: 0.1, total: 30)) else { return XCTFail() }
         XCTAssertTrue(m.contains("沒有新進度"))
+    }
+
+    func test_modelFlag_passedToArgs() async {
+        let r = StreamStubRunner()
+        r.lines = [#"{"type":"result","subtype":"success","result":"{\"outcome\":\"nothing_to_do\",\"summary\":\"s\"}"}"#]
+        _ = await create(svc(r), model: .fable5)
+        guard let i = r.lastArgs.firstIndex(of: "--model") else { return XCTFail("no --model flag") }
+        XCTAssertEqual(r.lastArgs[i + 1], "claude-fable-5")
     }
 }

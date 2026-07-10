@@ -621,6 +621,7 @@ struct MainShell: View {
                     currentBranch: row.status?.currentBranch ?? row.repo.defaultBranch,
                     statusSummary: PRCreatePrompt.statusSummary(row.status),
                     localPath: row.repo.localPath,
+                    model: .default,
                     onLine: onLine)
             },
             onCreated: {
