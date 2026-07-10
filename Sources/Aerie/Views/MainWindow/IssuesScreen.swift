@@ -20,6 +20,11 @@ struct IssuesScreen: View {
     /// The real refresh to run when the header's Refresh button is tapped.
     var onRefresh: () async -> Void = {}
 
+    @Environment(\.isCompactWidth) private var isCompact
+    private var pagePadding: CGFloat {
+        isCompact ? AerieMetric.pagePaddingCompact : AerieMetric.pagePadding
+    }
+
     var body: some View {
         switch viewModel.state {
         case .loading:
@@ -39,7 +44,7 @@ struct IssuesScreen: View {
     private func nonReadyLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             header(open: 0, mine: 0)
-                .padding(.horizontal, AerieMetric.pagePadding)
+                .padding(.horizontal, pagePadding)
                 .padding(.top, 12)
                 .padding(.bottom, 18)
             content()
@@ -108,7 +113,7 @@ struct IssuesScreen: View {
                     .padding(.bottom, 24)
                 }
             }
-            .padding(.horizontal, AerieMetric.pagePadding)
+            .padding(.horizontal, pagePadding)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
