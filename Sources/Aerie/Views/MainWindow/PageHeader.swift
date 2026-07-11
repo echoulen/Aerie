@@ -26,6 +26,8 @@ struct PageHeader: View {
     /// shared, so each screen injects its own extra action here.
     var trailing: AnyView? = nil
 
+    @Environment(\.contentWidthBucket) private var contentWidthBucket
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(eyebrow)
@@ -37,10 +39,17 @@ struct PageHeader: View {
             // and the tab toggle drop onto their own rows instead of forcing
             // the window wider. All the labels here are short fixed strings,
             // so ViewThatFits measures them reliably.
+            //
+            // `.id(contentWidthBucket)` forces a fresh measurement on every
+            // real width change — without it, ViewThatFits can keep
+            // rendering a stale (too-wide) choice after a window resize
+            // until something unrelated forces a new layout pass, which
+            // shows up as clipped header text at narrow widths.
             ViewThatFits(in: .horizontal) {
                 wideRow
                 narrowRows
             }
+            .id(contentWidthBucket)
         }
         .padding(.top, 22)
     }
