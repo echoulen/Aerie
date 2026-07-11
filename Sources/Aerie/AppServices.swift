@@ -184,11 +184,13 @@ final class AppServices {
         self.configWriter = ClaudeCodeConfigWriter()
     }
 
-    /// Starts focus-driven polling: the scheduler runs while the app is active
-    /// and pauses when it resigns. On the first `active` signal it ticks
-    /// immediately (every repo is due), so the PRs and Repos tabs populate
-    /// shortly after launch and stay fresh on the configured cadence. Idempotent
-    /// — the main window calls it on appear, and repeat calls are no-ops.
+    /// Starts focus-driven polling: the scheduler runs continuously and slows
+    /// to a quarter of the configured cadence while the app is backgrounded
+    /// (see `PollingScheduler.setAppActive`), rather than pausing outright.
+    /// On the first `active` signal it ticks immediately (every repo is due),
+    /// so the PRs and Repos tabs populate shortly after launch and stay fresh
+    /// on the configured cadence. Idempotent — the main window calls it on
+    /// appear, and repeat calls are no-ops.
     func startPolling() {
         guard focusSubscription == nil else { return }
         focusSubscription = scheduler.attachFocusObserver(focusObserver) { [db] in

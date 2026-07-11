@@ -34,7 +34,7 @@ final class AppFocusObserverTests: XCTestCase {
         await scheduler.stop()
     }
 
-    func test_attachFocusObserver_stopsSchedulerOnInactive() async throws {
+    func test_attachFocusObserver_keepsRunningButSlowsCadenceOnInactive() async throws {
         let recorder = RefreshRecorder()
         let scheduler = PollingScheduler(clock: VirtualClock()) { id in
             await recorder.record(id)
@@ -50,11 +50,16 @@ final class AppFocusObserverTests: XCTestCase {
         // Drive inactive.
         stub.subject.send(false)
 
-        // Wait for stop.
+        // The loop keeps running in the background — it no longer stops —
+        // but the scheduler records that the app isn't frontmost so the
+        // cadence gate (tested in PollingSchedulerTests) slows down.
         try await waitFor(timeout: 1.0) {
-            !(await scheduler.isRunning())
+            await !scheduler.isAppActive
         }
+        let stillRunning = await scheduler.isRunning()
+        XCTAssertTrue(stillRunning, "polling should keep going in the background, just slower")
         cancellable.cancel()
+        await scheduler.stop()
     }
 
     // MARK: - Polling helper

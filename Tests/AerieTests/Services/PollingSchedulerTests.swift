@@ -168,6 +168,40 @@ final class PollingSchedulerTests: XCTestCase {
         XCTAssertEqual(snap2.count, 2)
     }
 
+    // MARK: App-focus cadence multiplier
+
+    func test_setAppActive_false_quadruplesCadence() async throws {
+        let recorder = RefreshRecorder()
+        let scheduler = PollingScheduler(clock: VirtualClock()) { id in
+            await recorder.record(id)
+        }
+        let id = UUID()
+        await scheduler.setActive(id)
+
+        let base = TimeInterval(1_700_000_000)
+        await scheduler.tickOnce(repoIds: [id], now: Date(timeIntervalSince1970: base))
+        let snap1 = await recorder.snapshot()
+        XCTAssertEqual(snap1.count, 1)
+
+        await scheduler.setAppActive(false)
+
+        // Backgrounded: active cadence (30s) is now 4x = 120s. At +30, NOT due.
+        await scheduler.tickOnce(repoIds: [id], now: Date(timeIntervalSince1970: base + 30))
+        let snap2 = await recorder.snapshot()
+        XCTAssertEqual(snap2.count, 1, "backgrounded cadence not yet elapsed")
+
+        // At +120, due.
+        await scheduler.tickOnce(repoIds: [id], now: Date(timeIntervalSince1970: base + 120))
+        let snap3 = await recorder.snapshot()
+        XCTAssertEqual(snap3.count, 2)
+
+        // Foregrounded again: cadence back to 30s. At +30 from last fetch, due.
+        await scheduler.setAppActive(true)
+        await scheduler.tickOnce(repoIds: [id], now: Date(timeIntervalSince1970: base + 150))
+        let snap4 = await recorder.snapshot()
+        XCTAssertEqual(snap4.count, 3)
+    }
+
     // MARK: Task 7.2 — bounded concurrency
 
     func test_refreshAll_capsConcurrencyToFive() async throws {
