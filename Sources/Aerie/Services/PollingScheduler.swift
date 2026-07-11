@@ -32,7 +32,14 @@ actor PollingScheduler {
     /// haven't reached `resetEpoch` yet, both cadences are doubled.
     private(set) var rateLimitThrottle: RateLimitSnapshot?
 
+    /// Whether the app is frontmost (see `AppFocusObserver`). The loop keeps
+    /// running while backgrounded — it no longer stops outright — but both
+    /// cadences are stretched by `backgroundAppCadenceMultiplier` so an
+    /// unattended window doesn't burn API quota at the foreground rate.
+    private(set) var isAppActive = true
+
     private static let rateLimitThreshold = 500
+    private static let backgroundAppCadenceMultiplier: TimeInterval = 4
 
     // MARK: Init
 
@@ -62,6 +69,13 @@ actor PollingScheduler {
     /// Pass `nil` to clear any current throttle hint.
     func reportRateLimit(_ snapshot: RateLimitSnapshot?) {
         rateLimitThrottle = snapshot
+    }
+
+    /// Called by the integration layer (`AppFocusObserver`) whenever the app
+    /// becomes active/inactive. Does not start or stop the loop — see
+    /// `attachFocusObserver` — it only adjusts the effective cadence.
+    func setAppActive(_ active: Bool) {
+        isAppActive = active
     }
 
     // MARK: Loop control
@@ -130,8 +144,11 @@ actor PollingScheduler {
         }
     }
 
-    /// Applies the rate-limit throttle if a current snapshot says we are below
-    /// the threshold and the reset epoch has not yet passed.
+    /// Applies the rate-limit throttle (if a current snapshot says we are
+    /// below the threshold and the reset epoch has not yet passed) and the
+    /// background-app multiplier (if the app isn't frontmost). The two
+    /// stack — a backgrounded window that's also rate-limited polls at
+    /// 8x the base cadence.
     private func effectiveCadences(now: Date) -> (active: TimeInterval, background: TimeInterval) {
         let throttled: Bool
         if let snap = rateLimitThrottle,
@@ -141,7 +158,9 @@ actor PollingScheduler {
         } else {
             throttled = false
         }
-        let factor: TimeInterval = throttled ? 2 : 1
+        let rateLimitFactor: TimeInterval = throttled ? 2 : 1
+        let focusFactor: TimeInterval = isAppActive ? 1 : Self.backgroundAppCadenceMultiplier
+        let factor = rateLimitFactor * focusFactor
         return (activeCadence * factor, backgroundCadence * factor)
     }
 

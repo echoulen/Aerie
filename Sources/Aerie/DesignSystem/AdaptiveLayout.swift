@@ -11,16 +11,31 @@ private struct IsCompactWidthKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+/// The measured content width, bucketed to the nearest 8pt. `PageHeader`
+/// keys its `ViewThatFits` off this so the choice is force-recomputed on
+/// every real width change — on macOS, `ViewThatFits` inside a `ScrollView`
+/// can otherwise keep rendering a stale (too-wide) child after a window
+/// resize until some unrelated state change forces a fresh layout pass,
+/// which reads as clipped/truncated header text at narrow widths.
+private struct ContentWidthBucketKey: EnvironmentKey {
+    static let defaultValue = 0
+}
+
 extension EnvironmentValues {
     var isCompactWidth: Bool {
         get { self[IsCompactWidthKey.self] }
         set { self[IsCompactWidthKey.self] = newValue }
     }
+    var contentWidthBucket: Int {
+        get { self[ContentWidthBucketKey.self] }
+        set { self[ContentWidthBucketKey.self] = newValue }
+    }
 }
 
 extension View {
-    /// Measures this view's width and publishes `\.isCompactWidth` to its
-    /// subtree. Apply once at the shell level, above the list screens.
+    /// Measures this view's width and publishes `\.isCompactWidth` +
+    /// `\.contentWidthBucket` to its subtree. Apply once at the shell level,
+    /// above the list screens.
     func readsCompactWidth() -> some View {
         modifier(CompactWidthReader())
     }
@@ -28,15 +43,18 @@ extension View {
 
 private struct CompactWidthReader: ViewModifier {
     @State private var isCompact = false
+    @State private var widthBucket = 0
 
     func body(content: Content) -> some View {
         content
-            .onGeometryChange(for: Bool.self) { proxy in
-                proxy.size.width < AerieMetric.compactWidthBreakpoint
-            } action: { compact in
-                isCompact = compact
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                isCompact = width < AerieMetric.compactWidthBreakpoint
+                widthBucket = Int((width / 8).rounded())
             }
             .environment(\.isCompactWidth, isCompact)
+            .environment(\.contentWidthBucket, widthBucket)
     }
 }
 

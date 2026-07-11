@@ -47,10 +47,17 @@ final class StubAppFocusObserver: AppFocusObserver, @unchecked Sendable {
 // MARK: - PollingScheduler glue
 
 extension PollingScheduler {
-    /// Subscribes to `observer.isActive`; starts the scheduler on `true`,
-    /// stops it on `false`. The `repoIds` closure is invoked each time the app
-    /// becomes active so callers can hand back the current list (the repo set
-    /// can change while the app is backgrounded).
+    /// Subscribes to `observer.isActive` and keeps the scheduler's cadence in
+    /// sync with app focus. The loop itself is never stopped by a focus
+    /// change — it keeps polling in the background, just at
+    /// `backgroundAppCadenceMultiplier`x the normal cadence, so PRs/Issues
+    /// stay reasonably fresh for an unattended window instead of going
+    /// stale until the user clicks back in.
+    ///
+    /// On each `true` (foreground) signal the loop is restarted with a fresh
+    /// `repoIds` snapshot — this both ticks immediately (so returning to the
+    /// app feels live) and picks up any repo added/removed while backgrounded
+    /// (e.g. via an MCP tool call).
     ///
     /// Returns an `AnyCancellable` so callers can detach the subscription —
     /// keep it alive for as long as the scheduler should follow focus.
@@ -61,12 +68,11 @@ extension PollingScheduler {
         observer.isActive.sink { [weak self] active in
             Task { [weak self] in
                 guard let self else { return }
-                if active {
-                    let ids = await repoIds()
-                    await self.start(repoIds: ids)
-                } else {
-                    await self.stop()
-                }
+                await self.setAppActive(active)
+                guard active else { return }
+                await self.stop()
+                let ids = await repoIds()
+                await self.start(repoIds: ids)
             }
         }
     }
