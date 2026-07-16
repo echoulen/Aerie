@@ -36,6 +36,9 @@ struct RepoCard: View {
     /// Pauses or resumes this repo's GitHub API sync (PRs, Issues,
     /// merged-branch check). Local git operations are unaffected either way.
     var onToggleApiSync: () -> Void = {}
+    /// Untracks this repo (removes it from Aerie's list; the on-disk clone is
+    /// untouched). Defaulted so previews / snapshot tests can omit it.
+    var onRemove: () -> Void = {}
 
     // MARK: - Derived presentation bits
 
@@ -161,6 +164,11 @@ struct RepoCard: View {
                     }
                 }
             }
+        }
+        .overlay(alignment: .topTrailing) {
+            CardRemoveButton(action: onRemove)
+                .padding(.top, 10)
+                .padding(.trailing, 12)
         }
     }
 
@@ -438,5 +446,28 @@ private struct CreatePRButton: View {
         .disabled(isCreating)
         .onHover { hovering = $0 }
         .help("用本地 claude 依 Settings 的 PR 發布模板建立 pull request")
+    }
+}
+
+/// Plain faint `×` in the card's top-right corner — same visual language as
+/// Settings' RemoveButton: text-4 at rest, brightening to text-2 on hover.
+/// Click untracks the repo immediately (no confirmation, matching Settings;
+/// removal never touches the on-disk clone).
+private struct CardRemoveButton: View {
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(hover ? AerieColor.text2 : AerieColor.text4)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help("Remove from Aerie")
+        .animation(.easeOut(duration: 0.12), value: hover)
     }
 }
