@@ -57,14 +57,15 @@ struct RepoDAO {
     /// Deletes a repo and every cache row that references it.
     ///
     /// `foreign_keys` is ON and the child caches (`pr_cache`,
-    /// `pr_local_state_cache`, `git_status_cache`, `issue_cache`) reference
-    /// `repos(id)` without `ON DELETE CASCADE`, so deleting the repo alone
-    /// raises a FOREIGN KEY constraint failure once any cache row exists (the
-    /// sync services populate these on the first poll). We clear the children
-    /// first, all inside one transaction so a repo never half-deletes.
+    /// `pr_local_state_cache`, `git_status_cache`, `issue_cache`,
+    /// `merged_branch_cache`) reference `repos(id)` without `ON DELETE
+    /// CASCADE`, so deleting the repo alone raises a FOREIGN KEY constraint
+    /// failure once any cache row exists (the sync services populate these on
+    /// the first poll). We clear the children first, all inside one
+    /// transaction so a repo never half-deletes.
     func delete(id: UUID) async throws {
         try await dbQueue.write { db in
-            for table in ["pr_cache", "pr_local_state_cache", "git_status_cache", "issue_cache"] {
+            for table in ["pr_cache", "pr_local_state_cache", "git_status_cache", "issue_cache", "merged_branch_cache"] {
                 try db.execute(
                     sql: "DELETE FROM \(table) WHERE repo_id = ?",
                     arguments: [id.uuidString]

@@ -148,6 +148,10 @@ final class RepoDAOTests: XCTestCase {
                 sql: "INSERT INTO issue_cache (repo_id, number, payload_json, fetched_at) VALUES (?, ?, ?, ?)",
                 arguments: [r.id.uuidString, 1, "{}", 0.0]
             )
+            try dbConn.execute(
+                sql: "INSERT INTO merged_branch_cache (repo_id, payload_json, fetched_at) VALUES (?, ?, ?)",
+                arguments: [r.id.uuidString, "{}", 0.0]
+            )
         }
 
         // Must not throw on the FK constraint.
@@ -158,7 +162,7 @@ final class RepoDAOTests: XCTestCase {
 
         // Child rows are gone too — no orphaned cache.
         let childCounts: [Int] = try await db.dbQueue.read { dbConn in
-            try ["pr_cache", "pr_local_state_cache", "git_status_cache", "issue_cache"].map { table in
+            try ["pr_cache", "pr_local_state_cache", "git_status_cache", "issue_cache", "merged_branch_cache"].map { table in
                 try Int.fetchOne(
                     dbConn,
                     sql: "SELECT COUNT(*) FROM \(table) WHERE repo_id = ?",
@@ -166,7 +170,7 @@ final class RepoDAOTests: XCTestCase {
                 ) ?? -1
             }
         }
-        XCTAssertEqual(childCounts, [0, 0, 0, 0])
+        XCTAssertEqual(childCounts, [0, 0, 0, 0, 0])
     }
 
     func test_setHidden_togglesFlag() async throws {
