@@ -197,6 +197,33 @@ final class ReposViewModelTests: XCTestCase {
         _ = (a, b, c)
     }
 
+    func test_refresh_duringPendingPersist_keepsOptimisticOrder() async throws {
+        // The main window refreshes on every polling tick. A refresh that runs
+        // BEFORE applyReorder's background persist finishes reads the OLD
+        // order from the DB and visibly snaps the cards back, then a later
+        // refresh flips them forward again — a flicker. The view model must
+        // hold the optimistic order across refreshes until the persist lands.
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        _ = try await insertRepo(db, accountId: acct, name: "Alpha", sortOrder: 0)
+        _ = try await insertRepo(db, accountId: acct, name: "Bravo", sortOrder: 1)
+        _ = try await insertRepo(db, accountId: acct, name: "Charlie", sortOrder: 2)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
+        await vm.refresh()
+
+        vm.applyReorder(from: 0, to: 3) // → [Bravo, Charlie, Alpha]
+
+        // Simulate polling-driven refreshes racing the background persist:
+        // whatever the DB says mid-flight, the projected order must stay
+        // the optimistic one.
+        for _ in 0..<10 {
+            await vm.refresh()
+            guard case .ready(let rows) = vm.state else { return XCTFail("expected .ready") }
+            XCTAssertEqual(rows.map(\.repo.name), ["Bravo", "Charlie", "Alpha"],
+                           "refresh mid-persist must not revert the optimistic order")
+        }
+    }
+
     func test_applyReorder_keepsHiddenRepoSlots() async throws {
         let db = try makeDB()
         let acct = try insertAccount(db)

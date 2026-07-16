@@ -55,7 +55,19 @@ final class ReposViewModel {
     /// and re-projects if anything changed.
     func refresh() async {
         do {
-            let all = try await db.repos.all().filter { !$0.hidden }
+            var all = try await db.repos.all().filter { !$0.hidden }
+            // A reorder's background persist may still be in flight; the DB
+            // would hand back the OLD order and visibly snap the cards back,
+            // then flip them forward once the writes land (the main window
+            // refreshes on every polling tick). Hold the optimistic order
+            // until the persist completes.
+            if let pending = pendingOrderIds {
+                let slot = Dictionary(uniqueKeysWithValues: pending.enumerated().map { ($1, $0) })
+                all = all.enumerated()
+                    .sorted { (slot[$0.element.id] ?? $0.offset + pending.count)
+                            < (slot[$1.element.id] ?? $1.offset + pending.count) }
+                    .map(\.element)
+            }
             if all.isEmpty {
                 state = .empty
                 return
@@ -105,8 +117,18 @@ final class ReposViewModel {
         rows.insert(moved, at: to > from ? to - 1 : to)
         state = .ready(rows)
         let orderedIds = rows.map(\.repo.id)
-        Task { await persistVisibleOrder(orderedIds) }
+        pendingOrderIds = orderedIds
+        Task {
+            await persistVisibleOrder(orderedIds)
+            // Only clear our own claim — a newer reorder may have replaced it.
+            if pendingOrderIds == orderedIds { pendingOrderIds = nil }
+        }
     }
+
+    /// The optimistic visible order while a reorder's background persist is
+    /// in flight. `refresh()` re-sorts its DB read by this so a polling tick
+    /// can't flash the old order onto the screen mid-persist.
+    private var pendingOrderIds: [UUID]?
 
     /// Rewrites `sort_order` so the visible repos take `orderedIds`' order
     /// while hidden repos keep their original slots: walk the full old order,
