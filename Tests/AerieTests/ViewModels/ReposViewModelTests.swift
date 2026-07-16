@@ -170,4 +170,155 @@ final class ReposViewModelTests: XCTestCase {
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows[0].repo.id, visible.id)
     }
+
+    func test_applyReorder_movesRowAndPersists() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let a = try await insertRepo(db, accountId: acct, name: "Alpha", sortOrder: 0)
+        let b = try await insertRepo(db, accountId: acct, name: "Bravo", sortOrder: 1)
+        let c = try await insertRepo(db, accountId: acct, name: "Charlie", sortOrder: 2)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
+        await vm.refresh()
+
+        // Move Alpha (index 0) to after Charlie (toOffset 3 in pre-removal space).
+        vm.applyReorder(from: 0, to: 3)
+
+        guard case .ready(let rows) = vm.state else { return XCTFail("expected .ready") }
+        XCTAssertEqual(rows.map(\.repo.name), ["Bravo", "Charlie", "Alpha"])
+
+        // Persisted: poll until the background Task lands (bounded wait).
+        var persisted: [String] = []
+        for _ in 0..<50 {
+            persisted = try await db.repos.all().map(\.name)
+            if persisted == ["Bravo", "Charlie", "Alpha"] { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(persisted, ["Bravo", "Charlie", "Alpha"])
+        _ = (a, b, c)
+    }
+
+    func test_refresh_duringPendingPersist_keepsOptimisticOrder() async throws {
+        // The main window refreshes on every polling tick. A refresh that runs
+        // BEFORE applyReorder's background persist finishes reads the OLD
+        // order from the DB and visibly snaps the cards back, then a later
+        // refresh flips them forward again — a flicker. The view model must
+        // hold the optimistic order across refreshes until the persist lands.
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        _ = try await insertRepo(db, accountId: acct, name: "Alpha", sortOrder: 0)
+        _ = try await insertRepo(db, accountId: acct, name: "Bravo", sortOrder: 1)
+        _ = try await insertRepo(db, accountId: acct, name: "Charlie", sortOrder: 2)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
+        await vm.refresh()
+
+        vm.applyReorder(from: 0, to: 3) // → [Bravo, Charlie, Alpha]
+
+        // Simulate polling-driven refreshes racing the background persist:
+        // whatever the DB says mid-flight, the projected order must stay
+        // the optimistic one.
+        for _ in 0..<10 {
+            await vm.refresh()
+            guard case .ready(let rows) = vm.state else { return XCTFail("expected .ready") }
+            XCTAssertEqual(rows.map(\.repo.name), ["Bravo", "Charlie", "Alpha"],
+                           "refresh mid-persist must not revert the optimistic order")
+        }
+    }
+
+    func test_applyReorder_keepsHiddenRepoSlots() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        // Full DB order: Alpha(0), Ghost(1, hidden), Bravo(2), Charlie(3).
+        _ = try await insertRepo(db, accountId: acct, name: "Alpha", sortOrder: 0)
+        _ = try await insertRepo(db, accountId: acct, name: "Ghost", sortOrder: 1, hidden: true)
+        _ = try await insertRepo(db, accountId: acct, name: "Bravo", sortOrder: 2)
+        _ = try await insertRepo(db, accountId: acct, name: "Charlie", sortOrder: 3)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
+        await vm.refresh()
+
+        // Visible list is [Alpha, Bravo, Charlie]; move Charlie to the front.
+        vm.applyReorder(from: 2, to: 0)
+
+        guard case .ready(let rows) = vm.state else { return XCTFail("expected .ready") }
+        XCTAssertEqual(rows.map(\.repo.name), ["Charlie", "Alpha", "Bravo"])
+
+        // Full persisted order: hidden Ghost keeps slot 1.
+        var persisted: [String] = []
+        for _ in 0..<50 {
+            persisted = try await db.repos.all().map(\.name)
+            if persisted == ["Charlie", "Ghost", "Alpha", "Bravo"] { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(persisted, ["Charlie", "Ghost", "Alpha", "Bravo"])
+    }
+
+    func test_applyReorder_noOpForSameSlotOrBadIndex() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        _ = try await insertRepo(db, accountId: acct, name: "Alpha", sortOrder: 0)
+        _ = try await insertRepo(db, accountId: acct, name: "Bravo", sortOrder: 1)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
+        await vm.refresh()
+
+        vm.applyReorder(from: 0, to: 0)   // same slot
+        vm.applyReorder(from: 0, to: 1)   // adjacent no-op in pre-removal space
+        vm.applyReorder(from: 9, to: 0)   // out of range
+
+        guard case .ready(let rows) = vm.state else { return XCTFail("expected .ready") }
+        XCTAssertEqual(rows.map(\.repo.name), ["Alpha", "Bravo"])
+    }
+
+    func test_remove_deletesRepoAndRefreshes() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let a = try await insertRepo(db, accountId: acct, name: "Alpha", sortOrder: 0)
+        _ = try await insertRepo(db, accountId: acct, name: "Bravo", sortOrder: 1)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
+        await vm.refresh()
+
+        await vm.remove(id: a.id)
+
+        guard case .ready(let rows) = vm.state else { return XCTFail("expected .ready") }
+        XCTAssertEqual(rows.map(\.repo.name), ["Bravo"])
+        XCTAssertNil(vm.actionError)
+        let found = try await db.repos.find(id: a.id)
+        XCTAssertNil(found)
+    }
+
+    func test_remove_lastRepoLeavesEmptyState() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let a = try await insertRepo(db, accountId: acct, name: "Only", sortOrder: 0)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
+        await vm.refresh()
+
+        await vm.remove(id: a.id)
+
+        XCTAssertEqual(vm.state, .empty)
+    }
+
+    func test_remove_surfacesDeleteFailure() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let a = try await insertRepo(db, accountId: acct, name: "Alpha", sortOrder: 0)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
+        await vm.refresh()
+
+        // Sabotage: a child table RepoDAO.delete does NOT clear, referencing
+        // the repo, makes the delete throw an FK failure.
+        try await db.dbQueue.write { dbConn in
+            try dbConn.execute(sql: """
+                CREATE TABLE test_orphan (repo_id TEXT NOT NULL REFERENCES repos(id))
+                """)
+            try dbConn.execute(
+                sql: "INSERT INTO test_orphan (repo_id) VALUES (?)",
+                arguments: [a.id.uuidString]
+            )
+        }
+
+        await vm.remove(id: a.id)
+
+        XCTAssertNotNil(vm.actionError)
+        guard case .ready(let rows) = vm.state else { return XCTFail("expected .ready") }
+        XCTAssertEqual(rows.map(\.repo.name), ["Alpha"], "repo stays listed on failure")
+    }
 }

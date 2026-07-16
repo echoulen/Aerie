@@ -55,6 +55,15 @@ struct ReposScreen: View {
         isCompact ? AerieMetric.pagePaddingCompact : AerieMetric.pagePadding
     }
 
+    // Drag-reorder state, mirroring Settings' RepositoriesScreen but with
+    // per-card measured heights (cards are content-driven in height, so the
+    // uniform-rowHeight maths there doesn't transfer). `cardHeights` freezes
+    // during a drag so animating layout can't feed back into slot maths.
+    @State private var draggingId: UUID?
+    @State private var dragTranslation: CGFloat = 0
+    @State private var dragTarget: Int?
+    @State private var cardHeights: [UUID: CGFloat] = [:]
+
     var body: some View {
         switch viewModel.state {
         case .loading:
@@ -136,7 +145,15 @@ struct ReposScreen: View {
                 header(total: total, withDirty: withDirty)
                     .padding(.bottom, 18)
 
-                ForEach(rows) { row in
+                if let actionError = viewModel.actionError {
+                    Text(actionError)
+                        .aerieFont(AerieFont.small())
+                        .foregroundStyle(AerieColor.err)
+                        .padding(.bottom, 10)
+                }
+
+                ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                    let dragging = draggingId == row.id
                     RepoCard(
                         row: row,
                         onOpen: { handleOpen(row) },
@@ -147,9 +164,22 @@ struct ReposScreen: View {
                         onDeleteWorktree: { onDeleteWorktree(row, $0) },
                         createPhase: createPhase(row),
                         onCreatePR: { onCreatePR(row) },
-                        onToggleApiSync: { onToggleApiSync(row) }
+                        onToggleApiSync: { onToggleApiSync(row) },
+                        onRemove: { Task { await viewModel.remove(id: row.repo.id) } }
                     )
                     .padding(.bottom, AerieMetric.cardGap)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                        if draggingId == nil { cardHeights[row.id] = h }
+                    }
+                    .offset(y: cardOffset(idx: idx, rows: rows, isDragging: dragging))
+                    .shadow(color: .black.opacity(dragging ? 0.28 : 0),
+                            radius: dragging ? 12 : 0, y: dragging ? 6 : 0)
+                    .zIndex(dragging ? 1 : 0)
+                    // Dragged card follows the cursor 1:1 (animation ignores
+                    // dragTranslation); bystanders spring only on discrete
+                    // dragTarget changes — same anti-judder split as Settings.
+                    .animation(.spring(response: 0.28, dampingFraction: 0.82), value: dragTarget)
+                    .gesture(reorderGesture(row: row, rows: rows))
                 }
             }
             .padding(.horizontal, pagePadding)
@@ -173,5 +203,87 @@ struct ReposScreen: View {
 
     private func handleOpen(_ row: RepoRow) {
         NSWorkspace.shared.open(row.repo.localPath)
+    }
+
+    // MARK: - Drag-reorder
+
+    /// Hold (~0.35 s) then drag. Sequencing keeps ordinary clicks and the
+    /// card's buttons working — only a held press enters reorder mode.
+    /// `.global` coordinate space is critical: the card moves via `.offset`,
+    /// so a local-space drag would feed its own offset back into the
+    /// translation and oscillate (same lesson as Settings' grip).
+    private func reorderGesture(row: RepoRow, rows: [RepoRow]) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.35)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
+            .onChanged { value in
+                guard case .second(true, let drag) = value else { return }
+                if draggingId == nil { draggingId = row.id }
+                dragTranslation = drag?.translation.height ?? 0
+                updateDragTarget(rows: rows)
+            }
+            .onEnded { _ in commitDrag(rows: rows) }
+    }
+
+    private func height(of id: UUID) -> CGFloat {
+        cardHeights[id] ?? 120
+    }
+
+    /// Signed distance from the dragged card's origin to its settled position
+    /// in slot `to` — the sum of the heights of the cards it crosses.
+    /// (`cardHeights` already includes the inter-card gap; see readyView.)
+    private func slotDistance(from: Int, to: Int, rows: [RepoRow]) -> CGFloat {
+        if to > from { return rows[(from + 1)...to].reduce(0) { $0 + height(of: $1.id) } }
+        if to < from { return -rows[to..<from].reduce(0) { $0 + height(of: $1.id) } }
+        return 0
+    }
+
+    /// Picks the slot whose settled offset is nearest the live translation,
+    /// with hysteresis: only switch when the new slot is closer by 20% of the
+    /// crossed card's height, so a hand resting near a boundary doesn't make
+    /// the bystander cards flip-flop.
+    private func updateDragTarget(rows: [RepoRow]) {
+        guard let id = draggingId,
+              let from = rows.firstIndex(where: { $0.id == id }) else { return }
+        let current = dragTarget ?? from
+        var candidate = current
+        var candidateDist = abs(dragTranslation - slotDistance(from: from, to: current, rows: rows))
+        for t in rows.indices {
+            let d = abs(dragTranslation - slotDistance(from: from, to: t, rows: rows))
+            if d < candidateDist { candidate = t; candidateDist = d }
+        }
+        guard candidate != current else { return }
+        let dead = height(of: rows[candidate].id) * 0.2
+        let currentDist = abs(dragTranslation - slotDistance(from: from, to: current, rows: rows))
+        if currentDist - candidateDist > dead { dragTarget = candidate }
+    }
+
+    /// Bystander offset: cards between the dragged card's origin and target
+    /// shift by the DRAGGED card's height (the gap being opened/closed always
+    /// matches the dragged card, not the bystander).
+    private func cardOffset(idx: Int, rows: [RepoRow], isDragging: Bool) -> CGFloat {
+        if isDragging { return dragTranslation }
+        guard let id = draggingId,
+              let from = rows.firstIndex(where: { $0.id == id }),
+              let to = dragTarget else { return 0 }
+        let step = height(of: id)
+        if from < to, idx > from, idx <= to { return -step }
+        if from > to, idx >= to, idx < from { return step }
+        return 0
+    }
+
+    /// On release: apply the move optimistically and clear drag state inside
+    /// one animation, so the card springs into its new slot (same shape as
+    /// Settings' commitDrag).
+    private func commitDrag(rows: [RepoRow]) {
+        let from = draggingId.flatMap { id in rows.firstIndex(where: { $0.id == id }) }
+        let to = dragTarget
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            if let from, let to, to != from {
+                viewModel.applyReorder(from: from, to: to >= from ? to + 1 : to)
+            }
+            draggingId = nil
+            dragTranslation = 0
+            dragTarget = nil
+        }
     }
 }

@@ -35,6 +35,9 @@ enum ReposState: Equatable {
 @Observable
 final class ReposViewModel {
     private(set) var state: ReposState = .loading
+    /// A repo-action failure (currently: delete). Rendered by `ReposScreen`
+    /// under the header; cleared by the next successful action.
+    private(set) var actionError: String?
     private let db: AppDatabase
     private let gitService: any GitService
     /// Last-known worktrees per repo, kept in memory so a refresh paints the
@@ -52,7 +55,19 @@ final class ReposViewModel {
     /// and re-projects if anything changed.
     func refresh() async {
         do {
-            let all = try await db.repos.all().filter { !$0.hidden }
+            var all = try await db.repos.all().filter { !$0.hidden }
+            // A reorder's background persist may still be in flight; the DB
+            // would hand back the OLD order and visibly snap the cards back,
+            // then flip them forward once the writes land (the main window
+            // refreshes on every polling tick). Hold the optimistic order
+            // until the persist completes.
+            if let pending = pendingOrderIds {
+                let slot = Dictionary(uniqueKeysWithValues: pending.enumerated().map { ($1, $0) })
+                all = all.enumerated()
+                    .sorted { (slot[$0.element.id] ?? $0.offset + pending.count)
+                            < (slot[$1.element.id] ?? $1.offset + pending.count) }
+                    .map(\.element)
+            }
             if all.isEmpty {
                 state = .empty
                 return
@@ -87,5 +102,62 @@ final class ReposViewModel {
         } catch {
             state = .error(error.localizedDescription)
         }
+    }
+
+    /// Optimistic, synchronous reorder for the Repos tab's drag-and-drop:
+    /// settles the in-memory visible order in the SAME frame the user releases
+    /// the card, then persists in the background. `to` uses SwiftUI's
+    /// `move(fromOffsets:toOffset:)` semantics (insert-before index in the
+    /// pre-removal space) — the same contract as the Settings reorder.
+    func applyReorder(from: Int, to: Int) {
+        guard case .ready(var rows) = state,
+              from != to, to != from + 1,
+              rows.indices.contains(from), (0...rows.count).contains(to) else { return }
+        let moved = rows.remove(at: from)
+        rows.insert(moved, at: to > from ? to - 1 : to)
+        state = .ready(rows)
+        let orderedIds = rows.map(\.repo.id)
+        pendingOrderIds = orderedIds
+        Task {
+            await persistVisibleOrder(orderedIds)
+            // Only clear our own claim — a newer reorder may have replaced it.
+            if pendingOrderIds == orderedIds { pendingOrderIds = nil }
+        }
+    }
+
+    /// The optimistic visible order while a reorder's background persist is
+    /// in flight. `refresh()` re-sorts its DB read by this so a polling tick
+    /// can't flash the old order onto the screen mid-persist.
+    private var pendingOrderIds: [UUID]?
+
+    /// Rewrites `sort_order` so the visible repos take `orderedIds`' order
+    /// while hidden repos keep their original slots: walk the full old order,
+    /// keep hidden entries in place, refill visible slots from the new order,
+    /// then write sequential indices. Sequential (not value-recycling) so
+    /// duplicate legacy sort_order values can't make the result ambiguous.
+    private func persistVisibleOrder(_ orderedIds: [UUID]) async {
+        guard let all = try? await db.repos.all(),
+              all.filter({ !$0.hidden }).count == orderedIds.count else { return }
+        var nextVisible = orderedIds.makeIterator()
+        let merged: [UUID] = all.map { $0.hidden ? $0.id : (nextVisible.next() ?? $0.id) }
+        for (i, id) in merged.enumerated() {
+            try? await db.repos.setSortOrder(id: id, i)
+        }
+    }
+
+    /// Untracks the repo (DB row + child caches; the on-disk clone is
+    /// untouched), refreshes, and notifies Settings via
+    /// `.aerieReposDidChange`. Failures land in `actionError` instead of
+    /// vanishing — a swallowed FK failure once made the Settings × look dead.
+    func remove(id: UUID) async {
+        do {
+            try await db.repos.delete(id: id)
+            actionError = nil
+        } catch {
+            actionError = error.localizedDescription
+            return
+        }
+        await refresh()
+        NotificationCenter.default.post(name: .aerieReposDidChange, object: nil)
     }
 }

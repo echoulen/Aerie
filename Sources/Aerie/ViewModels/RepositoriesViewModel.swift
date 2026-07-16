@@ -124,9 +124,16 @@ final class RepositoriesViewModel {
         Task { [reordered] in await persistOrder(reordered) }
     }
 
-    /// Deletes the repo from the DB and refreshes.
+    /// Deletes the repo from the DB and refreshes. A failed delete surfaces
+    /// in `error` (shown under the list) instead of vanishing silently —
+    /// a swallowed FK failure here once made the × button look dead.
     func remove(id: UUID) async {
-        try? await db.repos.delete(id: id)
+        do {
+            try await db.repos.delete(id: id)
+        } catch {
+            self.error = error.localizedDescription
+            return
+        }
         await refresh()
         await Self.postReposDidChange()
     }
