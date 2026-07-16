@@ -261,10 +261,10 @@ struct ReposScreen: View {
     /// shift by the DRAGGED card's height (the gap being opened/closed always
     /// matches the dragged card, not the bystander).
     private func cardOffset(idx: Int, rows: [RepoRow], isDragging: Bool) -> CGFloat {
+        if isDragging { return dragTranslation }
         guard let id = draggingId,
               let from = rows.firstIndex(where: { $0.id == id }),
               let to = dragTarget else { return 0 }
-        if isDragging { return dragTranslation }
         let step = height(of: id)
         if from < to, idx > from, idx <= to { return -step }
         if from > to, idx >= to, idx < from { return step }
