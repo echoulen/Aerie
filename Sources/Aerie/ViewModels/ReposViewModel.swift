@@ -88,4 +88,35 @@ final class ReposViewModel {
             state = .error(error.localizedDescription)
         }
     }
+
+    /// Optimistic, synchronous reorder for the Repos tab's drag-and-drop:
+    /// settles the in-memory visible order in the SAME frame the user releases
+    /// the card, then persists in the background. `to` uses SwiftUI's
+    /// `move(fromOffsets:toOffset:)` semantics (insert-before index in the
+    /// pre-removal space) — the same contract as the Settings reorder.
+    func applyReorder(from: Int, to: Int) {
+        guard case .ready(var rows) = state,
+              from != to, to != from + 1,
+              rows.indices.contains(from), (0...rows.count).contains(to) else { return }
+        let moved = rows.remove(at: from)
+        rows.insert(moved, at: to > from ? to - 1 : to)
+        state = .ready(rows)
+        let orderedIds = rows.map(\.repo.id)
+        Task { await persistVisibleOrder(orderedIds) }
+    }
+
+    /// Rewrites `sort_order` so the visible repos take `orderedIds`' order
+    /// while hidden repos keep their original slots: walk the full old order,
+    /// keep hidden entries in place, refill visible slots from the new order,
+    /// then write sequential indices. Sequential (not value-recycling) so
+    /// duplicate legacy sort_order values can't make the result ambiguous.
+    private func persistVisibleOrder(_ orderedIds: [UUID]) async {
+        guard let all = try? await db.repos.all(),
+              all.filter({ !$0.hidden }).count == orderedIds.count else { return }
+        var nextVisible = orderedIds.makeIterator()
+        let merged: [UUID] = all.map { $0.hidden ? $0.id : (nextVisible.next() ?? $0.id) }
+        for (i, id) in merged.enumerated() {
+            try? await db.repos.setSortOrder(id: id, i)
+        }
+    }
 }
