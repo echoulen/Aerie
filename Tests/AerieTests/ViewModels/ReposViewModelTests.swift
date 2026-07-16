@@ -239,4 +239,59 @@ final class ReposViewModelTests: XCTestCase {
         guard case .ready(let rows) = vm.state else { return XCTFail("expected .ready") }
         XCTAssertEqual(rows.map(\.repo.name), ["Alpha", "Bravo"])
     }
+
+    func test_remove_deletesRepoAndRefreshes() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let a = try await insertRepo(db, accountId: acct, name: "Alpha", sortOrder: 0)
+        _ = try await insertRepo(db, accountId: acct, name: "Bravo", sortOrder: 1)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
+        await vm.refresh()
+
+        await vm.remove(id: a.id)
+
+        guard case .ready(let rows) = vm.state else { return XCTFail("expected .ready") }
+        XCTAssertEqual(rows.map(\.repo.name), ["Bravo"])
+        XCTAssertNil(vm.actionError)
+        let found = try await db.repos.find(id: a.id)
+        XCTAssertNil(found)
+    }
+
+    func test_remove_lastRepoLeavesEmptyState() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let a = try await insertRepo(db, accountId: acct, name: "Only", sortOrder: 0)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
+        await vm.refresh()
+
+        await vm.remove(id: a.id)
+
+        XCTAssertEqual(vm.state, .empty)
+    }
+
+    func test_remove_surfacesDeleteFailure() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let a = try await insertRepo(db, accountId: acct, name: "Alpha", sortOrder: 0)
+        let vm = ReposViewModel(db: db, gitService: NoOpGitService())
+        await vm.refresh()
+
+        // Sabotage: a child table RepoDAO.delete does NOT clear, referencing
+        // the repo, makes the delete throw an FK failure.
+        try await db.dbQueue.write { dbConn in
+            try dbConn.execute(sql: """
+                CREATE TABLE test_orphan (repo_id TEXT NOT NULL REFERENCES repos(id))
+                """)
+            try dbConn.execute(
+                sql: "INSERT INTO test_orphan (repo_id) VALUES (?)",
+                arguments: [a.id.uuidString]
+            )
+        }
+
+        await vm.remove(id: a.id)
+
+        XCTAssertNotNil(vm.actionError)
+        guard case .ready(let rows) = vm.state else { return XCTFail("expected .ready") }
+        XCTAssertEqual(rows.map(\.repo.name), ["Alpha"], "repo stays listed on failure")
+    }
 }

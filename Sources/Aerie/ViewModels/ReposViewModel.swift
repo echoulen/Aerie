@@ -35,6 +35,9 @@ enum ReposState: Equatable {
 @Observable
 final class ReposViewModel {
     private(set) var state: ReposState = .loading
+    /// A repo-action failure (currently: delete). Rendered by `ReposScreen`
+    /// under the header; cleared by the next successful action.
+    private(set) var actionError: String?
     private let db: AppDatabase
     private let gitService: any GitService
     /// Last-known worktrees per repo, kept in memory so a refresh paints the
@@ -118,5 +121,21 @@ final class ReposViewModel {
         for (i, id) in merged.enumerated() {
             try? await db.repos.setSortOrder(id: id, i)
         }
+    }
+
+    /// Untracks the repo (DB row + child caches; the on-disk clone is
+    /// untouched), refreshes, and notifies Settings via
+    /// `.aerieReposDidChange`. Failures land in `actionError` instead of
+    /// vanishing — a swallowed FK failure once made the Settings × look dead.
+    func remove(id: UUID) async {
+        do {
+            try await db.repos.delete(id: id)
+            actionError = nil
+        } catch {
+            actionError = error.localizedDescription
+            return
+        }
+        await refresh()
+        NotificationCenter.default.post(name: .aerieReposDidChange, object: nil)
     }
 }
