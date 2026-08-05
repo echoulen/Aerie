@@ -193,18 +193,6 @@ private struct AppRoot: View {
     }
 }
 
-/// Pairs a worktree with its repo for the worktree dialogs' `@State`.
-struct WorktreeContext: Identifiable, Equatable {
-    let id: String           // worktree path — unique per repo
-    let repo: Repository
-    let worktree: WorktreeRow
-    init(repo: Repository, worktree: WorktreeRow) {
-        self.id = worktree.id
-        self.repo = repo
-        self.worktree = worktree
-    }
-}
-
 /// The composed main window shell — Backdrop + Titlebar (centred brand) + the
 /// currently-selected primary screen (PRs or Repos). The view switcher lives
 /// in the active screen's page header.
@@ -228,8 +216,6 @@ struct MainShell: View {
     /// normal tab list. Owned here (not in `AppViewModel`) alongside the dialogs,
     /// since the review screen replaces the whole tab content area.
     @State private var reviewing: PRRow?
-    /// The (repo, worktree) whose delete confirmation is presented (nil = none).
-    @State private var presentedDeleteWorktree: WorktreeContext?
     /// GitHub accounts indexed by id, loaded once on appear so the merge dialog
     /// can resolve a PR's bound account (`repo.primaryAccountId`) synchronously
     /// for display. The overlay body can't `await`, hence the cached map.
@@ -443,8 +429,15 @@ struct MainShell: View {
                         return "Discard failed: \(error.localizedDescription)"
                     }
                 },
-                onDeleteWorktree: { row, wt in
-                    presentedDeleteWorktree = WorktreeContext(repo: row.repo, worktree: wt)
+                onDeleteWorktreeConfirmed: { row, wt in
+                    do {
+                        try await services.gitService.removeWorktree(
+                            wt.path, mainWorktreeAt: row.repo.localPath, force: wt.isDirty)
+                        await reposVM.refresh()
+                        return nil
+                    } catch {
+                        return "Delete failed: \(error.localizedDescription)"
+                    }
                 },
                 createPhase: { prCreateStore.phase(for: $0) },
                 onCreatePR: { prCreateStore.start(row: $0) },
@@ -541,34 +534,6 @@ struct MainShell: View {
             })
     }
 
-    // Delete-worktree confirmation overlay content. Confirm runs `git worktree
-    // remove` off the bound git service (force when the worktree is dirty), then
-    // refreshes the ReposViewModel so the worktree rail updates immediately.
-    // Worktrees are recomputed by the VM (not the DB/polling layer), so we call
-    // `reposVM.refresh()` rather than `services.refreshNow()`.
-    @ViewBuilder
-    private var deleteWorktreeDialog: some View {
-        if let ctx = presentedDeleteWorktree {
-            DialogDeleteWorktree(
-                repo: ctx.repo,
-                worktree: ctx.worktree,
-                onConfirm: {
-                    do {
-                        try await services.gitService.removeWorktree(
-                            ctx.worktree.path,
-                            mainWorktreeAt: ctx.repo.localPath,
-                            force: ctx.worktree.isDirty)
-                        await reposVM.refresh()
-                        presentedDeleteWorktree = nil
-                        return nil
-                    } catch {
-                        return "Delete failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedDeleteWorktree = nil })
-        }
-    }
-
     var body: some View {
         AppFrame(
             viewModel: appVM,
@@ -581,10 +546,6 @@ struct MainShell: View {
                 // switch to their narrow layouts when the window shrinks.
                 .readsCompactWidth()
         }
-        // Confirmation dialogs — each carries its own full-window scrim (via
-        // `DialogShell`), so overlaying here dims the titlebar too. Content is
-        // extracted into computed properties to keep `body` type-checkable.
-        .overlay { deleteWorktreeDialog }
         .task {
             // Kick off focus-driven polling (idempotent), then paint instantly
             // from whatever's already cached. Fresh PRs arrive via the

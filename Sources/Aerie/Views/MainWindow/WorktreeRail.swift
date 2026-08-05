@@ -12,7 +12,7 @@ struct WorktreeRail: View {
     /// row's Merge state machine can show idle → Merging… → Up to date / Retry.
     var onMerge: (WorktreeRow) async -> String?
     var onDiscardConfirmed: (WorktreeRow) async -> String? = { _ in nil }
-    var onDelete: (WorktreeRow) -> Void
+    var onDeleteConfirmed: (WorktreeRow) async -> String? = { _ in nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -52,7 +52,7 @@ struct WorktreeRail: View {
                         repoActionStore: repoActionStore,
                         onMerge: { await onMerge(wt) },
                         onDiscardConfirmed: onDiscardConfirmed,
-                        onDelete: { onDelete(wt) })
+                        onDeleteConfirmed: onDeleteConfirmed)
                 }
             }
             .padding(.leading, 22)
@@ -182,16 +182,24 @@ struct WorktreeRowView: View {
     var repoActionStore: RepoActionStore = RepoActionStore()
     var onMerge: () async -> String?
     var onDiscardConfirmed: (WorktreeRow) async -> String? = { _ in nil }
-    var onDelete: () -> Void
+    var onDeleteConfirmed: (WorktreeRow) async -> String? = { _ in nil }
 
     @State private var phase: MergePhase = .idle
     @State private var showDiscardConfirm = false
+    @State private var showDeleteConfirm = false
     @Environment(\.isCompactWidth) private var isCompact
 
     private var isDiscarding: Bool { repoActionStore.isRunning(.discardWorktree, for: .worktree(worktree)) }
 
     private var discardFailure: String? {
         if case .failed(let message) = repoActionStore.phase(.discardWorktree, for: .worktree(worktree)) { return message }
+        return nil
+    }
+
+    private var isDeleting: Bool { repoActionStore.isRunning(.deleteWorktree, for: .worktree(worktree)) }
+
+    private var deleteFailure: String? {
+        if case .failed(let message) = repoActionStore.phase(.deleteWorktree, for: .worktree(worktree)) { return message }
         return nil
     }
 
@@ -214,9 +222,10 @@ struct WorktreeRowView: View {
                     defaultBranch: defaultBranch,
                     mergePhase: phase,
                     isDiscarding: isDiscarding,
+                    isDeleting: isDeleting,
                     onMerge: runMerge,
                     onDiscardTapped: { if !isDiscarding { showDiscardConfirm = true } },
-                    onDelete: onDelete)
+                    onDeleteTapped: { if !isDeleting { showDeleteConfirm = true } })
                 .popover(isPresented: $showDiscardConfirm) {
                     DialogWorktreeDiscard(
                         repo: repo, worktree: worktree,
@@ -227,6 +236,18 @@ struct WorktreeRowView: View {
                             }
                         },
                         onCancel: { showDiscardConfirm = false }
+                    )
+                }
+                .popover(isPresented: $showDeleteConfirm) {
+                    DialogDeleteWorktree(
+                        repo: repo, worktree: worktree,
+                        onConfirm: {
+                            showDeleteConfirm = false
+                            repoActionStore.start(.deleteWorktree, target: .worktree(worktree)) {
+                                await onDeleteConfirmed(worktree)
+                            }
+                        },
+                        onCancel: { showDeleteConfirm = false }
                     )
                 }
             }
@@ -245,6 +266,13 @@ struct WorktreeRowView: View {
                     message: discardFailure,
                     onRetry: { repoActionStore.retry(.discardWorktree, target: .worktree(worktree)) },
                     onDismiss: { repoActionStore.dismiss(.discardWorktree, target: .worktree(worktree)) })
+            }
+            if let deleteFailure {
+                // Already reads "Delete failed: …" — pass through as-is.
+                ActionErrorStrip(
+                    message: deleteFailure,
+                    onRetry: { repoActionStore.retry(.deleteWorktree, target: .worktree(worktree)) },
+                    onDismiss: { repoActionStore.dismiss(.deleteWorktree, target: .worktree(worktree)) })
             }
         }
         .animation(.easeOut(duration: 0.15), value: phase)
@@ -287,9 +315,10 @@ private struct WorktreeActions: View {
     let defaultBranch: String
     let mergePhase: MergePhase
     var isDiscarding: Bool = false
+    var isDeleting: Bool = false
     var onMerge: () -> Void
     var onDiscardTapped: () -> Void
-    var onDelete: () -> Void
+    var onDeleteTapped: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -311,8 +340,9 @@ private struct WorktreeActions: View {
                 .frame(width: 1, height: 18)
                 .padding(.horizontal, 1)
 
-            WtDeleteButton(action: onDelete)
-                .help("Delete worktree")
+            WtDeleteButton(isRunning: isDeleting, action: onDeleteTapped)
+                .disabled(isDeleting)
+                .help(isDeleting ? "Deleting worktree…" : "Delete worktree")
         }
         .fixedSize()
     }
@@ -482,14 +512,21 @@ private struct WtActionButton: View {
 /// `.wt-del` — destructive icon-only button, 28×28, neutral at rest, red on
 /// hover, sinks 0.5px on press.
 private struct WtDeleteButton: View {
+    var isRunning: Bool = false
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "trash")
-                .font(.system(size: 13))
-                .foregroundStyle(hovering ? AerieColor.dangerText : AerieColor.text4)
+            Group {
+                if isRunning {
+                    SpinnerView(size: 13).foregroundStyle(AerieColor.text4)
+                } else {
+                    Image(systemName: "trash")
+                        .font(.system(size: 13))
+                        .foregroundStyle(hovering ? AerieColor.dangerText : AerieColor.text4)
+                }
+            }
                 .frame(width: 28, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)

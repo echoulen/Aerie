@@ -38,7 +38,7 @@ struct ReposScreen: View {
     /// Asks the shell to discard the specified worktree for `row`.
     var onDiscardWorktreeConfirmed: (RepoRow, WorktreeRow) async -> String? = { _, _ in nil }
     /// Asks the shell to delete the specified worktree for `row`.
-    var onDeleteWorktree: (RepoRow, WorktreeRow) -> Void = { _, _ in }
+    var onDeleteWorktreeConfirmed: (RepoRow, WorktreeRow) async -> String? = { _, _ in nil }
     /// The repo's PR-publish phase, looked up in the shell-owned
     /// `PRCreateStore`. Defaulted to idle for previews / snapshot tests.
     var createPhase: (RepoRow) -> PRCreatePhase = { _ in .idle }
@@ -161,7 +161,7 @@ struct ReposScreen: View {
                         onDiscardConfirmed: onDiscardConfirmed,
                         onMergeWorktree: { await onMergeWorktree(row, $0) },
                         onDiscardWorktreeConfirmed: { await onDiscardWorktreeConfirmed(row, $0) },
-                        onDeleteWorktree: { onDeleteWorktree(row, $0) },
+                        onDeleteWorktreeConfirmed: { await onDeleteWorktreeConfirmed(row, $0) },
                         createPhase: createPhase(row),
                         onCreatePR: { onCreatePR(row) },
                         onToggleApiSync: { onToggleApiSync(row) },

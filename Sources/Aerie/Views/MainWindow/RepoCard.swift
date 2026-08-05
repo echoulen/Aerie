@@ -32,7 +32,7 @@ struct RepoCard: View {
     var onDiscardConfirmed: (RepoRow) async -> String? = { _ in nil }
     var onMergeWorktree: (WorktreeRow) async -> String? = { _ in nil }
     var onDiscardWorktreeConfirmed: (WorktreeRow) async -> String? = { _ in nil }
-    var onDeleteWorktree: (WorktreeRow) -> Void = { _ in }
+    var onDeleteWorktreeConfirmed: (WorktreeRow) async -> String? = { _ in nil }
     /// The repo's PR-publish phase (from `PRCreateStore`). Defaulted so
     /// previews / snapshot tests can omit it.
     var createPhase: PRCreatePhase = .idle
@@ -201,7 +201,7 @@ struct RepoCard: View {
                             repoActionStore: repoActionStore,
                             onMerge: onMergeWorktree,
                             onDiscardConfirmed: onDiscardWorktreeConfirmed,
-                            onDelete: onDeleteWorktree)
+                            onDeleteConfirmed: onDeleteWorktreeConfirmed)
                     }
                 }
             }

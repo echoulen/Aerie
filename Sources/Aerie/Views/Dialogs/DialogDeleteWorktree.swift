@@ -1,35 +1,27 @@
 import SwiftUI
 
-/// Delete-worktree confirmation. Clean → `git worktree remove`; dirty →
-/// `--force` with an N-changes warning. Reuses `DialogShell` + `KVList`, danger
-/// tone, matching DialogReset/DialogDiscard.
+/// Delete-worktree confirmation, presented via `.popover(isPresented:)`.
+/// Clean → `git worktree remove`; dirty → `--force` with an N-changes
+/// warning. Danger tone, matching `DialogWorktreeDiscard`/`DialogDiscard`.
 struct DialogDeleteWorktree: View {
     let repo: Repository
     let worktree: WorktreeRow
-    var onConfirm: () async -> String?
+    var onConfirm: () -> Void
     var onCancel: () -> Void
-
-    @State private var busy = false
-    @State private var errorMessage: String?
 
     private var dirty: Bool { worktree.isDirty && worktree.dirtyFileCount > 0 }
 
     var body: some View {
-        DialogShell(
+        ActionPopoverShell(
             tone: .danger,
             title: "Delete worktree \(worktree.branchLabel)?",
             subtitle: dirty
                 ? "This worktree has \(worktree.dirtyFileCount) uncommitted change\(worktree.dirtyFileCount == 1 ? "" : "s"). Deleting runs git worktree remove --force and permanently discards them."
                 : "This runs git worktree remove. Only the checkout directory is deleted — the branch and its commits stay in \(repo.name)'s shared .git/.",
             primaryTitle: dirty ? "Force-delete worktree" : "Delete worktree",
-            onPrimary: { Task { await confirm() } },
+            onPrimary: onConfirm,
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
-            primaryDisabled: busy,
-            loading: busy,
-            loadingLabel: "Removing worktree…",
-            progressNote: "Removing worktree…",
-            errorMessage: errorMessage,
             icon: dirty ? "exclamationmark.triangle.fill" : "trash"
         ) {
             KVList(rows: [
@@ -84,13 +76,5 @@ struct DialogDeleteWorktree: View {
                     .padding(.top, 12)
             }
         }
-    }
-
-    private func confirm() async {
-        guard !busy else { return }
-        busy = true
-        errorMessage = nil
-        errorMessage = await onConfirm()
-        busy = false
     }
 }
