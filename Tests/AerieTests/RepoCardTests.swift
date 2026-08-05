@@ -59,7 +59,7 @@ final class RepoCardTests: XCTestCase {
     private func host(_ row: RepoRow) -> NSHostingView<some View> {
         let view = ZStack {
             Backdrop()
-            RepoCard(row: row, onOpen: {}, onHardReset: {})
+            RepoCard(row: row, onOpen: {})
                 .padding(20)
         }
         .frame(width: 980, height: 180)

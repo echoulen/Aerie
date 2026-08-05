@@ -11,9 +11,11 @@ import AppKit
 /// - "Open" launches the repo's local path in Finder via `NSWorkspace`.
 ///   We prefer this over the GitHub URL because the Repos view is the
 ///   "local-first" surface — the GitHub side is exposed via PRs.
-/// - "Hard reset" bubbles up via `onHardReset`; the shell presents
-///   `DialogReset` and runs `GitService.hardResetToOrigin` on confirm. The
-///   screen itself stays state-free and performs nothing destructive.
+/// - "Hard reset" is fully owned by `RepoCard`: it presents `DialogReset` as a
+///   popover and, on confirm, hands off to the shared `repoActionStore`, which
+///   runs `onHardResetConfirmed` (the `GitService.hardResetToOrigin` call,
+///   owned by `MainShell`) in the background. The screen itself stays
+///   state-free and performs nothing destructive.
 struct ReposScreen: View {
     @Bindable var viewModel: ReposViewModel
     /// When provided, the page header renders the right-aligned
@@ -24,12 +26,10 @@ struct ReposScreen: View {
     var onRefresh: () async -> Void = {}
     /// Opens the add-repository flow when the header's Add button is tapped.
     var onAddRepo: () -> Void = {}
-    /// Asks the shell to present the hard-reset confirmation dialog for `row`.
-    /// The screen owns no state, so the actual `DialogReset` presentation +
-    /// `GitService.hardResetToOrigin` call live in `MainShell`.
-    var onHardReset: (RepoRow) -> Void = { _ in }
+    var repoActionStore: RepoActionStore = RepoActionStore()
+    var onHardResetConfirmed: (RepoRow) async -> String? = { _ in nil }
     /// Asks the shell to present the discard-unstaged confirmation dialog for
-    /// `row`. Like `onHardReset`, the `DialogDiscard` presentation +
+    /// `row`. Unlike Hard reset, the `DialogDiscard` presentation +
     /// `GitService.discardUnstaged` call live in `MainShell`.
     var onDiscard: (RepoRow) -> Void = { _ in }
     /// Asks the shell to merge the specified worktree for `row`. Returns nil on
@@ -157,7 +157,8 @@ struct ReposScreen: View {
                     RepoCard(
                         row: row,
                         onOpen: { handleOpen(row) },
-                        onHardReset: { onHardReset(row) },
+                        repoActionStore: repoActionStore,
+                        onHardResetConfirmed: onHardResetConfirmed,
                         onDiscard: { onDiscard(row) },
                         onMergeWorktree: { await onMergeWorktree(row, $0) },
                         onDiscardWorktree: { onDiscardWorktree(row, $0) },

@@ -49,7 +49,7 @@ final class DialogResetTests: XCTestCase {
             fetchedAt: fixedFetchedAt
         )
         let view = DialogReset(repo: fixtureRepo(), status: status,
-                               onConfirm: { nil }, onCancel: { })
+                               onConfirm: { }, onCancel: { })
         assertSnapshot(of: host(view), as: .image(size: CGSize(width: 1240, height: 880)))
     }
 
@@ -66,27 +66,7 @@ final class DialogResetTests: XCTestCase {
             fetchedAt: fixedFetchedAt
         )
         let view = DialogReset(repo: fixtureRepo(), status: status,
-                               onConfirm: { nil }, onCancel: { })
-        assertSnapshot(of: host(view), as: .image(size: CGSize(width: 1240, height: 880)))
-    }
-
-    /// A failed reset keeps the dialog open and shows the error in place
-    /// (the `onConfirm -> String?` contract, surfaced via `initialError`).
-    func test_dialogReset_withError() {
-        let status = LocalGitStatus(
-            repoId: repoId,
-            currentBranch: "feat/phase17-dialogs",
-            isDirty: true,
-            dirtyFileCount: 4,
-            aheadOfDefault: 3,
-            behindOfDefault: 2,
-            unpushedCommits: 3,
-            originDefaultSha: "abc1234",
-            fetchedAt: fixedFetchedAt
-        )
-        let view = DialogReset(repo: fixtureRepo(), status: status,
-                               onConfirm: { nil }, onCancel: { },
-                               initialError: "Reset failed: could not fetch origin (network unreachable)")
+                               onConfirm: { }, onCancel: { })
         assertSnapshot(of: host(view), as: .image(size: CGSize(width: 1240, height: 880)))
     }
 

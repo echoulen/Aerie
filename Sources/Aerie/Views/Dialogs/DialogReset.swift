@@ -1,46 +1,23 @@
 import SwiftUI
 
-/// Confirmation dialog for hard-resetting a repo to its origin default branch.
-/// Danger tone (red ring) + a KV summary of the repo's current local state.
-/// The view never calls `GitService` directly — `onConfirm` is the escape
-/// hatch the integration layer wires up to call `GitService.hardResetToOrigin`
-/// and then trigger a repo refresh (Phase-21 concern).
+/// Confirmation content for hard-resetting a repo to its origin default
+/// branch, presented via `.popover(isPresented:)` anchored to the repo card's
+/// Reset button. Danger tone + a KV summary of the repo's current local
+/// state. Carries no busy/error state of its own — see `DialogMerge`'s doc
+/// comment for why.
 struct DialogReset: View {
     let repo: Repository
     let status: LocalGitStatus
-    /// Closure invoked when the user confirms. Returns an error message to
-    /// display in-dialog on failure, or `nil` on success — in which case the
-    /// caller dismisses the dialog. The caller decides the actual reset target
-    /// (default branch is read from `repo.defaultBranch`).
-    var onConfirm: () async -> String?
+    var onConfirm: () -> Void
     var onCancel: () -> Void
     /// When non-nil, the confirm flow also force-deletes this merged branch, and
-    /// the dialog says so. Defaulted to nil so existing call sites are unaffected.
-    /// Callers must only set this when `mergedBranch.branch == status.currentBranch`
-    /// (the off-default checked-out branch) — `MergedBranchSync` guarantees that.
+    /// the dialog says so. Callers must only set this when
+    /// `mergedBranch.branch == status.currentBranch` — `MergedBranchSync`
+    /// guarantees that.
     var mergedBranch: MergedBranchInfo? = nil
-    /// In-flight state for the primary button.
-    @State private var busy: Bool = false
-    @State private var errorMessage: String?
-
-    init(
-        repo: Repository,
-        status: LocalGitStatus,
-        mergedBranch: MergedBranchInfo? = nil,
-        onConfirm: @escaping () async -> String?,
-        onCancel: @escaping () -> Void,
-        initialError: String? = nil
-    ) {
-        self.repo = repo
-        self.status = status
-        self.mergedBranch = mergedBranch
-        self.onConfirm = onConfirm
-        self.onCancel = onCancel
-        self._errorMessage = State(initialValue: initialError)
-    }
 
     var body: some View {
-        DialogShell(
+        ActionPopoverShell(
             tone: .danger,
             title: mergedBranch == nil
                 ? "Hard reset \(repo.name) to origin/\(repo.defaultBranch)?"
@@ -49,15 +26,9 @@ struct DialogReset: View {
             primaryTitle: mergedBranch == nil
                 ? "Reset to origin/\(repo.defaultBranch)"
                 : "Reset & delete branch",
-            onPrimary: { Task { await runConfirm() } },
+            onPrimary: onConfirm,
             secondaryTitle: "Cancel",
-            onSecondary: onCancel,
-            loading: busy,
-            loadingLabel: "Resetting…",
-            progressNote: mergedBranch == nil
-                ? "Resetting to origin/\(repo.defaultBranch)…"
-                : "Resetting & deleting branch…",
-            errorMessage: errorMessage
+            onSecondary: onCancel
         ) {
             KVList(rows: kvRows)
         }
@@ -116,15 +87,6 @@ struct DialogReset: View {
                 .aerieFont(AerieFont.custom(.sans, size: 13))
                 .foregroundStyle(AerieColor.text3)
         }
-    }
-
-    private func runConfirm() async {
-        guard !busy else { return }
-        busy = true
-        errorMessage = nil
-        // nil → success (caller dismisses); non-nil → show the error, stay open.
-        errorMessage = await onConfirm()
-        busy = false
     }
 
     /// The "delete branch" KV value, or nil when there's no merged branch to

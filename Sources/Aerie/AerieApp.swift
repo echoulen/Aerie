@@ -217,18 +217,15 @@ struct MainShell: View {
     @State private var aiReviewStore: AIReviewStore = MainShell.makeAIReviewStore()
     @State private var prCreateStore: PRCreateStore = MainShell.makePRCreateStore()
     @State private var prActionStore = PRActionStore()
+    @State private var repoActionStore = RepoActionStore()
     @Environment(\.openWindow) private var openWindow
     @State private var appVM = AppViewModel()
     @State private var prsVM: PRsViewModel
     @State private var issuesVM: IssuesViewModel
     @State private var reposVM: ReposViewModel
     @State private var accountVM: AccountMenuViewModel
-    /// The repo whose hard-reset confirmation dialog is currently presented
-    /// (nil = no dialog). Owned here so the `DialogReset` scrim dims the whole
-    /// window, not just the Repos content area.
-    @State private var presentedReset: RepoRow?
     /// The repo whose discard-unstaged confirmation dialog is currently presented
-    /// (nil = no dialog). Owned here for the same scrim reason as `presentedReset`.
+    /// (nil = no dialog). Owned here for the same scrim reason as the others.
     @State private var presentedDiscard: RepoRow?
     /// The PR whose force-checkout confirmation dialog is currently presented
     /// (nil = no dialog). Owned here for the same scrim reason as the others.
@@ -365,7 +362,30 @@ struct MainShell: View {
                     services.settingsNavigator.requestAddRepo()
                     openWindow(id: "settings")
                 },
-                onHardReset: { presentedReset = $0 },
+                repoActionStore: repoActionStore,
+                onHardResetConfirmed: { row in
+                    guard let status = row.status else { return "No local git status available." }
+                    do {
+                        let token = await services.auth.token(for: row.repo.primaryAccountId)
+                        _ = try await services.gitService.hardResetToOrigin(
+                            repoAt: row.repo.localPath,
+                            defaultBranch: row.repo.defaultBranch,
+                            token: token
+                        )
+                        if let merged = row.mergedBranch {
+                            do {
+                                try await services.gitService.deleteLocalBranch(
+                                    repoAt: row.repo.localPath, branch: merged.branch)
+                            } catch {
+                                NSLog("Reset succeeded but couldn't delete merged branch \(merged.branch): \(error.localizedDescription)")
+                            }
+                        }
+                        await services.refreshNow()
+                        return nil
+                    } catch {
+                        return "Reset failed: \(error.localizedDescription)"
+                    }
+                },
                 onDiscard: { presentedDiscard = $0 },
                 onMergeWorktree: { row, wt in
                     // No dialog: a forward, non-destructive step. Mirrors the
@@ -403,54 +423,6 @@ struct MainShell: View {
                         await reposVM.refresh()
                     }
                 }
-            )
-        }
-    }
-
-    // Hard-reset confirmation overlay content. Extracted (like the other dialogs)
-    // to keep `body` within the type-checker's complexity budget.
-    @ViewBuilder
-    private var resetDialog: some View {
-        if let row = presentedReset, let status = row.status {
-            DialogReset(
-                repo: row.repo,
-                status: status,
-                mergedBranch: row.mergedBranch,
-                onConfirm: {
-                    do {
-                        let token = await services.auth.token(
-                            for: row.repo.primaryAccountId
-                        )
-                        _ = try await services.gitService.hardResetToOrigin(
-                            repoAt: row.repo.localPath,
-                            defaultBranch: row.repo.defaultBranch,
-                            token: token
-                        )
-                        // Reset succeeded — HEAD is now on the default branch, so the
-                        // merged branch can be force-deleted. A deletion failure here is
-                        // non-fatal: the reset already achieved the user's goal and the
-                        // orphaned merged branch is harmless (removable manually). Swallow
-                        // + log rather than reporting "Reset failed", which would
-                        // misrepresent a successful reset. refreshNow re-runs detection;
-                        // since HEAD is now on default, the pill clears regardless.
-                        if let merged = row.mergedBranch {
-                            do {
-                                try await services.gitService.deleteLocalBranch(
-                                    repoAt: row.repo.localPath,
-                                    branch: merged.branch
-                                )
-                            } catch {
-                                NSLog("Reset succeeded but couldn't delete merged branch \(merged.branch): \(error.localizedDescription)")
-                            }
-                        }
-                        await services.refreshNow()
-                        presentedReset = nil
-                        return nil
-                    } catch {
-                        return "Reset failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedReset = nil }
             )
         }
     }
@@ -696,7 +668,6 @@ struct MainShell: View {
         // Confirmation dialogs — each carries its own full-window scrim (via
         // `DialogShell`), so overlaying here dims the titlebar too. Content is
         // extracted into computed properties to keep `body` type-checkable.
-        .overlay { resetDialog }
         .overlay { discardDialog }
         .overlay { checkoutDialog }
         .overlay { approveDialog }
