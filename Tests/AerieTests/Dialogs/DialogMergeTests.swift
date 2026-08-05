@@ -4,9 +4,9 @@ import SnapshotTesting
 @testable import Aerie
 
 /// Snapshot coverage for `DialogMerge` — warning-toned squash-merge
-/// confirmation. Two scenarios: ready-to-ship (success CI + approved) and
-/// the same fixture seeded with an initial error banner (the failure mode
-/// the integration layer flows back into the dialog via `initialError`).
+/// confirmation, ready-to-ship (success CI + approved). The failure path no
+/// longer lives in this dialog — it's `ActionErrorStrip` on the PR card,
+/// covered visually by manual smoke-testing.
 final class DialogMergeTests: XCTestCase {
     private let repoId = UUID(uuidString: "22222222-0000-0000-0000-000000000001")!
     private let accountId = UUID(uuidString: "22222222-0000-0000-0000-000000000002")!
@@ -67,20 +67,8 @@ final class DialogMergeTests: XCTestCase {
             pr: fixturePR(),
             repo: fixtureRepo(),
             account: fixtureAccount(),
-            onConfirm: { nil },
+            onConfirm: { },
             onCancel: { }
-        )
-        assertSnapshot(of: host(view), as: .image(size: CGSize(width: 1240, height: 880)))
-    }
-
-    func test_dialogMerge_withErrorBanner() {
-        let view = DialogMerge(
-            pr: fixturePR(),
-            repo: fixtureRepo(),
-            account: fixtureAccount(),
-            onConfirm: { nil },
-            onCancel: { },
-            initialError: "Merge blocked: required status check \"build\" is failing on the source branch."
         )
         assertSnapshot(of: host(view), as: .image(size: CGSize(width: 1240, height: 880)))
     }

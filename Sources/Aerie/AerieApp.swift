@@ -216,6 +216,7 @@ struct MainShell: View {
     private let services = AppServices.shared
     @State private var aiReviewStore: AIReviewStore = MainShell.makeAIReviewStore()
     @State private var prCreateStore: PRCreateStore = MainShell.makePRCreateStore()
+    @State private var prActionStore = PRActionStore()
     @Environment(\.openWindow) private var openWindow
     @State private var appVM = AppViewModel()
     @State private var prsVM: PRsViewModel
@@ -229,10 +230,6 @@ struct MainShell: View {
     /// The repo whose discard-unstaged confirmation dialog is currently presented
     /// (nil = no dialog). Owned here for the same scrim reason as `presentedReset`.
     @State private var presentedDiscard: RepoRow?
-    /// The PR whose merge confirmation dialog is currently presented (nil = no
-    /// dialog). Owned here for the same reason as `presentedReset` — the
-    /// `DialogMerge` scrim should dim the whole window.
-    @State private var presentedMerge: PRRow?
     /// The PR whose force-checkout confirmation dialog is currently presented
     /// (nil = no dialog). Owned here for the same scrim reason as the others.
     @State private var presentedCheckout: PRRow?
@@ -304,7 +301,25 @@ struct MainShell: View {
                 viewModel: prsVM,
                 tabSelection: $appVM.activeTab,
                 onRefresh: { await services.refreshNow() },
-                onMerge: { presentedMerge = $0 },
+                prActionStore: prActionStore,
+                mergeAccount: { row in
+                    accountsById[row.repo.primaryAccountId]
+                        ?? GitHubAccount(id: row.repo.primaryAccountId, login: "unknown", host: "github.com")
+                },
+                onMergeConfirmed: { row in
+                    do {
+                        _ = try await services.multiApi.mergePR(
+                            owner: row.repo.githubOwner,
+                            repo: row.repo.githubRepo,
+                            number: row.pr.number,
+                            method: .squash
+                        )
+                        await services.refreshNow()
+                        return nil
+                    } catch {
+                        return "Merge failed: \(error.localizedDescription)"
+                    }
+                },
                 onUpdateBranch: { row in
                     // One-click "Update branch": ask GitHub to update the PR's
                     // head branch server-side (the analogue of the web "Update
@@ -462,36 +477,6 @@ struct MainShell: View {
                     }
                 },
                 onCancel: { presentedDiscard = nil }
-            )
-        }
-    }
-
-    // Merge confirmation overlay content. Confirm squash-merges via the GitHub
-    // API, then refreshes so the merged PR drops off the list.
-    @ViewBuilder
-    private var mergeDialog: some View {
-        if let row = presentedMerge {
-            DialogMerge(
-                pr: row.pr,
-                repo: row.repo,
-                account: accountsById[row.repo.primaryAccountId]
-                    ?? GitHubAccount(id: row.repo.primaryAccountId, login: "unknown", host: "github.com"),
-                onConfirm: {
-                    do {
-                        _ = try await services.multiApi.mergePR(
-                            owner: row.repo.githubOwner,
-                            repo: row.repo.githubRepo,
-                            number: row.pr.number,
-                            method: .squash
-                        )
-                        await services.refreshNow()
-                        presentedMerge = nil
-                        return nil
-                    } catch {
-                        return "Merge failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedMerge = nil }
             )
         }
     }
@@ -713,7 +698,6 @@ struct MainShell: View {
         // extracted into computed properties to keep `body` type-checkable.
         .overlay { resetDialog }
         .overlay { discardDialog }
-        .overlay { mergeDialog }
         .overlay { checkoutDialog }
         .overlay { approveDialog }
         .overlay { deleteWorktreeDialog }

@@ -9,10 +9,11 @@ import AppKit
 ///
 /// Action wiring:
 /// - "Open" launches the PR's HTML URL via `NSWorkspace`.
-/// - "Merge" bubbles up via `onMerge`; the shell presents `DialogMerge` and
-///   runs `MultiAccountAPI.mergePR` on confirm. The screen itself stays
-///   state-free and performs nothing destructive (mirrors `ReposScreen`'s
-///   `onHardReset`).
+/// - "Merge" is fully owned by `PRCard`: it presents `DialogMerge` as a
+///   popover and, on confirm, hands off to the shared `prActionStore`, which
+///   runs `onMergeConfirmed` (the `MultiAccountAPI.mergePR` call, owned by
+///   `MainShell`) in the background. The screen itself stays state-free and
+///   performs nothing destructive (mirrors `ReposScreen`'s `onHardReset`).
 struct PRsScreen: View {
     @Bindable var viewModel: PRsViewModel
     /// Fixed clock injected for deterministic snapshot tests. Production
@@ -25,10 +26,16 @@ struct PRsScreen: View {
     var tabSelection: Binding<MainTab>? = nil
     /// The real refresh to run when the header's Refresh button is tapped.
     var onRefresh: () async -> Void = {}
-    /// Asks the shell to present the merge confirmation dialog for `row`.
-    /// The screen owns no state, so the actual `DialogMerge` presentation +
-    /// `MultiAccountAPI.mergePR` call live in `MainShell`.
-    var onMerge: (PRRow) -> Void = { _ in }
+    /// Background store for Merge/Approve/Force-checkout — passed straight
+    /// through to each `PRCard`.
+    var prActionStore: PRActionStore = PRActionStore()
+    /// Resolves the GitHub account a merge confirmation displays as acting.
+    var mergeAccount: (PRRow) -> GitHubAccount = { row in
+        GitHubAccount(id: row.repo.primaryAccountId, login: "unknown", host: "github.com")
+    }
+    /// Runs the actual squash-merge for a confirmed row. The `MultiAccountAPI`
+    /// call + refresh live in `MainShell`.
+    var onMergeConfirmed: (PRRow) async -> String? = { _ in nil }
     /// Runs the base-branch update for a PR's checkout (the status-row "Update
     /// branch" pill). Async so the pill can spin until the row re-syncs; the
     /// `GitService.updateBranchFromBase` call + refresh live in `MainShell`.
@@ -136,7 +143,9 @@ struct PRsScreen: View {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
                     PRCard(
                         row: row,
-                        onMerge: { onMerge(row) },
+                        prActionStore: prActionStore,
+                        mergeAccount: mergeAccount,
+                        onMergeConfirmed: onMergeConfirmed,
                         onOpen: { handleOpen(row) },
                         onCheckout: { onCheckout(row) },
                         onReview: { onReview(row) },
