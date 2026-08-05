@@ -231,9 +231,6 @@ struct MainShell: View {
     /// normal tab list. Owned here (not in `AppViewModel`) alongside the dialogs,
     /// since the review screen replaces the whole tab content area.
     @State private var reviewing: PRRow?
-    /// The PR + resolved approver set for the approve confirmation dialog
-    /// (nil = no dialog). Owned here for the same scrim reason as the others.
-    @State private var presentedApprove: PRReviewApproveContext?
     /// The (repo, worktree) whose delete confirmation is presented (nil = none).
     @State private var presentedDeleteWorktree: WorktreeContext?
     /// The (repo, worktree) whose discard confirmation is presented (nil = none).
@@ -268,6 +265,7 @@ struct MainShell: View {
             PRReviewScreen(
                 row: row,
                 store: aiReviewStore,
+                actionStore: prActionStore,
                 loadFiles: { r in
                     try await services.multiApi.fetchPRFiles(
                         owner: r.repo.githubOwner,
@@ -279,7 +277,22 @@ struct MainShell: View {
                 accountsProvider: { await services.auth.allAccounts() },
                 lastApproverProvider: { repoId in await services.lastApprover.login(forRepo: repoId) },
                 onBack: { reviewing = nil },
-                onApprove: { presentedApprove = $0 }
+                onApproveConfirmed: { row, approver, comment in
+                    do {
+                        _ = try await services.multiApi.approvePR(
+                            owner: row.repo.githubOwner,
+                            repo: row.repo.githubRepo,
+                            number: row.pr.number,
+                            body: comment,
+                            accountId: approver.id
+                        )
+                        await services.lastApprover.record(approver.login, forRepo: row.repo.id)
+                        await services.refreshNow()
+                        return nil
+                    } catch {
+                        return "Approve failed: \(error.localizedDescription)"
+                    }
+                }
             )
             .id(row.id)
         } else {
@@ -463,40 +476,6 @@ struct MainShell: View {
         }
     }
 
-    // Approve confirmation overlay content. Confirm submits an approving review
-    // via the GitHub API using the chosen (non-author) approver account, then
-    // refreshes so the PR's review state — and the Merge gate — settle.
-    @ViewBuilder
-    private var approveDialog: some View {
-        if let ctx = presentedApprove {
-            DialogApprove(
-                context: ctx,
-                onConfirm: { approver, comment in
-                    do {
-                        _ = try await services.multiApi.approvePR(
-                            owner: ctx.row.repo.githubOwner,
-                            repo: ctx.row.repo.githubRepo,
-                            number: ctx.row.pr.number,
-                            body: comment,
-                            accountId: approver.id
-                        )
-                        await services.lastApprover.record(approver.login, forRepo: ctx.row.repo.id)
-                        await services.refreshNow()
-                        presentedApprove = nil
-                        // Approve done → leave the diff detail page and return to
-                        // the PR list, where the row now reflects the new review
-                        // state (and any lit Merge gate).
-                        reviewing = nil
-                        return nil
-                    } catch {
-                        return "Approve failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedApprove = nil }
-            )
-        }
-    }
-
     /// Builds the AI-review store, wiring its closures to live services. Static so
     /// it can seed the `@State` initial value without touching `self`.
     @MainActor
@@ -647,7 +626,6 @@ struct MainShell: View {
         // `DialogShell`), so overlaying here dims the titlebar too. Content is
         // extracted into computed properties to keep `body` type-checkable.
         .overlay { discardDialog }
-        .overlay { approveDialog }
         .overlay { deleteWorktreeDialog }
         .overlay { discardWorktreeDialog }
         .task {

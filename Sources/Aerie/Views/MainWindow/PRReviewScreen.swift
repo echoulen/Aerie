@@ -14,27 +14,32 @@ struct PRReviewApproveContext: Identifiable, Equatable {
 struct PRReviewScreen: View {
     @State private var vm: PRReviewViewModel
     let store: AIReviewStore
+    let actionStore: PRActionStore
     private let highlighter: CodeHighlighter
     var onBack: () -> Void
-    var onApprove: (PRReviewApproveContext) -> Void
+    /// Runs the actual approve (the old `approveDialog`'s `onConfirm` body).
+    /// Returns an error message on failure, nil on success.
+    var onApproveConfirmed: (PRRow, GitHubAccount, String?) async -> String? = { _, _, _ in nil }
 
     init(
         row: PRRow,
         store: AIReviewStore,
+        actionStore: PRActionStore,
         loadFiles: @escaping (PRRow) async throws -> [PRFileChange],
         accountsProvider: @escaping () async -> [GitHubAccount],
         lastApproverProvider: @escaping (UUID) async -> String? = { _ in nil },
         highlighter: CodeHighlighter = SplashCodeHighlighter(),
         onBack: @escaping () -> Void = {},
-        onApprove: @escaping (PRReviewApproveContext) -> Void = { _ in }
+        onApproveConfirmed: @escaping (PRRow, GitHubAccount, String?) async -> String? = { _, _, _ in nil }
     ) {
         _vm = State(initialValue: PRReviewViewModel(
             row: row, loadFiles: loadFiles, accountsProvider: accountsProvider,
             lastApproverProvider: lastApproverProvider))
         self.store = store
+        self.actionStore = actionStore
         self.highlighter = highlighter
         self.onBack = onBack
-        self.onApprove = onApprove
+        self.onApproveConfirmed = onApproveConfirmed
     }
 
     private var pr: PullRequest { vm.row.pr }
@@ -46,6 +51,7 @@ struct PRReviewScreen: View {
             header
             Divider().overlay(AerieColor.glassLine)
             aiReviewBanner
+            approveFailureBanner
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -64,6 +70,16 @@ struct PRReviewScreen: View {
             AIReviewCard(review: review, actedAs: actedAs)
                 .padding(.horizontal, 28).padding(.top, 16)
         case .failed(let message):
+            AIReviewFailureCard(message: message)
+                .padding(.horizontal, 28).padding(.top, 16)
+        }
+    }
+
+    @ViewBuilder
+    private var approveFailureBanner: some View {
+        // `message` already reads "Approve failed: …" (the
+        // `onApproveConfirmed` closure's error string) — display it as-is.
+        if case .failed(let message) = actionStore.phase(.approve, for: vm.row) {
             AIReviewFailureCard(message: message)
                 .padding(.horizontal, 28).padding(.top, 16)
         }
@@ -95,7 +111,8 @@ struct PRReviewScreen: View {
             ApproveButton(
                 row: vm.row,
                 resolution: vm.resolution,
-                onApprove: onApprove
+                actionStore: actionStore,
+                onApproveConfirmed: onApproveConfirmed
             )
         }
         .padding(.horizontal, 28)
@@ -193,18 +210,43 @@ struct PRReviewScreen: View {
 private struct ApproveButton: View {
     let row: PRRow
     let resolution: ApproverResolution
-    let onApprove: (PRReviewApproveContext) -> Void
+    let actionStore: PRActionStore
+    var onApproveConfirmed: (PRRow, GitHubAccount, String?) async -> String? = { _, _, _ in nil }
+
+    @State private var showConfirm = false
+
+    private var isApproving: Bool { actionStore.isRunning(.approve, for: row) }
 
     var body: some View {
         if row.pr.reviewState == .approved {
             label("Approved", system: "checkmark.seal.fill", fg: AerieColor.ok, bg: AerieColor.ok.opacity(0.14), line: AerieColor.ok.opacity(0.32))
                 .help(row.pr.approvedBy.map { "Approved by \($0)" } ?? "Already approved")
         } else if resolution.canApprove {
-            Button { onApprove(PRReviewApproveContext(row: row, resolution: resolution)) } label: {
-                label("Approve", system: "checkmark", fg: AerieColor.amberInk, bg: AerieColor.amberFillBot, line: AerieColor.amberCtaLine)
+            Button {
+                guard !isApproving else { return }
+                showConfirm = true
+            } label: {
+                if isApproving {
+                    label("Approving…", system: "", fg: AerieColor.amberInk, bg: AerieColor.amberFillBot, line: AerieColor.amberCtaLine, spinner: true)
+                } else {
+                    label("Approve", system: "checkmark", fg: AerieColor.amberInk, bg: AerieColor.amberFillBot, line: AerieColor.amberCtaLine)
+                }
             }
             .buttonStyle(.plain)
+            .disabled(isApproving)
             .help("Approve as \(resolution.defaultApprover?.login ?? "")")
+            .popover(isPresented: $showConfirm) {
+                DialogApprove(
+                    context: PRReviewApproveContext(row: row, resolution: resolution),
+                    onConfirm: { approver, comment in
+                        showConfirm = false
+                        actionStore.start(.approve, row: row) {
+                            await onApproveConfirmed(row, approver, comment)
+                        }
+                    },
+                    onCancel: { showConfirm = false }
+                )
+            }
         } else {
             label("Approve", system: "checkmark", fg: AerieColor.text3, bg: AerieColor.glass2, line: AerieColor.glassLine)
                 .opacity(0.6)
@@ -212,9 +254,13 @@ private struct ApproveButton: View {
         }
     }
 
-    private func label(_ text: String, system: String, fg: Color, bg: Color, line: Color) -> some View {
+    private func label(_ text: String, system: String, fg: Color, bg: Color, line: Color, spinner: Bool = false) -> some View {
         HStack(spacing: 7) {
-            Image(systemName: system).font(.system(size: 12, weight: .semibold))
+            if spinner {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: system).font(.system(size: 12, weight: .semibold))
+            }
             Text(text).aerieFont(AerieFont.custom(.sans, size: 13).weight(.semibold))
         }
         .foregroundStyle(fg)
