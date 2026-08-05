@@ -40,10 +40,9 @@ struct PRsScreen: View {
     /// branch" pill). Async so the pill can spin until the row re-syncs; the
     /// `GitService.updateBranchFromBase` call + refresh live in `MainShell`.
     var onUpdateBranch: (PRRow) async -> Void = { _ in }
-    /// Asks the shell to present the force-checkout confirmation dialog for
-    /// `row`. The screen owns no state, so the `DialogCheckout` presentation +
-    /// `GitService.forceCheckout` call live in `MainShell` (mirrors `onMerge`).
-    var onCheckout: (PRRow) -> Void = { _ in }
+    /// Runs the actual force-checkout for a confirmed row. The
+    /// `GitService.forceCheckout` call + refresh live in `MainShell`.
+    var onCheckoutConfirmed: (PRRow) async -> String? = { _ in nil }
     /// Asks the shell to open the code review screen for `row`. The detail-page
     /// navigation state (`reviewing`) lives in `MainShell` (mirrors `onMerge`).
     var onReview: (PRRow) -> Void = { _ in }
@@ -147,7 +146,7 @@ struct PRsScreen: View {
                         mergeAccount: mergeAccount,
                         onMergeConfirmed: onMergeConfirmed,
                         onOpen: { handleOpen(row) },
-                        onCheckout: { onCheckout(row) },
+                        onCheckoutConfirmed: onCheckoutConfirmed,
                         onReview: { onReview(row) },
                         isReviewing: isReviewing(row),
                         onUpdateBranch: { await onUpdateBranch(row) },

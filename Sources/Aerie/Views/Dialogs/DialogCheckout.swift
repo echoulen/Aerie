@@ -41,43 +41,24 @@ struct CheckoutPlan: Equatable {
 /// ahead / unpushed) reads red and spells out what's discarded; a safe one reads
 /// amber and reassures nothing local is at risk.
 ///
-/// Like `DialogReset` / `DialogDiscard`, the view never calls `GitService`
-/// directly — `onConfirm` is the escape hatch the integration layer wires to
-/// `GitService.forceCheckout` + a refresh. It returns an error message to show
-/// in-dialog on failure, or `nil` on success (the caller dismisses).
+/// Carries no busy/error state of its own — `onConfirm` fires once,
+/// synchronously; the caller closes the popover immediately and hands off to
+/// `PRActionStore` for the actual (backgrounded) checkout + failure reporting.
 ///
 /// Visual contract: `v2/checkout.jsx` `CheckoutOverlay`.
 struct DialogCheckout: View {
     let repo: Repository
     let pr: PullRequest
     let local: PRLocalState?
-    var onConfirm: () async -> String?
+    var onConfirm: () -> Void
     var onCancel: () -> Void
-    @State private var busy: Bool = false
-    @State private var errorMessage: String?
-
-    init(
-        repo: Repository,
-        pr: PullRequest,
-        local: PRLocalState?,
-        onConfirm: @escaping () async -> String?,
-        onCancel: @escaping () -> Void,
-        initialError: String? = nil
-    ) {
-        self.repo = repo
-        self.pr = pr
-        self.local = local
-        self.onConfirm = onConfirm
-        self.onCancel = onCancel
-        self._errorMessage = State(initialValue: initialError)
-    }
 
     private var branch: String { pr.sourceBranch }
     private var plan: CheckoutPlan { CheckoutPlan.make(for: local) }
 
     var body: some View {
         let plan = self.plan
-        return DialogShell(
+        return ActionPopoverShell(
             tone: plan.destructive ? .danger : .warning,
             title: plan.destructive
                 ? "Force checkout \(repo.name) to origin/\(branch)?"
@@ -86,19 +67,11 @@ struct DialogCheckout: View {
                 ? "This runs git checkout -f and resets the local branch to origin. The changes below are permanently discarded."
                 : "Fetches origin and moves the local repo onto this PR’s branch. Nothing local is at risk.",
             primaryTitle: plan.destructive ? "Force checkout" : "Check out",
-            onPrimary: { Task { await runConfirm() } },
+            onPrimary: onConfirm,
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
-            loading: busy,
-            loadingLabel: "Checking out…",
-            progressNote: "Fetching origin, then forcing checkout…",
-            errorMessage: errorMessage,
             iconView: AnyView(checkoutIcon(destructive: plan.destructive)),
-            // Safe checkout uses the bright amber CTA; the destructive one keeps
-            // the flat danger tone (matching DialogReset).
-            primaryProminent: !plan.destructive,
-            // Esc / backdrop dismiss (disabled mid-run by DialogShell).
-            onBackgroundDismiss: onCancel
+            primaryProminent: !plan.destructive
         ) {
             KVList(rows: rows(plan: plan))
         }
@@ -154,14 +127,6 @@ struct DialogCheckout: View {
             .frame(width: 16, height: 16)
     }
 
-    private func runConfirm() async {
-        guard !busy else { return }
-        busy = true
-        errorMessage = nil
-        // nil → success (caller dismisses); non-nil → show the error, stay open.
-        errorMessage = await onConfirm()
-        busy = false
-    }
 }
 
 /// The design's `CheckoutGlyph` (`v2/checkout.jsx`): a down-arrow dropping into

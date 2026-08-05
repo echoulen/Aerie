@@ -29,9 +29,10 @@ struct PRCard: View {
     /// Returns an error message on failure, nil on success.
     var onMergeConfirmed: (PRRow) async -> String? = { _ in nil }
     var onOpen: () -> Void
-    /// Asks the shell to present the force-checkout confirmation dialog for this
-    /// PR. Defaulted to a no-op for snapshot tests and previews.
-    var onCheckout: () -> Void = {}
+    /// Runs the actual force-checkout (the old `checkoutDialog`'s `onConfirm`
+    /// body, now owned by the caller and invoked from `PRActionStore.start`).
+    /// Returns an error message on failure, nil on success.
+    var onCheckoutConfirmed: (PRRow) async -> String? = { _ in nil }
     /// Opens the code review screen for this PR. Defaulted to a no-op for
     /// snapshot tests and previews.
     var onReview: () -> Void = {}
@@ -49,6 +50,7 @@ struct PRCard: View {
     var now: Date = Date()
 
     @State private var showMergeConfirm = false
+    @State private var showCheckoutConfirm = false
 
     // MARK: - Derived presentation bits
 
@@ -68,6 +70,13 @@ struct PRCard: View {
 
     private var mergeFailure: String? {
         if case .failed(let message) = prActionStore.phase(.merge, for: row) { return message }
+        return nil
+    }
+
+    private var isCheckingOut: Bool { prActionStore.isRunning(.checkout, for: row) }
+
+    private var checkoutFailure: String? {
+        if case .failed(let message) = prActionStore.phase(.checkout, for: row) { return message }
         return nil
     }
 
@@ -118,11 +127,21 @@ struct PRCard: View {
         } actions: {
             actionColumn
         } footer: {
-            if let mergeFailure {
-                ActionErrorStrip(
-                    message: mergeFailure,
-                    onRetry: { prActionStore.retry(.merge, row: row) },
-                    onDismiss: { prActionStore.dismiss(.merge, row: row) })
+            VStack(alignment: .leading, spacing: 8) {
+                // Both failure strings are already fully-formed ("Merge
+                // failed: …" / "Checkout failed: …") — pass them through as-is.
+                if let mergeFailure {
+                    ActionErrorStrip(
+                        message: mergeFailure,
+                        onRetry: { prActionStore.retry(.merge, row: row) },
+                        onDismiss: { prActionStore.dismiss(.merge, row: row) })
+                }
+                if let checkoutFailure {
+                    ActionErrorStrip(
+                        message: checkoutFailure,
+                        onRetry: { prActionStore.retry(.checkout, row: row) },
+                        onDismiss: { prActionStore.dismiss(.checkout, row: row) })
+                }
             }
         }
     }
@@ -228,12 +247,19 @@ struct PRCard: View {
         // Destructive checkouts hint with red label text (design: `color:
         // destructive ? red : text-1`); the nuance otherwise lives in the dialog.
         let tint = plan.destructive ? AerieColor.err : AerieColor.text1
-        return Button(action: onCheckout) {
+        return Button {
+            guard !isCheckingOut else { return }
+            showCheckoutConfirm = true
+        } label: {
             HStack(spacing: 6) {
-                CheckoutGlyphShape()
-                    .stroke(tint, style: StrokeStyle(lineWidth: 1.6 * 11 / 16, lineCap: .round, lineJoin: .round))
-                    .frame(width: 11, height: 11)
-                Text("Checkout")
+                if isCheckingOut {
+                    ProgressView().controlSize(.small)
+                } else {
+                    CheckoutGlyphShape()
+                        .stroke(tint, style: StrokeStyle(lineWidth: 1.6 * 11 / 16, lineCap: .round, lineJoin: .round))
+                        .frame(width: 11, height: 11)
+                }
+                Text(isCheckingOut ? "Checking out…" : "Checkout")
             }
             .aerieFont(AerieFont.custom(.sans, size: 12))
             .foregroundStyle(tint)
@@ -250,9 +276,20 @@ struct PRCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
+        .disabled(isCheckingOut)
         .help(plan.current
             ? "Local repo is already on origin/\(row.pr.sourceBranch)"
             : "Force checkout \(row.repo.name) to origin/\(row.pr.sourceBranch)")
+        .popover(isPresented: $showCheckoutConfirm) {
+            DialogCheckout(
+                repo: row.repo, pr: row.pr, local: row.localState,
+                onConfirm: {
+                    showCheckoutConfirm = false
+                    prActionStore.start(.checkout, row: row) { await onCheckoutConfirmed(row) }
+                },
+                onCancel: { showCheckoutConfirm = false }
+            )
+        }
     }
 
     // MARK: - Local state → one sentence pill

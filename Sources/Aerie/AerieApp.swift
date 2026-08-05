@@ -227,9 +227,6 @@ struct MainShell: View {
     /// The repo whose discard-unstaged confirmation dialog is currently presented
     /// (nil = no dialog). Owned here for the same scrim reason as the others.
     @State private var presentedDiscard: RepoRow?
-    /// The PR whose force-checkout confirmation dialog is currently presented
-    /// (nil = no dialog). Owned here for the same scrim reason as the others.
-    @State private var presentedCheckout: PRRow?
     /// The PR currently open in the code review (diff) screen, or nil for the
     /// normal tab list. Owned here (not in `AppViewModel`) alongside the dialogs,
     /// since the review screen replaces the whole tab content area.
@@ -343,7 +340,20 @@ struct MainShell: View {
                     }
                     await services.refreshNow()
                 },
-                onCheckout: { presentedCheckout = $0 },
+                onCheckoutConfirmed: { row in
+                    do {
+                        let token = await services.auth.token(for: row.repo.primaryAccountId)
+                        try await services.gitService.forceCheckout(
+                            repoAt: row.repo.localPath,
+                            branch: row.pr.sourceBranch,
+                            token: token
+                        )
+                        await services.refreshNow()
+                        return nil
+                    } catch {
+                        return "Checkout failed: \(error.localizedDescription)"
+                    }
+                },
                 onReview: { reviewing = $0 },
                 isReviewing: { aiReviewStore.isRunning(for: $0) }
             )
@@ -449,38 +459,6 @@ struct MainShell: View {
                     }
                 },
                 onCancel: { presentedDiscard = nil }
-            )
-        }
-    }
-
-    // Force-checkout confirmation overlay content. Confirm runs the bound git
-    // service's `forceCheckout`, then refreshes so the PR's local-state pill
-    // settles to "clean & in sync" (the branch is now checked out at origin).
-    @ViewBuilder
-    private var checkoutDialog: some View {
-        if let row = presentedCheckout {
-            DialogCheckout(
-                repo: row.repo,
-                pr: row.pr,
-                local: row.localState,
-                onConfirm: {
-                    do {
-                        let token = await services.auth.token(
-                            for: row.repo.primaryAccountId
-                        )
-                        try await services.gitService.forceCheckout(
-                            repoAt: row.repo.localPath,
-                            branch: row.pr.sourceBranch,
-                            token: token
-                        )
-                        await services.refreshNow()
-                        presentedCheckout = nil
-                        return nil
-                    } catch {
-                        return "Checkout failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedCheckout = nil }
             )
         }
     }
@@ -669,7 +647,6 @@ struct MainShell: View {
         // `DialogShell`), so overlaying here dims the titlebar too. Content is
         // extracted into computed properties to keep `body` type-checkable.
         .overlay { discardDialog }
-        .overlay { checkoutDialog }
         .overlay { approveDialog }
         .overlay { deleteWorktreeDialog }
         .overlay { discardWorktreeDialog }
