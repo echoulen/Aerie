@@ -65,11 +65,6 @@ struct WorktreeRail: View {
     }
 }
 
-/// The Merge button's feedback phases. Owned by `WorktreeRowView` (the row) so
-/// a conflict can surface an inline strip below the row — per spec: report the
-/// error, leave the worktree unchanged.
-private enum MergePhase: Equatable { case idle, running, done, error }
-
 // MARK: - Branch chip
 
 /// Denser sibling of `BranchTag`: mono branch name, glass chip. Detached gets a
@@ -184,10 +179,23 @@ struct WorktreeRowView: View {
     var onDiscardConfirmed: (WorktreeRow) async -> String? = { _ in nil }
     var onDeleteConfirmed: (WorktreeRow) async -> String? = { _ in nil }
 
-    @State private var phase: MergePhase = .idle
+    /// Drives the merge button's idle → Merging… → Up to date (auto-resets)
+    /// transition on top of `RepoActionStore`'s idle/running/failed phases —
+    /// the store has no "done, briefly" state of its own (`AIReviewStore`
+    /// doesn't need one either), so this view adds the transient checkmark
+    /// locally.
+    @State private var justSucceeded = false
     @State private var showDiscardConfirm = false
     @State private var showDeleteConfirm = false
     @Environment(\.isCompactWidth) private var isCompact
+
+    private var storePhase: ActionPhase { repoActionStore.phase(.mergeWorktree, for: .worktree(worktree)) }
+
+    private var mergeUIPhase: MergeUIPhase {
+        if case .running = storePhase { return .running }
+        if case .failed = storePhase { return .error }
+        return justSucceeded ? .done : .idle
+    }
 
     private var isDiscarding: Bool { repoActionStore.isRunning(.discardWorktree, for: .worktree(worktree)) }
 
@@ -220,7 +228,7 @@ struct WorktreeRowView: View {
                 WorktreeActions(
                     worktree: worktree,
                     defaultBranch: defaultBranch,
-                    mergePhase: phase,
+                    mergePhase: mergeUIPhase,
                     isDiscarding: isDiscarding,
                     isDeleting: isDeleting,
                     onMerge: runMerge,
@@ -254,11 +262,11 @@ struct WorktreeRowView: View {
             .padding(.vertical, 11)
             .opacity(worktree.prunable ? 0.5 : 1)
 
-            if phase == .error {
+            if mergeUIPhase == .error {
                 ActionErrorStrip(
                     message: "Merge conflict. origin/\(defaultBranch) couldn't be merged cleanly — the merge was aborted and this worktree is unchanged. Resolve it in a terminal, then retry.",
                     onRetry: runMerge,
-                    onDismiss: { phase = .idle })
+                    onDismiss: { repoActionStore.dismiss(.mergeWorktree, target: .worktree(worktree)) })
             }
             if let discardFailure {
                 // Already reads "Discard failed: …" — pass through as-is.
@@ -275,7 +283,7 @@ struct WorktreeRowView: View {
                     onDismiss: { repoActionStore.dismiss(.deleteWorktree, target: .worktree(worktree)) })
             }
         }
-        .animation(.easeOut(duration: 0.15), value: phase)
+        .animation(.easeOut(duration: 0.15), value: mergeUIPhase)
     }
 
     /// Wide → one row (chips left, actions right); compact → two stacked rows.
@@ -289,22 +297,24 @@ struct WorktreeRowView: View {
     }
 
     private func runMerge() {
-        guard phase != .running else { return }
-        phase = .running
-        Task {
+        guard !repoActionStore.isRunning(.mergeWorktree, for: .worktree(worktree)) else { return }
+        justSucceeded = false
+        repoActionStore.start(.mergeWorktree, target: .worktree(worktree)) {
             let error = await onMerge()
             if error == nil {
-                phase = .done
+                await MainActor.run { justSucceeded = true }
                 try? await Task.sleep(nanoseconds: 1_900_000_000)
-                if phase == .done { phase = .idle }
-            } else {
-                // Conflict / failure: hold the Retry state + strip until the
-                // user retries or dismisses. The worktree is left unchanged.
-                phase = .error
+                await MainActor.run { if justSucceeded { justSucceeded = false } }
             }
+            return error
         }
     }
 }
+
+/// The Merge button's feedback phases — same 4 states `MergePhase` used to be,
+/// now derived from `RepoActionStore` instead of view-local `@State` (so it
+/// survives the row being rebuilt, e.g. on a repo-list refresh).
+enum MergeUIPhase: Equatable { case idle, running, done, error }
 
 // MARK: - Actions
 
@@ -313,7 +323,7 @@ struct WorktreeRowView: View {
 private struct WorktreeActions: View {
     let worktree: WorktreeRow
     let defaultBranch: String
-    let mergePhase: MergePhase
+    let mergePhase: MergeUIPhase
     var isDiscarding: Bool = false
     var isDeleting: Bool = false
     var onMerge: () -> Void
@@ -356,7 +366,7 @@ private struct WorktreeActions: View {
 /// never jumps between states.
 private struct WtMergeButton: View {
     let defaultBranch: String
-    let phase: MergePhase
+    let phase: MergeUIPhase
     var onTap: () -> Void
     @State private var hovering = false
 
