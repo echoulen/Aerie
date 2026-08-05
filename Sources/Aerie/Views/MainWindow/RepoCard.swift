@@ -31,7 +31,7 @@ struct RepoCard: View {
     /// Returns an error message on failure, nil on success.
     var onDiscardConfirmed: (RepoRow) async -> String? = { _ in nil }
     var onMergeWorktree: (WorktreeRow) async -> String? = { _ in nil }
-    var onDiscardWorktree: (WorktreeRow) -> Void = { _ in }
+    var onDiscardWorktreeConfirmed: (WorktreeRow) async -> String? = { _ in nil }
     var onDeleteWorktree: (WorktreeRow) -> Void = { _ in }
     /// The repo's PR-publish phase (from `PRCreateStore`). Defaulted so
     /// previews / snapshot tests can omit it.
@@ -196,9 +196,11 @@ struct RepoCard: View {
                     if !row.worktrees.isEmpty {
                         WorktreeRail(
                             worktrees: row.worktrees,
+                            repo: row.repo,
                             defaultBranch: row.repo.defaultBranch,
+                            repoActionStore: repoActionStore,
                             onMerge: onMergeWorktree,
-                            onDiscard: onDiscardWorktree,
+                            onDiscardConfirmed: onDiscardWorktreeConfirmed,
                             onDelete: onDeleteWorktree)
                     }
                 }

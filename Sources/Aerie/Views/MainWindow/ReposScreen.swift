@@ -36,7 +36,7 @@ struct ReposScreen: View {
     /// idle → Merging… → Up to date feedback loop.
     var onMergeWorktree: (RepoRow, WorktreeRow) async -> String? = { _, _ in nil }
     /// Asks the shell to discard the specified worktree for `row`.
-    var onDiscardWorktree: (RepoRow, WorktreeRow) -> Void = { _, _ in }
+    var onDiscardWorktreeConfirmed: (RepoRow, WorktreeRow) async -> String? = { _, _ in nil }
     /// Asks the shell to delete the specified worktree for `row`.
     var onDeleteWorktree: (RepoRow, WorktreeRow) -> Void = { _, _ in }
     /// The repo's PR-publish phase, looked up in the shell-owned
@@ -160,7 +160,7 @@ struct ReposScreen: View {
                         onHardResetConfirmed: onHardResetConfirmed,
                         onDiscardConfirmed: onDiscardConfirmed,
                         onMergeWorktree: { await onMergeWorktree(row, $0) },
-                        onDiscardWorktree: { onDiscardWorktree(row, $0) },
+                        onDiscardWorktreeConfirmed: { await onDiscardWorktreeConfirmed(row, $0) },
                         onDeleteWorktree: { onDeleteWorktree(row, $0) },
                         createPhase: createPhase(row),
                         onCreatePR: { onCreatePR(row) },

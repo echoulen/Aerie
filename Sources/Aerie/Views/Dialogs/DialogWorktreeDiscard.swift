@@ -1,31 +1,23 @@
 import SwiftUI
 
-/// Discard-all-unstaged confirmation for a worktree. Runs `git restore .` +
-/// `git clean -fd` at the worktree path. Danger tone; mirrors `DialogDiscard`
-/// and `DialogDeleteWorktree`.
+/// Discard-all-unstaged confirmation for a worktree, presented via
+/// `.popover(isPresented:)`. Runs `git restore .` + `git clean -fd` at the
+/// worktree path. Danger tone; mirrors `DialogDiscard`.
 struct DialogWorktreeDiscard: View {
     let repo: Repository
     let worktree: WorktreeRow
-    var onConfirm: () async -> String?
+    var onConfirm: () -> Void
     var onCancel: () -> Void
 
-    @State private var busy = false
-    @State private var errorMessage: String?
-
     var body: some View {
-        DialogShell(
+        ActionPopoverShell(
             tone: .danger,
             title: "Discard changes in \(worktree.branchLabel)?",
             subtitle: "This runs git restore . and git clean -fd in the worktree, permanently dropping all unstaged and untracked changes. Staged changes and commits are kept.",
             primaryTitle: "Discard all unstaged",
-            onPrimary: { Task { await confirm() } },
+            onPrimary: onConfirm,
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
-            primaryDisabled: busy,
-            loading: busy,
-            loadingLabel: "Discarding…",
-            progressNote: "Discarding…",
-            errorMessage: errorMessage,
             icon: "arrow.counterclockwise"
         ) {
             KVList(rows: [
@@ -51,13 +43,5 @@ struct DialogWorktreeDiscard: View {
                 )),
             ])
         }
-    }
-
-    private func confirm() async {
-        guard !busy else { return }
-        busy = true
-        errorMessage = nil
-        errorMessage = await onConfirm()
-        busy = false
     }
 }

@@ -230,8 +230,6 @@ struct MainShell: View {
     @State private var reviewing: PRRow?
     /// The (repo, worktree) whose delete confirmation is presented (nil = none).
     @State private var presentedDeleteWorktree: WorktreeContext?
-    /// The (repo, worktree) whose discard confirmation is presented (nil = none).
-    @State private var presentedDiscardWorktree: WorktreeContext?
     /// GitHub accounts indexed by id, loaded once on appear so the merge dialog
     /// can resolve a PR's bound account (`repo.primaryAccountId`) synchronously
     /// for display. The overlay body can't `await`, hence the cached map.
@@ -436,8 +434,14 @@ struct MainShell: View {
                         return error.localizedDescription
                     }
                 },
-                onDiscardWorktree: { row, wt in
-                    presentedDiscardWorktree = WorktreeContext(repo: row.repo, worktree: wt)
+                onDiscardWorktreeConfirmed: { row, wt in
+                    do {
+                        try await services.gitService.discardUnstaged(repoAt: wt.path)
+                        await reposVM.refresh()
+                        return nil
+                    } catch {
+                        return "Discard failed: \(error.localizedDescription)"
+                    }
                 },
                 onDeleteWorktree: { row, wt in
                     presentedDeleteWorktree = WorktreeContext(repo: row.repo, worktree: wt)
@@ -565,30 +569,6 @@ struct MainShell: View {
         }
     }
 
-    // Discard-worktree confirmation overlay content. Confirm runs `git restore .`
-    // + `git clean -fd` off the bound git service, then refreshes the
-    // ReposViewModel so the worktree rail updates immediately.
-    @ViewBuilder
-    private var discardWorktreeDialog: some View {
-        if let ctx = presentedDiscardWorktree {
-            DialogWorktreeDiscard(
-                repo: ctx.repo,
-                worktree: ctx.worktree,
-                onConfirm: {
-                    do {
-                        try await services.gitService.discardUnstaged(
-                            repoAt: ctx.worktree.path)
-                        await reposVM.refresh()
-                        presentedDiscardWorktree = nil
-                        return nil
-                    } catch {
-                        return "Discard failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedDiscardWorktree = nil })
-        }
-    }
-
     var body: some View {
         AppFrame(
             viewModel: appVM,
@@ -605,7 +585,6 @@ struct MainShell: View {
         // `DialogShell`), so overlaying here dims the titlebar too. Content is
         // extracted into computed properties to keep `body` type-checkable.
         .overlay { deleteWorktreeDialog }
-        .overlay { discardWorktreeDialog }
         .task {
             // Kick off focus-driven polling (idempotent), then paint instantly
             // from whatever's already cached. Fresh PRs arrive via the
