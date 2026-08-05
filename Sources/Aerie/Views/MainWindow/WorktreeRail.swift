@@ -302,9 +302,11 @@ struct WorktreeRowView: View {
         repoActionStore.start(.mergeWorktree, target: .worktree(worktree)) {
             let error = await onMerge()
             if error == nil {
-                await MainActor.run { justSucceeded = true }
-                try? await Task.sleep(nanoseconds: 1_900_000_000)
-                await MainActor.run { if justSucceeded { justSucceeded = false } }
+                Task { @MainActor in
+                    justSucceeded = true
+                    try? await Task.sleep(nanoseconds: 1_900_000_000)
+                    justSucceeded = false
+                }
             }
             return error
         }
