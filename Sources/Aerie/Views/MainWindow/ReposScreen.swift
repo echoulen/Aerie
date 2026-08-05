@@ -28,10 +28,9 @@ struct ReposScreen: View {
     var onAddRepo: () -> Void = {}
     var repoActionStore: RepoActionStore = RepoActionStore()
     var onHardResetConfirmed: (RepoRow) async -> String? = { _ in nil }
-    /// Asks the shell to present the discard-unstaged confirmation dialog for
-    /// `row`. Unlike Hard reset, the `DialogDiscard` presentation +
-    /// `GitService.discardUnstaged` call live in `MainShell`.
-    var onDiscard: (RepoRow) -> Void = { _ in }
+    /// Runs the actual discard-unstaged (`git restore .` + `git clean -fd`) for
+    /// `row`. Returns an error message on failure, nil on success.
+    var onDiscardConfirmed: (RepoRow) async -> String? = { _ in nil }
     /// Asks the shell to merge the specified worktree for `row`. Returns nil on
     /// success or an error message on failure, so the Merge button can run its
     /// idle → Merging… → Up to date feedback loop.
@@ -159,7 +158,7 @@ struct ReposScreen: View {
                         onOpen: { handleOpen(row) },
                         repoActionStore: repoActionStore,
                         onHardResetConfirmed: onHardResetConfirmed,
-                        onDiscard: { onDiscard(row) },
+                        onDiscardConfirmed: onDiscardConfirmed,
                         onMergeWorktree: { await onMergeWorktree(row, $0) },
                         onDiscardWorktree: { onDiscardWorktree(row, $0) },
                         onDeleteWorktree: { onDeleteWorktree(row, $0) },

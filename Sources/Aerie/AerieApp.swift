@@ -224,9 +224,6 @@ struct MainShell: View {
     @State private var issuesVM: IssuesViewModel
     @State private var reposVM: ReposViewModel
     @State private var accountVM: AccountMenuViewModel
-    /// The repo whose discard-unstaged confirmation dialog is currently presented
-    /// (nil = no dialog). Owned here for the same scrim reason as the others.
-    @State private var presentedDiscard: RepoRow?
     /// The PR currently open in the code review (diff) screen, or nil for the
     /// normal tab list. Owned here (not in `AppViewModel`) alongside the dialogs,
     /// since the review screen replaces the whole tab content area.
@@ -409,7 +406,15 @@ struct MainShell: View {
                         return "Reset failed: \(error.localizedDescription)"
                     }
                 },
-                onDiscard: { presentedDiscard = $0 },
+                onDiscardConfirmed: { row in
+                    do {
+                        try await services.gitService.discardUnstaged(repoAt: row.repo.localPath)
+                        await services.refreshNow()
+                        return nil
+                    } catch {
+                        return "Discard failed: \(error.localizedDescription)"
+                    }
+                },
                 onMergeWorktree: { row, wt in
                     // No dialog: a forward, non-destructive step. Mirrors the
                     // PR card's onUpdateBranch — merge origin/<default> into the
@@ -446,32 +451,6 @@ struct MainShell: View {
                         await reposVM.refresh()
                     }
                 }
-            )
-        }
-    }
-
-    // Discard-unstaged confirmation overlay content. Confirm runs `git restore .`
-    // off the bound git service, then refreshes so the card moves toward
-    // "Clean · in sync" and the Discard button (and this dialog) drop out.
-    @ViewBuilder
-    private var discardDialog: some View {
-        if let row = presentedDiscard, let status = row.status {
-            DialogDiscard(
-                repo: row.repo,
-                status: status,
-                onConfirm: {
-                    do {
-                        try await services.gitService.discardUnstaged(
-                            repoAt: row.repo.localPath
-                        )
-                        await services.refreshNow()
-                        presentedDiscard = nil
-                        return nil
-                    } catch {
-                        return "Discard failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedDiscard = nil }
             )
         }
     }
@@ -625,7 +604,6 @@ struct MainShell: View {
         // Confirmation dialogs — each carries its own full-window scrim (via
         // `DialogShell`), so overlaying here dims the titlebar too. Content is
         // extracted into computed properties to keep `body` type-checkable.
-        .overlay { discardDialog }
         .overlay { deleteWorktreeDialog }
         .overlay { discardWorktreeDialog }
         .task {
