@@ -61,7 +61,7 @@ final class PRCardTests: XCTestCase {
     private func host(_ row: PRRow) -> NSHostingView<some View> {
         let view = ZStack {
             Backdrop()
-            PRCard(row: row, onMerge: {}, onOpen: {}, now: fixedNow)
+            PRCard(row: row, onOpen: {}, now: fixedNow)
                 .padding(20)
         }
         .frame(width: 980, height: 280)

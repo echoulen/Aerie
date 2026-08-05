@@ -14,39 +14,18 @@ import SwiftUI
 struct DialogDiscard: View {
     let repo: Repository
     let status: LocalGitStatus
-    var onConfirm: () async -> String?
+    var onConfirm: () -> Void
     var onCancel: () -> Void
-    /// In-flight state for the primary button.
-    @State private var busy: Bool = false
-    @State private var errorMessage: String?
-
-    init(
-        repo: Repository,
-        status: LocalGitStatus,
-        onConfirm: @escaping () async -> String?,
-        onCancel: @escaping () -> Void,
-        initialError: String? = nil
-    ) {
-        self.repo = repo
-        self.status = status
-        self.onConfirm = onConfirm
-        self.onCancel = onCancel
-        self._errorMessage = State(initialValue: initialError)
-    }
 
     var body: some View {
-        DialogShell(
+        ActionPopoverShell(
             tone: .danger,
             title: "Discard all unstaged changes in \(repo.name)?",
             subtitle: "This runs git restore . + git clean -fd — every unstaged modification and untracked (new) file in the working tree is permanently dropped. Staged changes, commits, and ignored files are kept.",
             primaryTitle: "Discard changes",
-            onPrimary: { Task { await runConfirm() } },
+            onPrimary: onConfirm,
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
-            loading: busy,
-            loadingLabel: "Discarding…",
-            progressNote: "Restoring working tree to HEAD…",
-            errorMessage: errorMessage,
             icon: "arrow.counterclockwise"
         ) {
             KVList(rows: [
@@ -81,14 +60,5 @@ struct DialogDiscard: View {
         Text("staged changes · local commits")
             .aerieFont(AerieFont.custom(.sans, size: 13))
             .foregroundStyle(AerieColor.ok)
-    }
-
-    private func runConfirm() async {
-        guard !busy else { return }
-        busy = true
-        errorMessage = nil
-        // nil → success (caller dismisses); non-nil → show the error, stay open.
-        errorMessage = await onConfirm()
-        busy = false
     }
 }

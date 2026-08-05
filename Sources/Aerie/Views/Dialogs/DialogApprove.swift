@@ -10,46 +10,39 @@ import SwiftUI
 /// `MultiAccountAPI.approvePR(...)` and then refresh.
 struct DialogApprove: View {
     let context: PRReviewApproveContext
-    /// Returns an error message to show in-dialog on failure, or nil on success
-    /// (the caller dismisses). Mirrors `DialogMerge`'s contract.
-    var onConfirm: (_ approver: GitHubAccount, _ comment: String?) async -> String?
+    /// Fires once, synchronously, with the chosen approver + trimmed comment
+    /// (nil when blank). The caller closes the popover immediately and hands
+    /// off to `PRActionStore` for the actual (backgrounded) approve.
+    var onConfirm: (_ approver: GitHubAccount, _ comment: String?) -> Void
     var onCancel: () -> Void
 
     @State private var selected: GitHubAccount
     @State private var comment: String = ""
-    @State private var busy = false
-    @State private var errorMessage: String?
 
     init(
         context: PRReviewApproveContext,
-        onConfirm: @escaping (_ approver: GitHubAccount, _ comment: String?) async -> String?,
-        onCancel: @escaping () -> Void,
-        initialError: String? = nil
+        onConfirm: @escaping (_ approver: GitHubAccount, _ comment: String?) -> Void,
+        onCancel: @escaping () -> Void
     ) {
         self.context = context
         self.onConfirm = onConfirm
         self.onCancel = onCancel
         _selected = State(initialValue: context.resolution.defaultApprover
             ?? GitHubAccount(id: UUID(), login: "unknown", host: "github.com"))
-        _errorMessage = State(initialValue: initialError)
     }
 
     private var pr: PullRequest { context.row.pr }
     private var repo: Repository { context.row.repo }
 
     var body: some View {
-        DialogShell(
+        ActionPopoverShell(
             tone: .warning,
             title: "Approve pull request #\(pr.number)?",
             subtitle: "Submit an approving review as \(selected.login).",
             primaryTitle: "Approve",
-            onPrimary: { Task { await run() } },
+            onPrimary: { run() },
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
-            loading: busy,
-            loadingLabel: "Approving…",
-            progressNote: "Submitting approval for #\(pr.number)…",
-            errorMessage: errorMessage,
             icon: "checkmark.circle",
             primaryProminent: true,
             headerSpacing: 7,
@@ -132,12 +125,8 @@ struct DialogApprove: View {
             .foregroundStyle(AerieColor.text1)
     }
 
-    private func run() async {
-        guard !busy else { return }
-        busy = true
-        errorMessage = nil
+    private func run() {
         let trimmed = comment.trimmingCharacters(in: .whitespacesAndNewlines)
-        errorMessage = await onConfirm(selected, trimmed.isEmpty ? nil : trimmed)
-        busy = false
+        onConfirm(selected, trimmed.isEmpty ? nil : trimmed)
     }
 }

@@ -15,11 +15,24 @@ import AppKit
 /// `Merge` only lights amber when CI passes *and* the PR is approved.
 struct PRCard: View {
     let row: PRRow
-    var onMerge: () -> Void
+    /// Background store for Merge/Approve/Force-checkout. Defaulted so
+    /// previews / snapshot tests can omit it.
+    var prActionStore: PRActionStore = PRActionStore()
+    /// Resolves the GitHub account the merge confirmation should display as
+    /// acting. Defaulted to an "unknown" placeholder for previews / snapshot
+    /// tests that don't wire a real account lookup.
+    var mergeAccount: (PRRow) -> GitHubAccount = { row in
+        GitHubAccount(id: row.repo.primaryAccountId, login: "unknown", host: "github.com")
+    }
+    /// Runs the actual squash-merge (the old `mergeDialog`'s `onConfirm` body,
+    /// now owned by the caller and invoked from `PRActionStore.start`).
+    /// Returns an error message on failure, nil on success.
+    var onMergeConfirmed: (PRRow) async -> String? = { _ in nil }
     var onOpen: () -> Void
-    /// Asks the shell to present the force-checkout confirmation dialog for this
-    /// PR. Defaulted to a no-op for snapshot tests and previews.
-    var onCheckout: () -> Void = {}
+    /// Runs the actual force-checkout (the old `checkoutDialog`'s `onConfirm`
+    /// body, now owned by the caller and invoked from `PRActionStore.start`).
+    /// Returns an error message on failure, nil on success.
+    var onCheckoutConfirmed: (PRRow) async -> String? = { _ in nil }
     /// Opens the code review screen for this PR. Defaulted to a no-op for
     /// snapshot tests and previews.
     var onReview: () -> Void = {}
@@ -36,6 +49,9 @@ struct PRCard: View {
     /// value to keep snapshots deterministic; production callers omit it.
     var now: Date = Date()
 
+    @State private var showMergeConfirm = false
+    @State private var showCheckoutConfirm = false
+
     // MARK: - Derived presentation bits
 
     private var mergeable: Bool { Self.isMergeable(row.pr) }
@@ -48,6 +64,20 @@ struct PRCard: View {
     /// Static + internal so it's unit-testable without rendering the view.
     static func isMergeable(_ pr: PullRequest) -> Bool {
         pr.isMergeableByGitHub
+    }
+
+    private var isMerging: Bool { prActionStore.isRunning(.merge, for: row) }
+
+    private var mergeFailure: String? {
+        if case .failed(let message) = prActionStore.phase(.merge, for: row) { return message }
+        return nil
+    }
+
+    private var isCheckingOut: Bool { prActionStore.isRunning(.checkout, for: row) }
+
+    private var checkoutFailure: String? {
+        if case .failed(let message) = prActionStore.phase(.checkout, for: row) { return message }
+        return nil
     }
 
     /// Whether the amber "Update branch" pill should show for this row. Two
@@ -96,6 +126,23 @@ struct PRCard: View {
             }
         } actions: {
             actionColumn
+        } footer: {
+            VStack(alignment: .leading, spacing: 8) {
+                // Both failure strings are already fully-formed ("Merge
+                // failed: …" / "Checkout failed: …") — pass them through as-is.
+                if let mergeFailure {
+                    ActionErrorStrip(
+                        message: mergeFailure,
+                        onRetry: { prActionStore.retry(.merge, row: row) },
+                        onDismiss: { prActionStore.dismiss(.merge, row: row) })
+                }
+                if let checkoutFailure {
+                    ActionErrorStrip(
+                        message: checkoutFailure,
+                        onRetry: { prActionStore.retry(.checkout, row: row) },
+                        onDismiss: { prActionStore.dismiss(.checkout, row: row) })
+                }
+            }
         }
     }
 
@@ -200,12 +247,19 @@ struct PRCard: View {
         // Destructive checkouts hint with red label text (design: `color:
         // destructive ? red : text-1`); the nuance otherwise lives in the dialog.
         let tint = plan.destructive ? AerieColor.err : AerieColor.text1
-        return Button(action: onCheckout) {
+        return Button {
+            guard !isCheckingOut else { return }
+            showCheckoutConfirm = true
+        } label: {
             HStack(spacing: 6) {
-                CheckoutGlyphShape()
-                    .stroke(tint, style: StrokeStyle(lineWidth: 1.6 * 11 / 16, lineCap: .round, lineJoin: .round))
-                    .frame(width: 11, height: 11)
-                Text("Checkout")
+                if isCheckingOut {
+                    ProgressView().controlSize(.small)
+                } else {
+                    CheckoutGlyphShape()
+                        .stroke(tint, style: StrokeStyle(lineWidth: 1.6 * 11 / 16, lineCap: .round, lineJoin: .round))
+                        .frame(width: 11, height: 11)
+                }
+                Text(isCheckingOut ? "Checking out…" : "Checkout")
             }
             .aerieFont(AerieFont.custom(.sans, size: 12))
             .foregroundStyle(tint)
@@ -222,9 +276,20 @@ struct PRCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
+        .disabled(isCheckingOut)
         .help(plan.current
             ? "Local repo is already on origin/\(row.pr.sourceBranch)"
             : "Force checkout \(row.repo.name) to origin/\(row.pr.sourceBranch)")
+        .popover(isPresented: $showCheckoutConfirm) {
+            DialogCheckout(
+                repo: row.repo, pr: row.pr, local: row.localState,
+                onConfirm: {
+                    showCheckoutConfirm = false
+                    prActionStore.start(.checkout, row: row) { await onCheckoutConfirmed(row) }
+                },
+                onCancel: { showCheckoutConfirm = false }
+            )
+        }
     }
 
     // MARK: - Local state → one sentence pill
@@ -254,22 +319,38 @@ struct PRCard: View {
     // MARK: - Merge button
 
     private var mergeButton: some View {
-        Button(action: onMerge) {
-            Text("Merge")
-                .aerieFont(AerieFont.custom(.sans, size: 12).weight(mergeable ? .semibold : .medium))
-                .foregroundStyle(mergeable ? AerieColor.amberInk : AerieColor.text2)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
-                .background(mergeBackground)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(mergeable ? AerieColor.amberCtaLine : AerieColor.glassLine, lineWidth: 1)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        Button {
+            guard !isMerging else { return }
+            showMergeConfirm = true
+        } label: {
+            HStack(spacing: 6) {
+                if isMerging { ProgressView().controlSize(.small) }
+                Text(isMerging ? "Merging…" : "Merge")
+                    .aerieFont(AerieFont.custom(.sans, size: 12).weight(mergeable ? .semibold : .medium))
+            }
+            .foregroundStyle(mergeable ? AerieColor.amberInk : AerieColor.text2)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(mergeBackground)
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(mergeable ? AerieColor.amberCtaLine : AerieColor.glassLine, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
         .opacity(mergeable ? 1 : 0.45)
-        .disabled(!mergeable)
+        .disabled(!mergeable || isMerging)
+        .popover(isPresented: $showMergeConfirm) {
+            DialogMerge(
+                pr: row.pr, repo: row.repo, account: mergeAccount(row),
+                onConfirm: {
+                    showMergeConfirm = false
+                    prActionStore.start(.merge, row: row) { await onMergeConfirmed(row) }
+                },
+                onCancel: { showMergeConfirm = false }
+            )
+        }
     }
 
     @ViewBuilder

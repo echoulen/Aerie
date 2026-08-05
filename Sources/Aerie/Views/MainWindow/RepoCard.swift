@@ -21,13 +21,18 @@ import AppKit
 struct RepoCard: View {
     let row: RepoRow
     var onOpen: () -> Void
-    var onHardReset: () -> Void
-    /// Presents the "Discard all unstaged" confirmation. Defaulted to a no-op so
-    /// snapshot tests / previews can omit it.
-    var onDiscard: () -> Void = {}
+    /// Background store for Hard-reset/Discard-unstaged. Defaulted so
+    /// previews / snapshot tests can omit it.
+    var repoActionStore: RepoActionStore = RepoActionStore()
+    /// Runs the actual `git reset --hard` (+ merged-branch cleanup). Returns
+    /// an error message on failure, nil on success.
+    var onHardResetConfirmed: (RepoRow) async -> String? = { _ in nil }
+    /// Runs the actual discard-unstaged (`git restore .` + `git clean -fd`).
+    /// Returns an error message on failure, nil on success.
+    var onDiscardConfirmed: (RepoRow) async -> String? = { _ in nil }
     var onMergeWorktree: (WorktreeRow) async -> String? = { _ in nil }
-    var onDiscardWorktree: (WorktreeRow) -> Void = { _ in }
-    var onDeleteWorktree: (WorktreeRow) -> Void = { _ in }
+    var onDiscardWorktreeConfirmed: (WorktreeRow) async -> String? = { _ in nil }
+    var onDeleteWorktreeConfirmed: (WorktreeRow) async -> String? = { _ in nil }
     /// The repo's PR-publish phase (from `PRCreateStore`). Defaulted so
     /// previews / snapshot tests can omit it.
     var createPhase: PRCreatePhase = .idle
@@ -82,6 +87,24 @@ struct RepoCard: View {
         if case .idle = createPhase { return true }
         return false
     }
+
+    private var isResetting: Bool { repoActionStore.isRunning(.hardReset, for: .repo(row.repo)) }
+
+    private var resetFailure: String? {
+        if case .failed(let message) = repoActionStore.phase(.hardReset, for: .repo(row.repo)) { return message }
+        return nil
+    }
+
+    @State private var showResetConfirm = false
+
+    private var isDiscarding: Bool { repoActionStore.isRunning(.discardUnstaged, for: .repo(row.repo)) }
+
+    private var discardFailure: String? {
+        if case .failed(let message) = repoActionStore.phase(.discardUnstaged, for: .repo(row.repo)) { return message }
+        return nil
+    }
+
+    @State private var showDiscardConfirm = false
 
     /// The danger button's title. When the checked-out branch is already merged,
     /// the action also force-deletes that local branch, so the label says so.
@@ -149,18 +172,36 @@ struct RepoCard: View {
         } actions: {
             actionCluster
         } footer: {
-            if !row.worktrees.isEmpty || !createFooterIsEmpty {
+            if !row.worktrees.isEmpty || !createFooterIsEmpty || resetFailure != nil || discardFailure != nil {
                 VStack(alignment: .leading, spacing: 8) {
+                    if let resetFailure {
+                        // `resetFailure` already reads "Reset failed: …" (the
+                        // `onHardResetConfirmed` closure's error string) — pass
+                        // it through as-is, don't add a second prefix.
+                        ActionErrorStrip(
+                            message: resetFailure,
+                            onRetry: { repoActionStore.retry(.hardReset, target: .repo(row.repo)) },
+                            onDismiss: { repoActionStore.dismiss(.hardReset, target: .repo(row.repo)) })
+                    }
+                    if let discardFailure {
+                        // Already reads "Discard failed: …" — pass through as-is.
+                        ActionErrorStrip(
+                            message: discardFailure,
+                            onRetry: { repoActionStore.retry(.discardUnstaged, target: .repo(row.repo)) },
+                            onDismiss: { repoActionStore.dismiss(.discardUnstaged, target: .repo(row.repo)) })
+                    }
                     if !createFooterIsEmpty {
                         createStatusFooter
                     }
                     if !row.worktrees.isEmpty {
                         WorktreeRail(
                             worktrees: row.worktrees,
+                            repo: row.repo,
                             defaultBranch: row.repo.defaultBranch,
+                            repoActionStore: repoActionStore,
                             onMerge: onMergeWorktree,
-                            onDiscard: onDiscardWorktree,
-                            onDelete: onDeleteWorktree)
+                            onDiscardConfirmed: onDiscardWorktreeConfirmed,
+                            onDeleteConfirmed: onDeleteWorktreeConfirmed)
                     }
                 }
             }
@@ -212,9 +253,28 @@ struct RepoCard: View {
             help: Self.apiSyncToggleHelp(row),
             action: onToggleApiSync)
         CardOpenButton(action: onOpen)
-        DangerButton(title: Self.resetTitle(row), action: onHardReset)
-            .disabled(isCreating)
-            .opacity(isCreating ? 0.45 : 1)
+        DangerButton(
+            title: isResetting ? "Resetting…" : Self.resetTitle(row),
+            action: { if !isResetting { showResetConfirm = true } },
+            isRunning: isResetting
+        )
+        .disabled(isCreating || isResetting)
+        .opacity((isCreating || isResetting) ? 0.45 : 1)
+        .popover(isPresented: $showResetConfirm) {
+            if let status = row.status {
+                DialogReset(
+                    repo: row.repo, status: status,
+                    onConfirm: {
+                        showResetConfirm = false
+                        repoActionStore.start(.hardReset, target: .repo(row.repo)) {
+                            await onHardResetConfirmed(row)
+                        }
+                    },
+                    onCancel: { showResetConfirm = false },
+                    mergedBranch: row.mergedBranch
+                )
+            }
+        }
         if isCompact {
             secondaryActionButtons
         }
@@ -226,9 +286,23 @@ struct RepoCard: View {
             CreatePRButton(isCreating: isCreating, action: onCreatePR)
         }
         if Self.shouldShowDiscard(row.status) {
-            DiscardButton(action: onDiscard)
-                .disabled(isCreating)
-                .opacity(isCreating ? 0.45 : 1)
+            DiscardButton(isRunning: isDiscarding, action: { if !isDiscarding { showDiscardConfirm = true } })
+                .disabled(isCreating || isDiscarding)
+                .opacity((isCreating || isDiscarding) ? 0.45 : 1)
+                .popover(isPresented: $showDiscardConfirm) {
+                    if let status = row.status {
+                        DialogDiscard(
+                            repo: row.repo, status: status,
+                            onConfirm: {
+                                showDiscardConfirm = false
+                                repoActionStore.start(.discardUnstaged, target: .repo(row.repo)) {
+                                    await onDiscardConfirmed(row)
+                                }
+                            },
+                            onCancel: { showDiscardConfirm = false }
+                        )
+                    }
+                }
         }
     }
 
@@ -333,24 +407,28 @@ struct RepoCard: View {
 private struct DangerButton: View {
     let title: String
     let action: () -> Void
+    var isRunning: Bool = false
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .aerieFont(AerieFont.custom(.sans, size: 13).weight(.medium))
-                .foregroundStyle(AerieColor.dangerText)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(hovering ? AerieColor.dangerFillHover : AerieColor.dangerFill)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(AerieColor.dangerLine, lineWidth: 1)
-                )
-                .contentShape(Rectangle())
+            HStack(spacing: 6) {
+                if isRunning { ProgressView().controlSize(.small).tint(AerieColor.dangerText) }
+                Text(title)
+                    .aerieFont(AerieFont.custom(.sans, size: 13).weight(.medium))
+            }
+            .foregroundStyle(AerieColor.dangerText)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(hovering ? AerieColor.dangerFillHover : AerieColor.dangerFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(AerieColor.dangerLine, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -363,15 +441,20 @@ private struct DangerButton: View {
 /// (`err`) on hover — louder than a normal ghost, quieter than the always-red
 /// `Reset to origin/<b>`. Smaller than the primary actions (12pt, 5×10 padding).
 private struct DiscardButton: View {
+    var isRunning: Bool = false
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: "arrow.counterclockwise")
-                    .font(.system(size: 11, weight: .semibold))
-                Text("Discard all unstaged")
+                if isRunning {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                Text(isRunning ? "Discarding…" : "Discard all unstaged")
                     .aerieFont(AerieFont.custom(.sans, size: 12))
             }
             .foregroundStyle(hovering ? AerieColor.err : AerieColor.text3)

@@ -5,12 +5,14 @@ import SwiftUI
 /// worktrees" eyebrow, then an amber-railed list of `WorktreeRowView`s.
 struct WorktreeRail: View {
     let worktrees: [WorktreeRow]
+    let repo: Repository
     let defaultBranch: String
+    var repoActionStore: RepoActionStore = RepoActionStore()
     /// Returns nil on success, or an error message on failure. Async so the
     /// row's Merge state machine can show idle → Merging… → Up to date / Retry.
     var onMerge: (WorktreeRow) async -> String?
-    var onDiscard: (WorktreeRow) -> Void
-    var onDelete: (WorktreeRow) -> Void
+    var onDiscardConfirmed: (WorktreeRow) async -> String? = { _ in nil }
+    var onDeleteConfirmed: (WorktreeRow) async -> String? = { _ in nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -45,10 +47,12 @@ struct WorktreeRail: View {
                     }
                     WorktreeRowView(
                         worktree: wt,
+                        repo: repo,
                         defaultBranch: defaultBranch,
+                        repoActionStore: repoActionStore,
                         onMerge: { await onMerge(wt) },
-                        onDiscard: { onDiscard(wt) },
-                        onDelete: { onDelete(wt) })
+                        onDiscardConfirmed: onDiscardConfirmed,
+                        onDeleteConfirmed: onDeleteConfirmed)
                 }
             }
             .padding(.leading, 22)
@@ -60,11 +64,6 @@ struct WorktreeRail: View {
         }
     }
 }
-
-/// The Merge button's feedback phases. Owned by `WorktreeRowView` (the row) so
-/// a conflict can surface an inline strip below the row — per spec: report the
-/// error, leave the worktree unchanged.
-private enum MergePhase: Equatable { case idle, running, done, error }
 
 // MARK: - Branch chip
 
@@ -173,13 +172,49 @@ private struct WorktreePathView: View {
 /// the state lives here and not inside the button.
 struct WorktreeRowView: View {
     let worktree: WorktreeRow
+    let repo: Repository
     let defaultBranch: String
+    var repoActionStore: RepoActionStore = RepoActionStore()
     var onMerge: () async -> String?
-    var onDiscard: () -> Void
-    var onDelete: () -> Void
+    var onDiscardConfirmed: (WorktreeRow) async -> String? = { _ in nil }
+    var onDeleteConfirmed: (WorktreeRow) async -> String? = { _ in nil }
 
-    @State private var phase: MergePhase = .idle
+    /// Drives the merge button's idle → Merging… → Up to date (auto-resets)
+    /// transition on top of `RepoActionStore`'s idle/running/failed phases —
+    /// the store has no "done, briefly" state of its own (`AIReviewStore`
+    /// doesn't need one either), so this view adds the transient checkmark
+    /// locally.
+    @State private var justSucceeded = false
+    @State private var showDiscardConfirm = false
+    @State private var showDeleteConfirm = false
     @Environment(\.isCompactWidth) private var isCompact
+
+    private var storePhase: ActionPhase { repoActionStore.phase(.mergeWorktree, for: .worktree(worktree)) }
+
+    private var mergeUIPhase: MergeUIPhase {
+        if case .running = storePhase { return .running }
+        if case .failed = storePhase { return .error }
+        return justSucceeded ? .done : .idle
+    }
+
+    private var mergeFailureMessage: String? {
+        if case .failed(let message) = storePhase { return message }
+        return nil
+    }
+
+    private var isDiscarding: Bool { repoActionStore.isRunning(.discardWorktree, for: .worktree(worktree)) }
+
+    private var discardFailure: String? {
+        if case .failed(let message) = repoActionStore.phase(.discardWorktree, for: .worktree(worktree)) { return message }
+        return nil
+    }
+
+    private var isDeleting: Bool { repoActionStore.isRunning(.deleteWorktree, for: .worktree(worktree)) }
+
+    private var deleteFailure: String? {
+        if case .failed(let message) = repoActionStore.phase(.deleteWorktree, for: .worktree(worktree)) { return message }
+        return nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -198,21 +233,62 @@ struct WorktreeRowView: View {
                 WorktreeActions(
                     worktree: worktree,
                     defaultBranch: defaultBranch,
-                    mergePhase: phase,
+                    mergePhase: mergeUIPhase,
+                    isDiscarding: isDiscarding,
+                    isDeleting: isDeleting,
                     onMerge: runMerge,
-                    onDiscard: onDiscard,
-                    onDelete: onDelete)
+                    onDiscardTapped: { if !isDiscarding { showDiscardConfirm = true } },
+                    onDeleteTapped: { if !isDeleting { showDeleteConfirm = true } })
+                .popover(isPresented: $showDiscardConfirm) {
+                    DialogWorktreeDiscard(
+                        repo: repo, worktree: worktree,
+                        onConfirm: {
+                            showDiscardConfirm = false
+                            repoActionStore.start(.discardWorktree, target: .worktree(worktree)) {
+                                await onDiscardConfirmed(worktree)
+                            }
+                        },
+                        onCancel: { showDiscardConfirm = false }
+                    )
+                }
+                .popover(isPresented: $showDeleteConfirm) {
+                    DialogDeleteWorktree(
+                        repo: repo, worktree: worktree,
+                        onConfirm: {
+                            showDeleteConfirm = false
+                            repoActionStore.start(.deleteWorktree, target: .worktree(worktree)) {
+                                await onDeleteConfirmed(worktree)
+                            }
+                        },
+                        onCancel: { showDeleteConfirm = false }
+                    )
+                }
             }
             .padding(.vertical, 11)
             .opacity(worktree.prunable ? 0.5 : 1)
 
-            if phase == .error {
-                WorktreeMergeErrorStrip(
-                    defaultBranch: defaultBranch,
-                    onDismiss: { phase = .idle })
+            if let mergeFailureMessage {
+                ActionErrorStrip(
+                    message: mergeFailureMessage,
+                    onRetry: runMerge,
+                    onDismiss: { repoActionStore.dismiss(.mergeWorktree, target: .worktree(worktree)) })
+            }
+            if let discardFailure {
+                // Already reads "Discard failed: …" — pass through as-is.
+                ActionErrorStrip(
+                    message: discardFailure,
+                    onRetry: { repoActionStore.retry(.discardWorktree, target: .worktree(worktree)) },
+                    onDismiss: { repoActionStore.dismiss(.discardWorktree, target: .worktree(worktree)) })
+            }
+            if let deleteFailure {
+                // Already reads "Delete failed: …" — pass through as-is.
+                ActionErrorStrip(
+                    message: deleteFailure,
+                    onRetry: { repoActionStore.retry(.deleteWorktree, target: .worktree(worktree)) },
+                    onDismiss: { repoActionStore.dismiss(.deleteWorktree, target: .worktree(worktree)) })
             }
         }
-        .animation(.easeOut(duration: 0.15), value: phase)
+        .animation(.easeOut(duration: 0.15), value: mergeUIPhase)
     }
 
     /// Wide → one row (chips left, actions right); compact → two stacked rows.
@@ -226,22 +302,26 @@ struct WorktreeRowView: View {
     }
 
     private func runMerge() {
-        guard phase != .running else { return }
-        phase = .running
-        Task {
+        guard !repoActionStore.isRunning(.mergeWorktree, for: .worktree(worktree)) else { return }
+        justSucceeded = false
+        repoActionStore.start(.mergeWorktree, target: .worktree(worktree)) {
             let error = await onMerge()
             if error == nil {
-                phase = .done
-                try? await Task.sleep(nanoseconds: 1_900_000_000)
-                if phase == .done { phase = .idle }
-            } else {
-                // Conflict / failure: hold the Retry state + strip until the
-                // user retries or dismisses. The worktree is left unchanged.
-                phase = .error
+                Task { @MainActor in
+                    justSucceeded = true
+                    try? await Task.sleep(nanoseconds: 1_900_000_000)
+                    justSucceeded = false
+                }
             }
+            return error
         }
     }
 }
+
+/// The Merge button's feedback phases — same 4 states `MergePhase` used to be,
+/// now derived from `RepoActionStore` instead of view-local `@State` (so it
+/// survives the row being rebuilt, e.g. on a repo-list refresh).
+enum MergeUIPhase: Equatable { case idle, running, done, error }
 
 // MARK: - Actions
 
@@ -250,10 +330,12 @@ struct WorktreeRowView: View {
 private struct WorktreeActions: View {
     let worktree: WorktreeRow
     let defaultBranch: String
-    let mergePhase: MergePhase
+    let mergePhase: MergeUIPhase
+    var isDiscarding: Bool = false
+    var isDeleting: Bool = false
     var onMerge: () -> Void
-    var onDiscard: () -> Void
-    var onDelete: () -> Void
+    var onDiscardTapped: () -> Void
+    var onDeleteTapped: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -261,9 +343,12 @@ private struct WorktreeActions: View {
 
             if worktree.isDirty {
                 WtActionButton(
-                    systemImage: "arrow.counterclockwise",
-                    title: "Discard",
-                    hoverTone: .danger, action: onDiscard)
+                    systemImage: isDiscarding ? "" : "arrow.counterclockwise",
+                    title: isDiscarding ? "Discarding…" : "Discard",
+                    hoverTone: .danger,
+                    isRunning: isDiscarding,
+                    action: onDiscardTapped)
+                    .disabled(isDiscarding)
                     .help("Discard all unstaged changes in this worktree")
             }
 
@@ -272,8 +357,9 @@ private struct WorktreeActions: View {
                 .frame(width: 1, height: 18)
                 .padding(.horizontal, 1)
 
-            WtDeleteButton(action: onDelete)
-                .help("Delete worktree")
+            WtDeleteButton(isRunning: isDeleting, action: onDeleteTapped)
+                .disabled(isDeleting)
+                .help(isDeleting ? "Deleting worktree…" : "Delete worktree")
         }
         .fixedSize()
     }
@@ -287,7 +373,7 @@ private struct WorktreeActions: View {
 /// never jumps between states.
 private struct WtMergeButton: View {
     let defaultBranch: String
-    let phase: MergePhase
+    let phase: MergeUIPhase
     var onTap: () -> Void
     @State private var hovering = false
 
@@ -369,76 +455,6 @@ private struct WtMergeButton: View {
     }
 }
 
-// MARK: - Conflict strip
-
-/// Inline merge-conflict strip under the row (`wt-merge-error`): a warning
-/// triangle, a reassuring "nothing changed" message, and a Dismiss control.
-private struct WorktreeMergeErrorStrip: View {
-    let defaultBranch: String
-    var onDismiss: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 12))
-                .foregroundStyle(AerieColor.dangerText)
-                .padding(.top, 1)
-            message
-                .lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            DismissButton(action: onDismiss)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(AerieColor.err.opacity(0.12)))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(AerieColor.err.opacity(0.4), lineWidth: 1))
-        .padding(.bottom, 9)
-    }
-
-    private var message: Text {
-        Text("Merge conflict. ")
-            .font(.custom(AerieFont.sans, size: 12).weight(.semibold))
-            .foregroundColor(AerieColor.dangerText)
-        + Text("origin/\(defaultBranch)")
-            .font(.custom(AerieFont.mono, size: 12))
-            .foregroundColor(AerieColor.text2)
-        + Text(" couldn't be merged cleanly — the merge was aborted and this worktree is unchanged. Resolve it in a terminal, then retry.")
-            .font(.custom(AerieFont.sans, size: 12))
-            .foregroundColor(AerieColor.text2)
-    }
-}
-
-/// `.wt-err-dismiss` — a quiet ghost control that clears the conflict strip.
-private struct DismissButton: View {
-    var action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Text("Dismiss")
-                .font(.custom(AerieFont.sans, size: 11.5).weight(.medium))
-                .foregroundStyle(hovering ? AerieColor.text1 : AerieColor.text3)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 3)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(hovering ? AerieColor.glass3 : Color.clear))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(hovering ? AerieColor.glassLine2 : AerieColor.glassLine, lineWidth: 1))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: hovering)
-    }
-}
-
 /// Ring with a transparent quadrant that spins continuously — the design's
 /// `.spinner` (2px stroke, top/right transparent, 0.7s linear infinite). Tint
 /// it from the caller with `.foregroundStyle(_:)`.
@@ -467,13 +483,18 @@ private struct WtActionButton: View {
     let systemImage: String
     let title: String
     let hoverTone: HoverTone
+    var isRunning: Bool = false
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: systemImage).font(.system(size: 12, weight: .medium))
+                if isRunning {
+                    SpinnerView(size: 11).foregroundStyle(foreground)
+                } else {
+                    Image(systemName: systemImage).font(.system(size: 12, weight: .medium))
+                }
                 Text(title).aerieFont(AerieFont.custom(.sans, size: 12).weight(.medium))
             }
             .foregroundStyle(foreground)
@@ -508,14 +529,21 @@ private struct WtActionButton: View {
 /// `.wt-del` — destructive icon-only button, 28×28, neutral at rest, red on
 /// hover, sinks 0.5px on press.
 private struct WtDeleteButton: View {
+    var isRunning: Bool = false
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "trash")
-                .font(.system(size: 13))
-                .foregroundStyle(hovering ? AerieColor.dangerText : AerieColor.text4)
+            Group {
+                if isRunning {
+                    SpinnerView(size: 13).foregroundStyle(AerieColor.text4)
+                } else {
+                    Image(systemName: "trash")
+                        .font(.system(size: 13))
+                        .foregroundStyle(hovering ? AerieColor.dangerText : AerieColor.text4)
+                }
+            }
                 .frame(width: 28, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)

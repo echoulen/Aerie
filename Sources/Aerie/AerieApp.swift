@@ -193,18 +193,6 @@ private struct AppRoot: View {
     }
 }
 
-/// Pairs a worktree with its repo for the worktree dialogs' `@State`.
-struct WorktreeContext: Identifiable, Equatable {
-    let id: String           // worktree path — unique per repo
-    let repo: Repository
-    let worktree: WorktreeRow
-    init(repo: Repository, worktree: WorktreeRow) {
-        self.id = worktree.id
-        self.repo = repo
-        self.worktree = worktree
-    }
-}
-
 /// The composed main window shell — Backdrop + Titlebar (centred brand) + the
 /// currently-selected primary screen (PRs or Repos). The view switcher lives
 /// in the active screen's page header.
@@ -216,37 +204,18 @@ struct MainShell: View {
     private let services = AppServices.shared
     @State private var aiReviewStore: AIReviewStore = MainShell.makeAIReviewStore()
     @State private var prCreateStore: PRCreateStore = MainShell.makePRCreateStore()
+    @State private var prActionStore = PRActionStore()
+    @State private var repoActionStore = RepoActionStore()
     @Environment(\.openWindow) private var openWindow
     @State private var appVM = AppViewModel()
     @State private var prsVM: PRsViewModel
     @State private var issuesVM: IssuesViewModel
     @State private var reposVM: ReposViewModel
     @State private var accountVM: AccountMenuViewModel
-    /// The repo whose hard-reset confirmation dialog is currently presented
-    /// (nil = no dialog). Owned here so the `DialogReset` scrim dims the whole
-    /// window, not just the Repos content area.
-    @State private var presentedReset: RepoRow?
-    /// The repo whose discard-unstaged confirmation dialog is currently presented
-    /// (nil = no dialog). Owned here for the same scrim reason as `presentedReset`.
-    @State private var presentedDiscard: RepoRow?
-    /// The PR whose merge confirmation dialog is currently presented (nil = no
-    /// dialog). Owned here for the same reason as `presentedReset` — the
-    /// `DialogMerge` scrim should dim the whole window.
-    @State private var presentedMerge: PRRow?
-    /// The PR whose force-checkout confirmation dialog is currently presented
-    /// (nil = no dialog). Owned here for the same scrim reason as the others.
-    @State private var presentedCheckout: PRRow?
     /// The PR currently open in the code review (diff) screen, or nil for the
     /// normal tab list. Owned here (not in `AppViewModel`) alongside the dialogs,
     /// since the review screen replaces the whole tab content area.
     @State private var reviewing: PRRow?
-    /// The PR + resolved approver set for the approve confirmation dialog
-    /// (nil = no dialog). Owned here for the same scrim reason as the others.
-    @State private var presentedApprove: PRReviewApproveContext?
-    /// The (repo, worktree) whose delete confirmation is presented (nil = none).
-    @State private var presentedDeleteWorktree: WorktreeContext?
-    /// The (repo, worktree) whose discard confirmation is presented (nil = none).
-    @State private var presentedDiscardWorktree: WorktreeContext?
     /// GitHub accounts indexed by id, loaded once on appear so the merge dialog
     /// can resolve a PR's bound account (`repo.primaryAccountId`) synchronously
     /// for display. The overlay body can't `await`, hence the cached map.
@@ -277,6 +246,7 @@ struct MainShell: View {
             PRReviewScreen(
                 row: row,
                 store: aiReviewStore,
+                actionStore: prActionStore,
                 loadFiles: { r in
                     try await services.multiApi.fetchPRFiles(
                         owner: r.repo.githubOwner,
@@ -288,7 +258,22 @@ struct MainShell: View {
                 accountsProvider: { await services.auth.allAccounts() },
                 lastApproverProvider: { repoId in await services.lastApprover.login(forRepo: repoId) },
                 onBack: { reviewing = nil },
-                onApprove: { presentedApprove = $0 }
+                onApproveConfirmed: { row, approver, comment in
+                    do {
+                        _ = try await services.multiApi.approvePR(
+                            owner: row.repo.githubOwner,
+                            repo: row.repo.githubRepo,
+                            number: row.pr.number,
+                            body: comment,
+                            accountId: approver.id
+                        )
+                        await services.lastApprover.record(approver.login, forRepo: row.repo.id)
+                        await services.refreshNow()
+                        return nil
+                    } catch {
+                        return "Approve failed: \(error.localizedDescription)"
+                    }
+                }
             )
             .id(row.id)
         } else {
@@ -304,7 +289,25 @@ struct MainShell: View {
                 viewModel: prsVM,
                 tabSelection: $appVM.activeTab,
                 onRefresh: { await services.refreshNow() },
-                onMerge: { presentedMerge = $0 },
+                prActionStore: prActionStore,
+                mergeAccount: { row in
+                    accountsById[row.repo.primaryAccountId]
+                        ?? GitHubAccount(id: row.repo.primaryAccountId, login: "unknown", host: "github.com")
+                },
+                onMergeConfirmed: { row in
+                    do {
+                        _ = try await services.multiApi.mergePR(
+                            owner: row.repo.githubOwner,
+                            repo: row.repo.githubRepo,
+                            number: row.pr.number,
+                            method: .squash
+                        )
+                        await services.refreshNow()
+                        return nil
+                    } catch {
+                        return "Merge failed: \(error.localizedDescription)"
+                    }
+                },
                 onUpdateBranch: { row in
                     // One-click "Update branch": ask GitHub to update the PR's
                     // head branch server-side (the analogue of the web "Update
@@ -331,7 +334,20 @@ struct MainShell: View {
                     }
                     await services.refreshNow()
                 },
-                onCheckout: { presentedCheckout = $0 },
+                onCheckoutConfirmed: { row in
+                    do {
+                        let token = await services.auth.token(for: row.repo.primaryAccountId)
+                        try await services.gitService.forceCheckout(
+                            repoAt: row.repo.localPath,
+                            branch: row.pr.sourceBranch,
+                            token: token
+                        )
+                        await services.refreshNow()
+                        return nil
+                    } catch {
+                        return "Checkout failed: \(error.localizedDescription)"
+                    }
+                },
                 onReview: { reviewing = $0 },
                 isReviewing: { aiReviewStore.isRunning(for: $0) }
             )
@@ -350,8 +366,39 @@ struct MainShell: View {
                     services.settingsNavigator.requestAddRepo()
                     openWindow(id: "settings")
                 },
-                onHardReset: { presentedReset = $0 },
-                onDiscard: { presentedDiscard = $0 },
+                repoActionStore: repoActionStore,
+                onHardResetConfirmed: { row in
+                    guard let status = row.status else { return "No local git status available." }
+                    do {
+                        let token = await services.auth.token(for: row.repo.primaryAccountId)
+                        _ = try await services.gitService.hardResetToOrigin(
+                            repoAt: row.repo.localPath,
+                            defaultBranch: row.repo.defaultBranch,
+                            token: token
+                        )
+                        if let merged = row.mergedBranch {
+                            do {
+                                try await services.gitService.deleteLocalBranch(
+                                    repoAt: row.repo.localPath, branch: merged.branch)
+                            } catch {
+                                NSLog("Reset succeeded but couldn't delete merged branch \(merged.branch): \(error.localizedDescription)")
+                            }
+                        }
+                        await services.refreshNow()
+                        return nil
+                    } catch {
+                        return "Reset failed: \(error.localizedDescription)"
+                    }
+                },
+                onDiscardConfirmed: { row in
+                    do {
+                        try await services.gitService.discardUnstaged(repoAt: row.repo.localPath)
+                        await services.refreshNow()
+                        return nil
+                    } catch {
+                        return "Discard failed: \(error.localizedDescription)"
+                    }
+                },
                 onMergeWorktree: { row, wt in
                     // No dialog: a forward, non-destructive step. Mirrors the
                     // PR card's onUpdateBranch — merge origin/<default> into the
@@ -373,11 +420,24 @@ struct MainShell: View {
                         return error.localizedDescription
                     }
                 },
-                onDiscardWorktree: { row, wt in
-                    presentedDiscardWorktree = WorktreeContext(repo: row.repo, worktree: wt)
+                onDiscardWorktreeConfirmed: { row, wt in
+                    do {
+                        try await services.gitService.discardUnstaged(repoAt: wt.path)
+                        await reposVM.refresh()
+                        return nil
+                    } catch {
+                        return "Discard failed: \(error.localizedDescription)"
+                    }
                 },
-                onDeleteWorktree: { row, wt in
-                    presentedDeleteWorktree = WorktreeContext(repo: row.repo, worktree: wt)
+                onDeleteWorktreeConfirmed: { row, wt in
+                    do {
+                        try await services.gitService.removeWorktree(
+                            wt.path, mainWorktreeAt: row.repo.localPath, force: wt.isDirty)
+                        await reposVM.refresh()
+                        return nil
+                    } catch {
+                        return "Delete failed: \(error.localizedDescription)"
+                    }
                 },
                 createPhase: { prCreateStore.phase(for: $0) },
                 onCreatePR: { prCreateStore.start(row: $0) },
@@ -388,176 +448,6 @@ struct MainShell: View {
                         await reposVM.refresh()
                     }
                 }
-            )
-        }
-    }
-
-    // Hard-reset confirmation overlay content. Extracted (like the other dialogs)
-    // to keep `body` within the type-checker's complexity budget.
-    @ViewBuilder
-    private var resetDialog: some View {
-        if let row = presentedReset, let status = row.status {
-            DialogReset(
-                repo: row.repo,
-                status: status,
-                mergedBranch: row.mergedBranch,
-                onConfirm: {
-                    do {
-                        let token = await services.auth.token(
-                            for: row.repo.primaryAccountId
-                        )
-                        _ = try await services.gitService.hardResetToOrigin(
-                            repoAt: row.repo.localPath,
-                            defaultBranch: row.repo.defaultBranch,
-                            token: token
-                        )
-                        // Reset succeeded — HEAD is now on the default branch, so the
-                        // merged branch can be force-deleted. A deletion failure here is
-                        // non-fatal: the reset already achieved the user's goal and the
-                        // orphaned merged branch is harmless (removable manually). Swallow
-                        // + log rather than reporting "Reset failed", which would
-                        // misrepresent a successful reset. refreshNow re-runs detection;
-                        // since HEAD is now on default, the pill clears regardless.
-                        if let merged = row.mergedBranch {
-                            do {
-                                try await services.gitService.deleteLocalBranch(
-                                    repoAt: row.repo.localPath,
-                                    branch: merged.branch
-                                )
-                            } catch {
-                                NSLog("Reset succeeded but couldn't delete merged branch \(merged.branch): \(error.localizedDescription)")
-                            }
-                        }
-                        await services.refreshNow()
-                        presentedReset = nil
-                        return nil
-                    } catch {
-                        return "Reset failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedReset = nil }
-            )
-        }
-    }
-
-    // Discard-unstaged confirmation overlay content. Confirm runs `git restore .`
-    // off the bound git service, then refreshes so the card moves toward
-    // "Clean · in sync" and the Discard button (and this dialog) drop out.
-    @ViewBuilder
-    private var discardDialog: some View {
-        if let row = presentedDiscard, let status = row.status {
-            DialogDiscard(
-                repo: row.repo,
-                status: status,
-                onConfirm: {
-                    do {
-                        try await services.gitService.discardUnstaged(
-                            repoAt: row.repo.localPath
-                        )
-                        await services.refreshNow()
-                        presentedDiscard = nil
-                        return nil
-                    } catch {
-                        return "Discard failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedDiscard = nil }
-            )
-        }
-    }
-
-    // Merge confirmation overlay content. Confirm squash-merges via the GitHub
-    // API, then refreshes so the merged PR drops off the list.
-    @ViewBuilder
-    private var mergeDialog: some View {
-        if let row = presentedMerge {
-            DialogMerge(
-                pr: row.pr,
-                repo: row.repo,
-                account: accountsById[row.repo.primaryAccountId]
-                    ?? GitHubAccount(id: row.repo.primaryAccountId, login: "unknown", host: "github.com"),
-                onConfirm: {
-                    do {
-                        _ = try await services.multiApi.mergePR(
-                            owner: row.repo.githubOwner,
-                            repo: row.repo.githubRepo,
-                            number: row.pr.number,
-                            method: .squash
-                        )
-                        await services.refreshNow()
-                        presentedMerge = nil
-                        return nil
-                    } catch {
-                        return "Merge failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedMerge = nil }
-            )
-        }
-    }
-
-    // Force-checkout confirmation overlay content. Confirm runs the bound git
-    // service's `forceCheckout`, then refreshes so the PR's local-state pill
-    // settles to "clean & in sync" (the branch is now checked out at origin).
-    @ViewBuilder
-    private var checkoutDialog: some View {
-        if let row = presentedCheckout {
-            DialogCheckout(
-                repo: row.repo,
-                pr: row.pr,
-                local: row.localState,
-                onConfirm: {
-                    do {
-                        let token = await services.auth.token(
-                            for: row.repo.primaryAccountId
-                        )
-                        try await services.gitService.forceCheckout(
-                            repoAt: row.repo.localPath,
-                            branch: row.pr.sourceBranch,
-                            token: token
-                        )
-                        await services.refreshNow()
-                        presentedCheckout = nil
-                        return nil
-                    } catch {
-                        return "Checkout failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedCheckout = nil }
-            )
-        }
-    }
-
-    // Approve confirmation overlay content. Confirm submits an approving review
-    // via the GitHub API using the chosen (non-author) approver account, then
-    // refreshes so the PR's review state — and the Merge gate — settle.
-    @ViewBuilder
-    private var approveDialog: some View {
-        if let ctx = presentedApprove {
-            DialogApprove(
-                context: ctx,
-                onConfirm: { approver, comment in
-                    do {
-                        _ = try await services.multiApi.approvePR(
-                            owner: ctx.row.repo.githubOwner,
-                            repo: ctx.row.repo.githubRepo,
-                            number: ctx.row.pr.number,
-                            body: comment,
-                            accountId: approver.id
-                        )
-                        await services.lastApprover.record(approver.login, forRepo: ctx.row.repo.id)
-                        await services.refreshNow()
-                        presentedApprove = nil
-                        // Approve done → leave the diff detail page and return to
-                        // the PR list, where the row now reflects the new review
-                        // state (and any lit Merge gate).
-                        reviewing = nil
-                        return nil
-                    } catch {
-                        return "Approve failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedApprove = nil }
             )
         }
     }
@@ -644,58 +534,6 @@ struct MainShell: View {
             })
     }
 
-    // Delete-worktree confirmation overlay content. Confirm runs `git worktree
-    // remove` off the bound git service (force when the worktree is dirty), then
-    // refreshes the ReposViewModel so the worktree rail updates immediately.
-    // Worktrees are recomputed by the VM (not the DB/polling layer), so we call
-    // `reposVM.refresh()` rather than `services.refreshNow()`.
-    @ViewBuilder
-    private var deleteWorktreeDialog: some View {
-        if let ctx = presentedDeleteWorktree {
-            DialogDeleteWorktree(
-                repo: ctx.repo,
-                worktree: ctx.worktree,
-                onConfirm: {
-                    do {
-                        try await services.gitService.removeWorktree(
-                            ctx.worktree.path,
-                            mainWorktreeAt: ctx.repo.localPath,
-                            force: ctx.worktree.isDirty)
-                        await reposVM.refresh()
-                        presentedDeleteWorktree = nil
-                        return nil
-                    } catch {
-                        return "Delete failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedDeleteWorktree = nil })
-        }
-    }
-
-    // Discard-worktree confirmation overlay content. Confirm runs `git restore .`
-    // + `git clean -fd` off the bound git service, then refreshes the
-    // ReposViewModel so the worktree rail updates immediately.
-    @ViewBuilder
-    private var discardWorktreeDialog: some View {
-        if let ctx = presentedDiscardWorktree {
-            DialogWorktreeDiscard(
-                repo: ctx.repo,
-                worktree: ctx.worktree,
-                onConfirm: {
-                    do {
-                        try await services.gitService.discardUnstaged(
-                            repoAt: ctx.worktree.path)
-                        await reposVM.refresh()
-                        presentedDiscardWorktree = nil
-                        return nil
-                    } catch {
-                        return "Discard failed: \(error.localizedDescription)"
-                    }
-                },
-                onCancel: { presentedDiscardWorktree = nil })
-        }
-    }
-
     var body: some View {
         AppFrame(
             viewModel: appVM,
@@ -708,16 +546,6 @@ struct MainShell: View {
                 // switch to their narrow layouts when the window shrinks.
                 .readsCompactWidth()
         }
-        // Confirmation dialogs — each carries its own full-window scrim (via
-        // `DialogShell`), so overlaying here dims the titlebar too. Content is
-        // extracted into computed properties to keep `body` type-checkable.
-        .overlay { resetDialog }
-        .overlay { discardDialog }
-        .overlay { mergeDialog }
-        .overlay { checkoutDialog }
-        .overlay { approveDialog }
-        .overlay { deleteWorktreeDialog }
-        .overlay { discardWorktreeDialog }
         .task {
             // Kick off focus-driven polling (idempotent), then paint instantly
             // from whatever's already cached. Fresh PRs arrive via the

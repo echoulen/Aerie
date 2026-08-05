@@ -123,7 +123,7 @@ final class DialogCheckoutTests: XCTestCase {
             repo: fixtureRepo(),
             pr: fixturePR(),
             local: local(isCurrentBranch: true, dirty: true, ahead: 2, behind: 0, unpushed: 1),
-            onConfirm: { nil }, onCancel: { }
+            onConfirm: { }, onCancel: { }
         )
         assertSnapshot(of: host(view), as: .image(size: CGSize(width: 1240, height: 880)))
     }
@@ -133,7 +133,7 @@ final class DialogCheckoutTests: XCTestCase {
             repo: fixtureRepo(),
             pr: fixturePR(),
             local: local(isCurrentBranch: true, dirty: false, ahead: 0, behind: 0, unpushed: 0),
-            onConfirm: { nil }, onCancel: { }
+            onConfirm: { }, onCancel: { }
         )
         assertSnapshot(of: host(view), as: .image(size: CGSize(width: 1240, height: 880)))
     }

@@ -1,55 +1,30 @@
 import SwiftUI
 
-/// Confirmation dialog for squash-merging a pull request. Warning tone
-/// (amber ring) + a compact PR preview (title, owner/repo, number, author,
-/// CI + review chips) above a KV summary (method, commit subject, source
-/// branch, account).
+/// Confirmation content for squash-merging a pull request, presented via
+/// `.popover(isPresented:)` anchored to the PR card's Merge button. Amber
+/// tone + a compact PR preview (title, owner/repo, number, author, CI +
+/// review chips) above a KV summary (method, commit subject, source branch,
+/// account).
 ///
-/// As with `DialogReset`, the view never calls `MultiAccountAPI` directly —
-/// `onConfirm` is the escape hatch the integration layer wires up to call
-/// `MultiAccountAPI.mergePR(owner:repo:number:method:)` and then refresh.
+/// Carries no busy/error state of its own — `onConfirm` fires once,
+/// synchronously; the caller closes the popover immediately and hands off to
+/// `PRActionStore` for the actual (backgrounded) merge + failure reporting.
 struct DialogMerge: View {
     let pr: PullRequest
     let repo: Repository
     let account: GitHubAccount
-    /// Closure invoked when the user confirms. Returns an error message to
-    /// display in-dialog on failure, or `nil` on success — in which case the
-    /// caller dismisses the dialog. Mirrors `DialogReset`'s contract so the
-    /// integration layer can flow a merge failure back into the open dialog.
-    var onConfirm: () async -> String?
+    var onConfirm: () -> Void
     var onCancel: () -> Void
-    @State private var busy: Bool = false
-    @State private var errorMessage: String?
-
-    init(
-        pr: PullRequest,
-        repo: Repository,
-        account: GitHubAccount,
-        onConfirm: @escaping () async -> String?,
-        onCancel: @escaping () -> Void,
-        initialError: String? = nil
-    ) {
-        self.pr = pr
-        self.repo = repo
-        self.account = account
-        self.onConfirm = onConfirm
-        self.onCancel = onCancel
-        self._errorMessage = State(initialValue: initialError)
-    }
 
     var body: some View {
-        DialogShell(
+        ActionPopoverShell(
             tone: .warning,
             title: "Merge pull request #\(pr.number)?",
             subtitle: "Squash and merge using \(account.login). The source branch will be deleted on \(account.host) after merging.",
             primaryTitle: "Merge",
-            onPrimary: { Task { await runConfirm() } },
+            onPrimary: onConfirm,
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
-            loading: busy,
-            loadingLabel: "Merging…",
-            progressNote: "Squashing and merging #\(pr.number)…",
-            errorMessage: errorMessage,
             iconView: AnyView(MergeGlyph(color: AerieColor.amber)),
             primaryProminent: true,
             headerSpacing: 7,
@@ -155,14 +130,6 @@ struct DialogMerge: View {
             .foregroundStyle(color)
     }
 
-    private func runConfirm() async {
-        guard !busy else { return }
-        busy = true
-        errorMessage = nil
-        // nil → success (caller dismisses); non-nil → show the error, stay open.
-        errorMessage = await onConfirm()
-        busy = false
-    }
 }
 
 /// The design's git-merge glyph (`v2/dialogs.jsx` `MergeIcon`): two nodes on a
