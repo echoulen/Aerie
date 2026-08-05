@@ -197,6 +197,11 @@ struct WorktreeRowView: View {
         return justSucceeded ? .done : .idle
     }
 
+    private var mergeFailureMessage: String? {
+        if case .failed(let message) = storePhase { return message }
+        return nil
+    }
+
     private var isDiscarding: Bool { repoActionStore.isRunning(.discardWorktree, for: .worktree(worktree)) }
 
     private var discardFailure: String? {
@@ -262,9 +267,9 @@ struct WorktreeRowView: View {
             .padding(.vertical, 11)
             .opacity(worktree.prunable ? 0.5 : 1)
 
-            if mergeUIPhase == .error {
+            if let mergeFailureMessage {
                 ActionErrorStrip(
-                    message: "Merge conflict. origin/\(defaultBranch) couldn't be merged cleanly — the merge was aborted and this worktree is unchanged. Resolve it in a terminal, then retry.",
+                    message: mergeFailureMessage,
                     onRetry: runMerge,
                     onDismiss: { repoActionStore.dismiss(.mergeWorktree, target: .worktree(worktree)) })
             }

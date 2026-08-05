@@ -214,13 +214,14 @@ private struct ApproveButton: View {
     var onApproveConfirmed: (PRRow, GitHubAccount, String?) async -> String? = { _, _, _ in nil }
 
     @State private var showConfirm = false
+    @State private var justApproved = false
 
     private var isApproving: Bool { actionStore.isRunning(.approve, for: row) }
 
     var body: some View {
-        if row.pr.reviewState == .approved {
+        if row.pr.reviewState == .approved || justApproved {
             label("Approved", system: "checkmark.seal.fill", fg: AerieColor.ok, bg: AerieColor.ok.opacity(0.14), line: AerieColor.ok.opacity(0.32))
-                .help(row.pr.approvedBy.map { "Approved by \($0)" } ?? "Already approved")
+                .help(row.pr.approvedBy.map { "Approved by \($0)" } ?? "Approved")
         } else if resolution.canApprove {
             Button {
                 guard !isApproving else { return }
@@ -241,7 +242,11 @@ private struct ApproveButton: View {
                     onConfirm: { approver, comment in
                         showConfirm = false
                         actionStore.start(.approve, row: row) {
-                            await onApproveConfirmed(row, approver, comment)
+                            let error = await onApproveConfirmed(row, approver, comment)
+                            if error == nil {
+                                await MainActor.run { justApproved = true }
+                            }
+                            return error
                         }
                     },
                     onCancel: { showConfirm = false }
