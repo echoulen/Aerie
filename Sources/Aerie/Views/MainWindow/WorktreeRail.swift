@@ -207,8 +207,9 @@ struct WorktreeRowView: View {
             .opacity(worktree.prunable ? 0.5 : 1)
 
             if phase == .error {
-                WorktreeMergeErrorStrip(
-                    defaultBranch: defaultBranch,
+                ActionErrorStrip(
+                    message: "Merge conflict. origin/\(defaultBranch) couldn't be merged cleanly — the merge was aborted and this worktree is unchanged. Resolve it in a terminal, then retry.",
+                    onRetry: runMerge,
                     onDismiss: { phase = .idle })
             }
         }
@@ -366,76 +367,6 @@ private struct WtMergeButton: View {
         case .running: return AerieColor.glassLine
         case .idle:    return hovering ? AerieColor.glassLine2 : AerieColor.glassLine
         }
-    }
-}
-
-// MARK: - Conflict strip
-
-/// Inline merge-conflict strip under the row (`wt-merge-error`): a warning
-/// triangle, a reassuring "nothing changed" message, and a Dismiss control.
-private struct WorktreeMergeErrorStrip: View {
-    let defaultBranch: String
-    var onDismiss: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 12))
-                .foregroundStyle(AerieColor.dangerText)
-                .padding(.top, 1)
-            message
-                .lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            DismissButton(action: onDismiss)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(AerieColor.err.opacity(0.12)))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(AerieColor.err.opacity(0.4), lineWidth: 1))
-        .padding(.bottom, 9)
-    }
-
-    private var message: Text {
-        Text("Merge conflict. ")
-            .font(.custom(AerieFont.sans, size: 12).weight(.semibold))
-            .foregroundColor(AerieColor.dangerText)
-        + Text("origin/\(defaultBranch)")
-            .font(.custom(AerieFont.mono, size: 12))
-            .foregroundColor(AerieColor.text2)
-        + Text(" couldn't be merged cleanly — the merge was aborted and this worktree is unchanged. Resolve it in a terminal, then retry.")
-            .font(.custom(AerieFont.sans, size: 12))
-            .foregroundColor(AerieColor.text2)
-    }
-}
-
-/// `.wt-err-dismiss` — a quiet ghost control that clears the conflict strip.
-private struct DismissButton: View {
-    var action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Text("Dismiss")
-                .font(.custom(AerieFont.sans, size: 11.5).weight(.medium))
-                .foregroundStyle(hovering ? AerieColor.text1 : AerieColor.text3)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 3)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(hovering ? AerieColor.glass3 : Color.clear))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(hovering ? AerieColor.glassLine2 : AerieColor.glassLine, lineWidth: 1))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: hovering)
     }
 }
 
