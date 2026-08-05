@@ -120,7 +120,7 @@ struct PRCard: View {
         } footer: {
             if let mergeFailure {
                 ActionErrorStrip(
-                    message: "Merge failed: \(mergeFailure)",
+                    message: mergeFailure,
                     onRetry: { prActionStore.retry(.merge, row: row) },
                     onDismiss: { prActionStore.dismiss(.merge, row: row) })
             }
