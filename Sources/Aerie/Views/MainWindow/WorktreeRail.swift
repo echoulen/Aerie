@@ -104,11 +104,32 @@ private struct WorktreeBranchChip: View {
 // MARK: - Status
 
 /// Dirty → warn `StatusPill` "dirty · N files"; clean → quiet "clean"; prunable
-/// → dashed err pill "missing on disk".
+/// → dashed err pill "missing on disk"; locked stacks alongside as its own pill
+/// since a worktree can be both dirty and locked at once.
 private struct WorktreeStatusView: View {
     let worktree: WorktreeRow
 
     var body: some View {
+        HStack(spacing: 6) {
+            if worktree.isLocked {
+                Text("locked")
+                    .aerieFont(AerieFont.custom(.sans, size: 11).weight(.medium))
+                    .tracking(0.22)
+                    .foregroundStyle(AerieColor.warn)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                            .strokeBorder(AerieColor.warn.opacity(0.36), lineWidth: 1))
+                    .fixedSize()
+                    .help(worktree.lockReason ?? "This worktree is locked (git worktree lock)")
+            }
+            dirtinessView
+        }
+    }
+
+    @ViewBuilder
+    private var dirtinessView: some View {
         if worktree.prunable {
             Text("missing on disk")
                 .aerieFont(AerieFont.custom(.sans, size: 11).weight(.medium))

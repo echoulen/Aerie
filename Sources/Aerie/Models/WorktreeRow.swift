@@ -22,6 +22,22 @@ struct WorktreeRow: Identifiable, Equatable {
     let isDirty: Bool
     let dirtyFileCount: Int
     let prunable: Bool
+    let isLocked: Bool
+    let lockReason: String?
+
+    init(
+        path: URL, branchLabel: String, isDetached: Bool, isDirty: Bool,
+        dirtyFileCount: Int, prunable: Bool, isLocked: Bool = false, lockReason: String? = nil
+    ) {
+        self.path = path
+        self.branchLabel = branchLabel
+        self.isDetached = isDetached
+        self.isDirty = isDirty
+        self.dirtyFileCount = dirtyFileCount
+        self.prunable = prunable
+        self.isLocked = isLocked
+        self.lockReason = lockReason
+    }
 
     var source: WorktreeSource { WorktreeSource.infer(from: path) }
 }
@@ -33,6 +49,8 @@ struct ParsedWorktree: Equatable {
     let branchLabel: String
     let isDetached: Bool
     let prunable: Bool
+    let isLocked: Bool
+    let lockReason: String?
 }
 
 /// Pure parser for `git worktree list --porcelain`. Records are blank-line
@@ -51,6 +69,8 @@ enum WorktreeParsing {
             var detached = false
             var bare = false
             var prunable = false
+            var locked = false
+            var lockReason: String?
 
             for raw in block.split(separator: "\n", omittingEmptySubsequences: true) {
                 let line = String(raw)
@@ -68,6 +88,11 @@ enum WorktreeParsing {
                     bare = true
                 } else if line.hasPrefix("prunable") {
                     prunable = true
+                } else if line == "locked" {
+                    locked = true
+                } else if line.hasPrefix("locked ") {
+                    locked = true
+                    lockReason = String(line.dropFirst("locked ".count))
                 }
             }
 
@@ -88,7 +113,9 @@ enum WorktreeParsing {
                 path: URL(fileURLWithPath: p),
                 branchLabel: label,
                 isDetached: isDetached,
-                prunable: prunable
+                prunable: prunable,
+                isLocked: locked,
+                lockReason: lockReason
             ))
         }
         return result

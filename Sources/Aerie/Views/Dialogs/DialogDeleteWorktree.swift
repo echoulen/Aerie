@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Delete-worktree confirmation, presented via `.popover(isPresented:)`.
 /// Clean → `git worktree remove`; dirty → `--force` with an N-changes
-/// warning. Danger tone, matching `DialogWorktreeDiscard`/`DialogDiscard`.
+/// warning; locked → unlocked first (git otherwise refuses regardless of
+/// `--force`). Danger tone, matching `DialogWorktreeDiscard`/`DialogDiscard`.
 struct DialogDeleteWorktree: View {
     let repo: Repository
     let worktree: WorktreeRow
@@ -11,13 +12,21 @@ struct DialogDeleteWorktree: View {
 
     private var dirty: Bool { worktree.isDirty && worktree.dirtyFileCount > 0 }
 
+    private var subtitle: String {
+        var text = dirty
+            ? "This worktree has \(worktree.dirtyFileCount) uncommitted change\(worktree.dirtyFileCount == 1 ? "" : "s"). Deleting runs git worktree remove --force and permanently discards them."
+            : "This runs git worktree remove. Only the checkout directory is deleted — the branch and its commits stay in \(repo.name)'s shared .git/."
+        if worktree.isLocked {
+            text += " It's currently locked\(worktree.lockReason.map { " (\($0))" } ?? "") — deleting unlocks it first."
+        }
+        return text
+    }
+
     var body: some View {
         ActionPopoverShell(
             tone: .danger,
             title: "Delete worktree \(worktree.branchLabel)?",
-            subtitle: dirty
-                ? "This worktree has \(worktree.dirtyFileCount) uncommitted change\(worktree.dirtyFileCount == 1 ? "" : "s"). Deleting runs git worktree remove --force and permanently discards them."
-                : "This runs git worktree remove. Only the checkout directory is deleted — the branch and its commits stay in \(repo.name)'s shared .git/.",
+            subtitle: subtitle,
             primaryTitle: dirty ? "Force-delete worktree" : "Delete worktree",
             onPrimary: onConfirm,
             secondaryTitle: "Cancel",
