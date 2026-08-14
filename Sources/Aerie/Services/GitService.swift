@@ -416,7 +416,9 @@ actor LiveGitService: GitService {
                 isDetached: wt.isDetached,
                 isDirty: dirty,
                 dirtyFileCount: count,
-                prunable: wt.prunable
+                prunable: wt.prunable,
+                isLocked: wt.isLocked,
+                lockReason: wt.lockReason
             )
         }
     }
@@ -424,6 +426,12 @@ actor LiveGitService: GitService {
     func removeWorktree(
         _ worktreePath: URL, mainWorktreeAt mainURL: URL, force: Bool
     ) async throws {
+        // Best-effort unlock first: a locked worktree (e.g. left locked by a
+        // crashed or long-running session) otherwise fails `remove` with
+        // "is locked" regardless of `--force`. Unlocking an already-unlocked
+        // worktree just fails harmlessly, so this is safe to always attempt.
+        _ = runGit(["worktree", "unlock", worktreePath.path], at: mainURL)
+
         var args = ["worktree", "remove"]
         if force { args.append("--force") }
         args.append(worktreePath.path)
@@ -431,7 +439,7 @@ actor LiveGitService: GitService {
             throw NSError(
                 domain: "GitService", code: 8,
                 userInfo: [NSLocalizedDescriptionKey:
-                    "Couldn't remove the worktree — it may have uncommitted changes."]
+                    "Couldn't remove the worktree — it may still have uncommitted changes."]
             )
         }
     }

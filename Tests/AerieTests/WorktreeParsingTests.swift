@@ -54,6 +54,40 @@ final class WorktreeParsingTests: XCTestCase {
         XCTAssertTrue(got[0].prunable)
     }
 
+    func testLockedFlaggedWithReason() {
+        let porcelain = """
+        worktree /Users/me/work/aerie
+        HEAD aaaa
+        branch refs/heads/main
+
+        worktree /Users/me/.claude/worktrees/turn-economy-upkeep
+        HEAD cccc
+        branch refs/heads/turn-economy-upkeep
+        locked claude session in progress
+        """
+        let got = WorktreeParsing.parse(porcelain: porcelain, mainWorktreePath: main)
+        XCTAssertEqual(got.count, 1)
+        XCTAssertTrue(got[0].isLocked)
+        XCTAssertEqual(got[0].lockReason, "claude session in progress")
+    }
+
+    func testLockedFlaggedWithoutReason() {
+        let porcelain = """
+        worktree /Users/me/work/aerie
+        HEAD aaaa
+        branch refs/heads/main
+
+        worktree /Users/me/code/aerie-wt/hotfix
+        HEAD dddd
+        branch refs/heads/hotfix
+        locked
+        """
+        let got = WorktreeParsing.parse(porcelain: porcelain, mainWorktreePath: main)
+        XCTAssertEqual(got.count, 1)
+        XCTAssertTrue(got[0].isLocked)
+        XCTAssertNil(got[0].lockReason)
+    }
+
     func testBareRepoSkipped() {
         // Two records: the main checkout (filtered out by path) and a separate
         // `bare` worktree (dropped by the !bare guard). Result must be empty —
