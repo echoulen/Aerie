@@ -50,6 +50,19 @@ struct PRsScreen: View {
     /// on the card's Review button. Reads `AIReviewStore` (held by `MainShell`);
     /// defaulted to "never" for snapshot tests and previews.
     var isReviewing: (PRRow) -> Bool = { _ in false }
+    /// Current AI-review lifecycle for `row` — drives the card's own "AI
+    /// Review" button so it can start (and show progress for) a review right
+    /// from the list. Reads `AIReviewStore`; defaulted to `.idle` for
+    /// snapshot tests and previews.
+    var aiReviewPhase: (PRRow) -> AIReviewPhase = { _ in .idle }
+    /// Starts an AI review for `row` directly from the list. Wraps
+    /// `AIReviewStore.start(row:)`; defaulted to a no-op for snapshot tests
+    /// and previews.
+    var onStartAIReview: (PRRow) -> Void = { _ in }
+    /// Clears a failed AI-review phase for `row` back to idle. Wraps
+    /// `AIReviewStore.dismiss(row:)`; defaulted to a no-op for snapshot tests
+    /// and previews.
+    var onDismissAIReview: (PRRow) -> Void = { _ in }
 
     @Environment(\.isCompactWidth) private var isCompact
     private var pagePadding: CGFloat {
@@ -149,6 +162,9 @@ struct PRsScreen: View {
                         onCheckoutConfirmed: onCheckoutConfirmed,
                         onReview: { onReview(row) },
                         isReviewing: isReviewing(row),
+                        aiReviewPhase: aiReviewPhase(row),
+                        onStartAIReview: { onStartAIReview(row) },
+                        onDismissAIReview: { onDismissAIReview(row) },
                         onUpdateBranch: { await onUpdateBranch(row) },
                         now: now
                     )

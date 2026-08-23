@@ -41,6 +41,19 @@ struct PRCard: View {
     /// "Reviewing…", mirroring the detail screen's `AIReviewButton`. Defaulted to
     /// `false` for snapshot tests and previews.
     var isReviewing: Bool = false
+    /// Current AI-review lifecycle for this PR — drives the row's own "AI
+    /// Review" button (idle/running/done/failed), independent of the
+    /// "Review" button above (which only opens the detail screen). Defaulted
+    /// to `.idle` for snapshot tests and previews.
+    var aiReviewPhase: AIReviewPhase = .idle
+    /// Starts an AI review for this PR directly from the list, without
+    /// opening the detail screen. Wraps `AIReviewStore.start(row:)`.
+    /// Defaulted to a no-op for snapshot tests and previews.
+    var onStartAIReview: () -> Void = {}
+    /// Clears a failed AI-review phase back to idle (the error strip's
+    /// Dismiss control). Wraps `AIReviewStore.dismiss(row:)`. Defaulted to a
+    /// no-op for snapshot tests and previews.
+    var onDismissAIReview: () -> Void = {}
     /// Runs the base-branch update for this PR's checkout. Awaited by the
     /// status-row "Update branch" pill so it can spin until the row's sync
     /// settles. Defaulted to a no-op for snapshot tests and previews.
@@ -77,6 +90,13 @@ struct PRCard: View {
 
     private var checkoutFailure: String? {
         if case .failed(let message) = prActionStore.phase(.checkout, for: row) { return message }
+        return nil
+    }
+
+    private var isAIReviewing: Bool { if case .running = aiReviewPhase { return true }; return false }
+
+    private var aiReviewFailure: String? {
+        if case .failed(let message) = aiReviewPhase { return message }
         return nil
     }
 
@@ -142,6 +162,12 @@ struct PRCard: View {
                         onRetry: { prActionStore.retry(.checkout, row: row) },
                         onDismiss: { prActionStore.dismiss(.checkout, row: row) })
                 }
+                if let aiReviewFailure {
+                    ActionErrorStrip(
+                        message: aiReviewFailure,
+                        onRetry: onStartAIReview,
+                        onDismiss: onDismissAIReview)
+                }
             }
         }
     }
@@ -177,6 +203,7 @@ struct PRCard: View {
                     reviewButton
                 }
                 HStack(spacing: 8) {
+                    aiReviewButton
                     mergeButton
                     checkoutButton
                 }
@@ -189,6 +216,7 @@ struct PRCard: View {
                     CopyLinkButton(url: row.pr.htmlUrl)
                 }
                 reviewButton
+                aiReviewButton
                 mergeButton
                 checkoutButton
             }
@@ -225,6 +253,66 @@ struct PRCard: View {
         }
         .buttonStyle(.plain)
         .help("Review the diff for \(row.repo.name) #\(row.pr.number)")
+    }
+
+    // Sparkles-icon glass-chrome button that runs Claude AI Review directly
+    // from the list — starts `AIReviewStore.start(row:)` without navigating
+    // to the detail screen first. Mirrors the detail screen's
+    // `AIReviewButton` (`PRReviewScreen.swift`) but degrades to a plain tap
+    // (no account picker) since the row has no room for one; switching
+    // accounts still works from the detail screen's split button.
+    private var aiReviewButton: some View {
+        Button {
+            guard !isAIReviewing else { return }
+            onStartAIReview()
+        } label: {
+            HStack(spacing: 6) {
+                aiReviewIcon
+                Text(aiReviewLabel)
+            }
+            .aerieFont(AerieFont.custom(.sans, size: 12))
+            .foregroundStyle(AerieColor.text1)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(AerieColor.glass2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isAIReviewing)
+        .help("Run AI Review for \(row.repo.name) #\(row.pr.number) without opening the diff")
+    }
+
+    @ViewBuilder
+    private var aiReviewIcon: some View {
+        switch aiReviewPhase {
+        case .running:
+            ProgressView().controlSize(.small)
+        case .done(let review, _):
+            Image(systemName: review.verdict == .approve ? "checkmark" : "exclamationmark.triangle")
+                .font(.system(size: 10, weight: .semibold))
+        case .failed:
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 10, weight: .semibold))
+        case .idle:
+            Image(systemName: "sparkles")
+                .font(.system(size: 10, weight: .semibold))
+        }
+    }
+
+    private var aiReviewLabel: String {
+        switch aiReviewPhase {
+        case .idle: return "AI Review"
+        case .running: return "Reviewing…"
+        case .done(let review, _): return review.verdict == .approve ? "Approved" : "Issues found"
+        case .failed: return "Retry AI Review"
+        }
     }
 
     private var openButton: some View {
