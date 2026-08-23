@@ -67,6 +67,13 @@ final class AIReviewStore {
     /// means "use the resolved default".
     func selectedApproverId(for row: PRRow) -> UUID? { selectedApproverByRepo[row.repo.id] }
 
+    /// Clears a finished (`.done`/`.failed`) phase back to idle — the PR
+    /// card's AI-review error strip's Dismiss control. Mirrors
+    /// `PRActionStore.dismiss(_:row:)`.
+    func dismiss(row: PRRow) {
+        phases[Self.key(row)] = .idle
+    }
+
     /// Records the account to act as for `row`'s repo on the next (and
     /// subsequent) AI reviews this session.
     func selectApprover(_ accountId: UUID, for row: PRRow) {
