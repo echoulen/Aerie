@@ -16,14 +16,22 @@ leave the list, open a browser, or drop to a terminal.
 
 ## Download
 
-**[⬇ Download the latest Aerie for macOS (Apple Silicon)](https://github.com/echoulen/Aerie/releases/latest/download/Aerie-macOS-arm64.zip)**
+Install (or update) with one command — downloads the latest release for your
+Mac's architecture, replaces `/Applications/Aerie.app`, and launches it:
 
-Unzip and move `Aerie.app` into `/Applications` (macOS 14+). You can also browse
+```sh
+curl -fsSL https://raw.githubusercontent.com/echoulen/Aerie/main/install.sh | bash
+```
+
+It also strips the quarantine flag, so there's no Gatekeeper right-click dance.
+Re-run the same command any time to update to the latest release.
+
+Prefer to do it by hand? **[⬇ Download the latest Aerie for macOS (Apple Silicon)](https://github.com/echoulen/Aerie/releases/latest/download/Aerie-macOS-arm64.zip)**,
+unzip, and move `Aerie.app` into `/Applications` (macOS 14+) — then right-click
+`Aerie.app` → **Open** on first launch to get past Gatekeeper (the build is
+self-signed, no Apple Developer account). You can also browse
 [all releases and notes](https://github.com/echoulen/Aerie/releases/latest), or
 [build from source](#build--run) instead.
-
-> The build is self-signed (no Apple Developer account), so on first launch
-> right-click `Aerie.app` → **Open** to get past Gatekeeper.
 
 ## Features
 
