@@ -568,7 +568,7 @@ struct MainShell: View {
             // already mounted here, so both .onReceive subscriptions below are
             // attached before the first tick can emit.
             services.startPolling()
-            services.updates.startChecking()
+            services.startUpdateChecks()
             await prsVM.refresh()
             await issuesVM.refresh()
             await reposVM.refresh()

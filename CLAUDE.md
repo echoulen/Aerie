@@ -14,8 +14,12 @@ make dev
 It does a debug `swift build`, assembles a minimal `Aerie.app`, and relaunches
 it in place (~20s, mostly the incremental build). It deliberately skips
 everything `install` does that the dev loop doesn't need: release optimisation,
-icon regeneration, git-version injection into `Info.plist`, the `/Applications`
-copy, and the `dist/` zip.
+icon regeneration, the `/Applications` copy, and the `dist/` zip.
+
+It *does* stamp `CFBundleShortVersionString` from the latest git tag — so a dev
+build reports the tag it sits on, not the `0.1.0` placeholder in the source
+`Info.plist` — but skips the `GitCommitSHA` / `GitCommitDate` /
+`CFBundleVersion` injection that `install` does.
 
 It reuses the same bundle id (`dev.echoulen.Aerie`) and the `AerieDev` signing
 cert as `make install`, so the app's database, preferences, and TCC permission
