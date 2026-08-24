@@ -99,6 +99,10 @@ final class AppServices {
     /// reflect the live branch / dirty state without a manual refresh.
     let gitStatusDidChange: PassthroughSubject<Void, Never>
 
+    /// Retains the focus→update-check subscription created by
+    /// `startUpdateChecks()`, and gates its idempotency.
+    private var updateFocusSubscription: AnyCancellable?
+
     /// Retains the focus→scheduler subscription created by `startPolling()`.
     /// Held here (rather than in a view) because the polling lifecycle must
     /// outlive any single window. Also gates `startPolling()`'s idempotency.
@@ -211,6 +215,21 @@ final class AppServices {
                 background: TimeInterval(background ?? 300)
             )
         }
+    }
+
+    /// Starts update checking: once now, every six hours after that, and again
+    /// whenever the app returns to the foreground (throttled inside
+    /// `UpdateStore`). The focus signal is what keeps the titlebar honest — a
+    /// release published minutes after launch would otherwise stay invisible
+    /// until the next six-hour tick. Idempotent.
+    func startUpdateChecks() {
+        updates.startChecking()
+        guard updateFocusSubscription == nil else { return }
+        updateFocusSubscription = focusObserver.isActive
+            .filter { $0 }
+            .sink { [updates] _ in
+                Task { @MainActor in await updates.refreshOnFocus() }
+            }
     }
 
     /// Forces an immediate refresh of every non-hidden repo, bypassing the

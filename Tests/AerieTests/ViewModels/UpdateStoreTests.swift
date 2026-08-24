@@ -120,6 +120,59 @@ final class UpdateStoreTests: XCTestCase {
         XCTAssertEqual(store.phase, .idle)
     }
 
+    // MARK: - Focus-driven re-checks
+
+    /// Coming back to the app shouldn't hit GitHub every time — bouncing
+    /// between windows would hammer the (anonymous, rate-limited) API.
+    func test_refreshOnFocus_skipsWhenCheckedRecently() async {
+        var checks = 0
+        var clock = Date(timeIntervalSince1970: 1_000)
+        let store = UpdateStore(
+            check: { checks += 1; return .upToDate(current: "0.6.1") },
+            install: {},
+            canSelfUpdate: true,
+            focusThrottle: 1_800,
+            now: { clock }
+        )
+        await store.refreshOnFocus()
+        clock.addTimeInterval(60)
+        await store.refreshOnFocus()
+        XCTAssertEqual(checks, 1)
+    }
+
+    func test_refreshOnFocus_checksAgainOnceTheThrottleWindowPasses() async {
+        var checks = 0
+        var clock = Date(timeIntervalSince1970: 1_000)
+        let store = UpdateStore(
+            check: { checks += 1; return .upToDate(current: "0.6.1") },
+            install: {},
+            canSelfUpdate: true,
+            focusThrottle: 1_800,
+            now: { clock }
+        )
+        await store.refreshOnFocus()
+        clock.addTimeInterval(1_801)
+        await store.refreshOnFocus()
+        XCTAssertEqual(checks, 2)
+    }
+
+    /// The throttle is advisory for focus only — the user clicking "Check for
+    /// Updates…" always gets a real check.
+    func test_checkNow_ignoresTheThrottle() async {
+        var checks = 0
+        let clock = Date(timeIntervalSince1970: 1_000)
+        let store = UpdateStore(
+            check: { checks += 1; return .upToDate(current: "0.6.1") },
+            install: {},
+            canSelfUpdate: true,
+            focusThrottle: 1_800,
+            now: { clock }
+        )
+        await store.refreshOnFocus()
+        await store.checkNow()
+        XCTAssertEqual(checks, 2)
+    }
+
     func test_dismissFailure_returnsToIdle() async {
         let store = makeStore(outcome: .failed("offline"))
         await store.checkNow()

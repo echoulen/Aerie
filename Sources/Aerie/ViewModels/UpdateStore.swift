@@ -25,18 +25,27 @@ final class UpdateStore {
     private let install: () throws -> Void
     private let canSelfUpdate: Bool
     private let recheckNanos: UInt64
+    private let focusThrottle: TimeInterval
+    private let now: () -> Date
     private var pollTask: Task<Void, Never>?
+    /// When the last check *started*. Recorded before the await so two checks
+    /// racing (launch + the focus signal that arrives with it) can't both run.
+    private var lastCheckStartedAt: Date?
 
     init(
         check: @escaping () async -> UpdateOutcome = { await UpdateChecker().check() },
         install: @escaping () throws -> Void = { try AppUpdater.run() },
         canSelfUpdate: Bool = UpdateStore.isInstalledInApplications,
-        recheckInterval: TimeInterval = 6 * 60 * 60
+        recheckInterval: TimeInterval = 6 * 60 * 60,
+        focusThrottle: TimeInterval = 30 * 60,
+        now: @escaping () -> Date = Date.init
     ) {
         self.check = check
         self.install = install
         self.canSelfUpdate = canSelfUpdate
         self.recheckNanos = UInt64(recheckInterval * 1_000_000_000)
+        self.focusThrottle = focusThrottle
+        self.now = now
     }
 
     /// Whether this copy is the one `install.sh` would replace. The script
@@ -56,7 +65,17 @@ final class UpdateStore {
     /// whose version isn't a release tag (`make dev`) or a flaky network, and
     /// neither earns a permanent badge in the titlebar.
     func refresh() async {
+        lastCheckStartedAt = now()
         apply(await check(), silentFailure: true)
+    }
+
+    /// Re-check because the app came back to the foreground. Throttled: the
+    /// six-hour loop alone means a release published just after launch goes
+    /// unnoticed for most of a working day, but every window switch shouldn't
+    /// hit GitHub's (anonymous, rate-limited) API either.
+    func refreshOnFocus() async {
+        if let last = lastCheckStartedAt, now().timeIntervalSince(last) < focusThrottle { return }
+        await refresh()
     }
 
     /// The menu's explicit "Check for Updates…". Surfaces failures (the user
@@ -64,6 +83,7 @@ final class UpdateStore {
     /// alert — the pill lights up from the same result.
     @discardableResult
     func checkNow() async -> UpdateOutcome {
+        lastCheckStartedAt = now()
         let outcome = await check()
         apply(outcome, silentFailure: false)
         return outcome
