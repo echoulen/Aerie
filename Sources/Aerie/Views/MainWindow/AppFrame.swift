@@ -20,6 +20,14 @@ struct AppFrame<Content: View>: View {
     var accountMenu: AccountMenuViewModel? = nil
     /// Invoked when the account dropdown's "Settings…" item is chosen.
     var onOpenSettings: () -> Void = {}
+    /// Update state for the titlebar pill. `.idle` (the default, and what
+    /// snapshot tests get) renders nothing.
+    var updatePhase: UpdatePhase = .idle
+    /// Confirms + starts an in-app update. Owned by the caller because the
+    /// confirmation is an AppKit alert and this view stays pure SwiftUI.
+    var onInstallUpdate: () -> Void = {}
+    /// Shows the message behind a failed update.
+    var onShowUpdateFailure: () -> Void = {}
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -43,6 +51,20 @@ struct AppFrame<Content: View>: View {
             if let toasts = toastManager {
                 ToastsOverlay(manager: toasts, onViewRequest: onToastViewRequest)
             }
+        }
+        // Update pill sits at the titlebar's left end — clear of the native
+        // traffic lights (they own the first ~78 pt) and opposite the account
+        // avatar. Same 11 pt top inset as the avatar, so both centre on the
+        // brand's line.
+        .overlay(alignment: .topLeading) {
+            UpdatePill(
+                phase: updatePhase,
+                onInstall: onInstallUpdate,
+                onShowFailure: onShowUpdateFailure
+            )
+            .padding(.top, 11)
+            .padding(.leading, 88)
+            .ignoresSafeArea(.container, edges: .top)
         }
         // Account avatar/dropdown floats above the page content so the panel
         // isn't clipped by the titlebar.

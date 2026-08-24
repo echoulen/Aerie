@@ -121,7 +121,7 @@ struct AerieApp: App {
 private struct UpdateCommand: View {
     var body: some View {
         Button("Check for Updates…") {
-            UpdatePresenter.checkAndPresent()
+            UpdatePresenter.checkAndPresent(store: AppServices.shared.updates)
         }
     }
 }
@@ -349,7 +349,6 @@ struct MainShell: View {
                     }
                 },
                 onReview: { reviewing = $0 },
-                isReviewing: { aiReviewStore.isRunning(for: $0) },
                 aiReviewPhase: { aiReviewStore.phase(for: $0) },
                 onStartAIReview: { aiReviewStore.start(row: $0) },
                 onDismissAIReview: { aiReviewStore.dismiss(row: $0) }
@@ -541,7 +540,19 @@ struct MainShell: View {
         AppFrame(
             viewModel: appVM,
             accountMenu: accountVM,
-            onOpenSettings: { openWindow(id: "settings") }
+            onOpenSettings: { openWindow(id: "settings") },
+            updatePhase: services.updates.phase,
+            onInstallUpdate: {
+                guard case .available(_, let latest) = services.updates.phase else { return }
+                if UpdatePresenter.confirmInstall(latest: latest) {
+                    services.updates.startInstall()
+                }
+            },
+            onShowUpdateFailure: {
+                guard case .failed(let message) = services.updates.phase else { return }
+                UpdatePresenter.present(UpdateAlertContent(outcome: .failed(message)))
+                services.updates.dismissFailure()
+            }
         ) {
             tabContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -557,6 +568,7 @@ struct MainShell: View {
             // already mounted here, so both .onReceive subscriptions below are
             // attached before the first tick can emit.
             services.startPolling()
+            services.updates.startChecking()
             await prsVM.refresh()
             await issuesVM.refresh()
             await reposVM.refresh()

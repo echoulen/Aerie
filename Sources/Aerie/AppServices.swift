@@ -79,6 +79,10 @@ final class AppServices {
     /// Cross-window navigation intents (e.g. the main window asking Settings to
     /// open the add-repo sheet). Shared so both scenes see the same instance.
     let settingsNavigator = SettingsNavigator()
+    /// App-update lifecycle (titlebar pill + the "Check for Updates…" menu
+    /// item). Lives here so both scenes read one state and the periodic check
+    /// outlives any single window.
+    let updates = UpdateStore()
     let mcpRouter: JSONRPCRouter
     let mcpRegistry: MCPToolRegistry
     let mcpLogger: ActivityLogger

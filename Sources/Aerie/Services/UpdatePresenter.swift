@@ -46,11 +46,26 @@ struct UpdateAlertContent: Equatable {
 /// unit test; the mapping it relies on (`UpdateAlertContent`) is tested instead.
 @MainActor
 enum UpdatePresenter {
-    static func checkAndPresent(checker: UpdateChecker = UpdateChecker()) {
+    /// The menu's "Check for Updates…". Routes through the shared `UpdateStore`
+    /// so an available release also lights the titlebar pill, then reports the
+    /// same outcome in an alert. The alert's Download button still opens the
+    /// release page — the escape hatch for a build that can't self-install.
+    static func checkAndPresent(store: UpdateStore) {
         Task { @MainActor in
-            let outcome = await checker.check()
+            let outcome = await store.checkNow()
             present(UpdateAlertContent(outcome: outcome))
         }
+    }
+
+    /// Confirms an in-app update. Worth a prompt because the installer's first
+    /// act is to quit Aerie out from under whatever the user was doing.
+    static func confirmInstall(latest: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Update to Aerie \(latest)?"
+        alert.informativeText = "Aerie will quit, install the update, and relaunch itself."
+        alert.addButton(withTitle: "Update & Relaunch")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     static func present(_ content: UpdateAlertContent) {

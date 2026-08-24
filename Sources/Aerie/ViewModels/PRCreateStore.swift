@@ -45,8 +45,8 @@ final class PRCreateStore {
     func phase(for row: RepoRow) -> PRCreatePhase { phases[row.repo.id] ?? .idle }
 
     /// Whether a publish is in flight for `row`. The card derives its spinner
-    /// state from `phase(for:)` directly; this helper mirrors
-    /// `AIReviewStore.isRunning` for callers that only need a Bool.
+    /// state from `phase(for:)` directly; this helper is for callers that only
+    /// need a Bool.
     func isRunning(for row: RepoRow) -> Bool {
         if case .running = phase(for: row) { return true }
         return false
