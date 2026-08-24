@@ -36,15 +36,11 @@ struct PRCard: View {
     /// Opens the code review screen for this PR. Defaulted to a no-op for
     /// snapshot tests and previews.
     var onReview: () -> Void = {}
-    /// Whether an AI review is currently running for this PR. When true the
-    /// Review button swaps its chevron glyph for a spinner and reads
-    /// "Reviewing…", mirroring the detail screen's `AIReviewButton`. Defaulted to
-    /// `false` for snapshot tests and previews.
-    var isReviewing: Bool = false
     /// Current AI-review lifecycle for this PR — drives the row's own "AI
-    /// Review" button (idle/running/done/failed), independent of the
-    /// "Review" button above (which only opens the detail screen). Defaulted
-    /// to `.idle` for snapshot tests and previews.
+    /// Review" button (idle/running/done/failed). The "Review" button above
+    /// stays untouched by it: it only opens the detail screen, so mirroring
+    /// the progress there just printed "Reviewing…" twice. Defaulted to
+    /// `.idle` for snapshot tests and previews.
     var aiReviewPhase: AIReviewPhase = .idle
     /// Starts an AI review for this PR directly from the list, without
     /// opening the detail screen. Wraps `AIReviewStore.start(row:)`.
@@ -229,13 +225,9 @@ struct PRCard: View {
     private var reviewButton: some View {
         Button(action: onReview) {
             HStack(spacing: 6) {
-                if isReviewing {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "chevron.left.forwardslash.chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-                Text(isReviewing ? "Reviewing…" : "Review")
+                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Review")
             }
             .aerieFont(AerieFont.custom(.sans, size: 12))
             .foregroundStyle(AerieColor.text1)

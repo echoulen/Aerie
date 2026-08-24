@@ -44,6 +44,10 @@ app: build icon
 	done
 	cp Sources/Aerie/Resources/Info.plist $(CONTENTS)/Info.plist
 	cp $(ICNS_OUT) $(RESOURCES)/AppIcon.icns
+	@# Ship the installer inside the bundle so the titlebar's update pill can
+	@# run the very script `curl | bash` uses, rather than fetching one at
+	@# update time. Single source of truth: install.sh in the repo root.
+	cp install.sh $(RESOURCES)/install.sh
 	@HASH=$$(git rev-parse --short=7 HEAD 2>/dev/null); \
 	if [ -n "$$HASH" ]; then \
 		/usr/libexec/PlistBuddy -c "Delete :GitCommitSHA" $(CONTENTS)/Info.plist >/dev/null 2>&1 || true; \
