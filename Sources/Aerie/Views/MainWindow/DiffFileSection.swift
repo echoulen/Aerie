@@ -12,12 +12,18 @@ struct DiffFileSection: View {
     private let hunks: [DiffHunk]
     private let language: CodeLanguage
 
-    init(file: PRFileChange, highlighter: CodeHighlighter, expanded: Bool = true) {
+    /// Files with this many changed lines (additions + deletions) or more
+    /// start collapsed, so opening a review with several huge files doesn't
+    /// force SwiftUI to build thousands of `DiffLineRow`s on first frame.
+    private static let autoCollapseThreshold = 300
+
+    init(file: PRFileChange, highlighter: CodeHighlighter, expanded: Bool? = nil) {
         self.file = file
         self.highlighter = highlighter
         self.hunks = DiffParser.parse(patch: file.patch)
         self.language = CodeLanguage(filename: file.filename)
-        _expanded = State(initialValue: expanded)
+        let defaultExpanded = (file.additions + file.deletions) < Self.autoCollapseThreshold
+        _expanded = State(initialValue: expanded ?? defaultExpanded)
     }
 
     var body: some View {
@@ -94,7 +100,7 @@ struct DiffFileSection: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 14)
         } else {
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(hunks) { hunk in
                     hunkHeader(hunk.header)
                     ForEach(hunk.lines) { line in
