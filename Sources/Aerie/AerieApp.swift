@@ -498,6 +498,11 @@ struct MainShell: View {
                     _ = try await services.multiApi.requestChangesPR(
                         owner: r.repo.githubOwner, repo: r.repo.githubRepo,
                         number: r.pr.number, body: body, accountId: approver.id)
+                    // Remember the account here too, not just on approve: GitHub
+                    // only lifts a changes-requested block when the SAME
+                    // collaborator approves later, so the next review on this
+                    // repo must default to this account or the PR stays stuck.
+                    await services.lastApprover.record(approver.login, forRepo: r.repo.id)
                     await services.refreshNow()
                     return nil
                 } catch { return error.localizedDescription }
