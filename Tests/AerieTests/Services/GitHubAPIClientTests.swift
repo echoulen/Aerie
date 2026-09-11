@@ -290,6 +290,72 @@ final class GitHubAPIClientTests: XCTestCase {
         XCTAssertEqual(prs[0].mergeStateStatus, "CLEAN")
     }
 
+    func test_listOpenPRs_mapsIsDraft() async throws {
+        // Draft PRs stay in the list (they're OPEN), so the flag has to come
+        // through for the card to mark them and hold AI Review back.
+        let responseJSON = """
+        {
+          "data": {
+            "repository": {
+              "pullRequests": {
+                "nodes": [
+                  {
+                    "id": "PR_a",
+                    "number": 1,
+                    "title": "WIP",
+                    "author": { "login": "carlos-li" },
+                    "headRefName": "feat/a",
+                    "state": "OPEN",
+                    "isDraft": true,
+                    "mergeable": "MERGEABLE",
+                    "labels": { "nodes": [] },
+                    "commits": { "nodes": [] },
+                    "reviewDecision": null,
+                    "mergeStateStatus": "DRAFT",
+                    "updatedAt": "2026-05-28T10:00:00Z",
+                    "url": "https://github.com/acme/widgets/pull/1"
+                  },
+                  {
+                    "id": "PR_b",
+                    "number": 2,
+                    "title": "Ready",
+                    "author": { "login": "carlos-li" },
+                    "headRefName": "feat/b",
+                    "state": "OPEN",
+                    "isDraft": false,
+                    "mergeable": "MERGEABLE",
+                    "labels": { "nodes": [] },
+                    "commits": { "nodes": [] },
+                    "reviewDecision": null,
+                    "mergeStateStatus": "CLEAN",
+                    "updatedAt": "2026-05-28T10:00:00Z",
+                    "url": "https://github.com/acme/widgets/pull/2"
+                  }
+                ]
+              }
+            }
+          }
+        }
+        """
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let prs = try await client.listOpenPRs(
+            owner: "acme", repo: "widgets", repoId: UUID(), token: "ghp_test"
+        )
+
+        XCTAssertEqual(prs.count, 2)
+        XCTAssertTrue(prs[0].isDraftPR)
+        XCTAssertFalse(prs[1].isDraftPR)
+    }
+
     func test_listOpenPRs_sendsCorrectQuery() async throws {
         let responseJSON = """
         { "data": { "repository": { "pullRequests": { "nodes": [] } } } }

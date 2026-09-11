@@ -42,6 +42,9 @@ struct PullRequest: Codable, Equatable, Identifiable {
     var additions: Int? = nil
     var deletions: Int? = nil
     var changedFiles: Int? = nil
+    /// GitHub's draft flag. Optional + defaulted for the same back-compat
+    /// reason as `approvedBy`: older cached rows predate the field.
+    var isDraft: Bool? = nil
     /// GitHub's authoritative merge-state (`mergeStateStatus`): CLEAN, UNSTABLE,
     /// BLOCKED, DIRTY, DRAFT, BEHIND, HAS_HOOKS, UNKNOWN. Drives whether the
     /// Merge button lights up. Optional + defaulted (older cached rows lack it).
@@ -49,6 +52,12 @@ struct PullRequest: Codable, Equatable, Identifiable {
 }
 
 extension PullRequest {
+    /// Whether GitHub treats this PR as a draft — the authoritative `isDraft`
+    /// when present, falling back to `mergeStateStatus` for cached rows that
+    /// predate the field. Draft PRs are shown in the list like any other, but
+    /// they are not ready to be reviewed, so AI Review is held back.
+    var isDraftPR: Bool { isDraft ?? (mergeStateStatus == "DRAFT") }
+
     /// Single source of truth for "will a one-click squash merge go through?",
     /// shared by the Merge button (which reads a *cached* row) and the
     /// pre-merge re-validation in `MultiAccountAPI.mergePR` (which reads a

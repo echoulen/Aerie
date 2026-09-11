@@ -287,6 +287,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             author { login }
             headRefName
             state
+            isDraft
             mergeable
             mergeStateStatus
             labels(first: 10) { nodes { name } }
@@ -708,6 +709,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
           author { login }
           headRefName
           state
+          isDraft
           mergeable
           mergeStateStatus
           labels(first: 10) { nodes { name } }
@@ -815,6 +817,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             let author: Author?
             let headRefName: String
             let state: String
+            let isDraft: Bool?
             let mergeable: String
             let mergeStateStatus: String?
             let labels: LabelLayer
@@ -881,6 +884,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             additions: node.additions,
             deletions: node.deletions,
             changedFiles: node.changedFiles,
+            isDraft: node.isDraft,
             mergeStateStatus: node.mergeStateStatus
         )
     }

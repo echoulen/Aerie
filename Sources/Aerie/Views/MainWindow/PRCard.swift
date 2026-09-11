@@ -120,6 +120,11 @@ struct PRCard: View {
                 badge: row.pr.isMine ? "yours" : nil
             )
         } chips: {
+            // Draft leads the chips: it's the signal that decides whether this
+            // PR is even ready to be looked at (and why AI Review is held back).
+            if row.pr.isDraftPR {
+                StatusPill(text: "Draft", tone: .muted)
+            }
             CIChip(state: row.pr.ciState)
             ReviewChip(state: row.pr.reviewState)
             // Merge conflicts have no chip of their own otherwise — they'd show
@@ -255,7 +260,7 @@ struct PRCard: View {
     // accounts still works from the detail screen's split button.
     private var aiReviewButton: some View {
         Button {
-            guard !isAIReviewing else { return }
+            guard !isAIReviewing, !row.pr.isDraftPR else { return }
             onStartAIReview()
         } label: {
             HStack(spacing: 6) {
@@ -277,8 +282,10 @@ struct PRCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(isAIReviewing)
-        .help("Run AI Review for \(row.repo.name) #\(row.pr.number) without opening the diff")
+        .disabled(isAIReviewing || row.pr.isDraftPR)
+        .help(row.pr.isDraftPR
+            ? "\(row.repo.name) #\(row.pr.number) is still a draft — mark it ready for review first"
+            : "Run AI Review for \(row.repo.name) #\(row.pr.number) without opening the diff")
     }
 
     @ViewBuilder
