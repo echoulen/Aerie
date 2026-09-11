@@ -103,6 +103,7 @@ struct PRReviewScreen: View {
             Spacer(minLength: 16)
             AIReviewButton(
                 phase: aiPhase,
+                isDraft: pr.isDraftPR,
                 resolution: vm.resolution,
                 selectedApproverId: store.selectedApproverId(for: vm.row),
                 onSelectApprover: { store.selectApprover($0, for: vm.row) },
@@ -135,6 +136,9 @@ struct PRReviewScreen: View {
 
     private var statusRow: some View {
         HStack(spacing: 12) {
+            if pr.isDraftPR {
+                StatusPill(text: "Draft", tone: .muted)
+            }
             CIChip(state: pr.ciState)
             ReviewChip(state: pr.reviewState)
             if let add = pr.additions, let del = pr.deletions, let files = pr.changedFiles {
@@ -284,6 +288,9 @@ private struct ApproveButton: View {
 /// spinner (and hides the picker) while a review runs.
 private struct AIReviewButton: View {
     let phase: AIReviewPhase
+    /// Draft PRs aren't ready to be reviewed, so the button is held back the
+    /// same way it is when no account may approve.
+    let isDraft: Bool
     let resolution: ApproverResolution
     /// The user's per-repo pick, or nil to fall back to the resolved default.
     let selectedApproverId: UUID?
@@ -313,10 +320,8 @@ private struct AIReviewButton: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(isRunning || !canApprove)
-            .help(canApprove
-                ? "Review this PR with the Claude CLI; auto-approves when there are no major problems"
-                : "No account is eligible to approve this PR, so AI Review is unavailable.")
+            .disabled(isRunning || !canApprove || isDraft)
+            .help(helpText)
 
             if showsPicker {
                 // Fixed height: a width-only frame leaves the Rectangle greedy
@@ -332,6 +337,12 @@ private struct AIReviewButton: View {
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(AerieColor.glass2))
         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+
+    private var helpText: String {
+        if isDraft { return "This PR is still a draft — mark it ready for review first." }
+        if !canApprove { return "No account is eligible to approve this PR, so AI Review is unavailable." }
+        return "Review this PR with the Claude CLI; auto-approves when there are no major problems"
     }
 
     private var primaryLabel: some View {

@@ -38,6 +38,7 @@ final class PRCardTests: XCTestCase {
         review: ReviewState = .approved,
         sourceBranch: String = "feat/phase9-prs-view",
         state: PRState = .open,
+        isDraft: Bool? = nil,
         mergeStateStatus: String? = nil
     ) -> PullRequest {
         PullRequest(
@@ -54,6 +55,7 @@ final class PRCardTests: XCTestCase {
             labels: ["enhancement"],
             htmlUrl: URL(string: "https://github.com/carlos-li/aerie/pull/\(number)")!,
             updatedAt: updatedAt,
+            isDraft: isDraft,
             mergeStateStatus: mergeStateStatus
         )
     }
@@ -197,6 +199,22 @@ final class PRCardTests: XCTestCase {
 
     func test_isMergeable_draft_isNotMergeable() {
         XCTAssertFalse(PRCard.isMergeable(makePR(ci: .success, review: .approved, mergeStateStatus: "DRAFT")))
+    }
+
+    // MARK: - isDraftPR
+
+    func test_isDraftPR_trueWhenGitHubSaysDraft() {
+        XCTAssertTrue(makePR(isDraft: true).isDraftPR)
+    }
+
+    func test_isDraftPR_falseForAnOrdinaryPR() {
+        XCTAssertFalse(makePR(isDraft: false, mergeStateStatus: "CLEAN").isDraftPR)
+    }
+
+    func test_isDraftPR_fallsBackToMergeStateForCachedRowsWithoutTheFlag() {
+        XCTAssertTrue(makePR(isDraft: nil, mergeStateStatus: "DRAFT").isDraftPR)
+        XCTAssertFalse(makePR(isDraft: nil, mergeStateStatus: "CLEAN").isDraftPR)
+        XCTAssertFalse(makePR(isDraft: nil, mergeStateStatus: nil).isDraftPR)
     }
 
     // Fallback path — no `mergeStateStatus` yet (older cache / still computing):
