@@ -24,10 +24,10 @@ final class AIReviewStoreTests: XCTestCase {
         run: @escaping (PRRow, String, @escaping @Sendable (String) -> Void) async -> ClaudeReviewOutcome,
         resolveApprover: @escaping (PRRow) async -> ApproverResolution = { _ in ApproverResolution(eligible: [], defaultApprover: nil) },
         approve: @escaping (PRRow, GitHubAccount, String) async -> String? = { _, _, _ in nil },
-        comment: @escaping (PRRow, GitHubAccount, String) async -> String? = { _, _, _ in nil }
+        requestChanges: @escaping (PRRow, GitHubAccount, String) async -> String? = { _, _, _ in nil }
     ) -> AIReviewStore {
         AIReviewStore(loadFiles: files, runReview: run, resolveApprover: resolveApprover,
-                      approve: approve, comment: comment)
+                      approve: approve, requestChanges: requestChanges)
     }
 
     /// Convenience: an `ApproverResolution` with `def` as the default and (unless
@@ -69,17 +69,27 @@ final class AIReviewStoreTests: XCTestCase {
         XCTAssertEqual(r.verdict, .approve); XCTAssertEqual(actedAs, "reviewer")
     }
 
-    func test_issuesFound_callsComment_notApprove() async {
-        var approveCalled = false, commentBody: String?
+    func test_issuesFound_requestsChanges_notApprove() async {
+        var approveCalled = false, requestChangesBody: String?
         let store = makeStore(
             run: { _, _, _ in .success(ClaudeReview(verdict: .issuesFound, summary: "bug", issues: ["x"], raw: "")) },
             resolveApprover: { _ in self.resolution(default: self.acct()) },
             approve: { _, _, _ in approveCalled = true; return nil },
-            comment: { _, _, b in commentBody = b; return nil })
+            requestChanges: { _, _, b in requestChangesBody = b; return nil })
         let row = prRow(); store.start(row: row); await settle(store, row)
         XCTAssertFalse(approveCalled)
-        XCTAssertTrue(commentBody?.contains("x") == true)
+        XCTAssertTrue(requestChangesBody?.contains("x") == true)
         guard case .done = store.phase(for: row) else { return XCTFail() }
+    }
+
+    func test_issuesFound_requestChangesFails_setsFailed() async {
+        let store = makeStore(
+            run: { _, _, _ in .success(ClaudeReview(verdict: .issuesFound, summary: "bug", issues: ["x"], raw: "")) },
+            resolveApprover: { _ in self.resolution(default: self.acct()) },
+            requestChanges: { _, _, _ in "422 unprocessable" })
+        let row = prRow(); store.start(row: row); await settle(store, row)
+        guard case .failed(let m) = store.phase(for: row) else { return XCTFail() }
+        XCTAssertTrue(m.contains("422 unprocessable"))
     }
 
     func test_reviewFailed_setsFailed() async {
