@@ -2,7 +2,7 @@ import SwiftUI
 import Observation
 
 /// AI-review lifecycle for one PR. `.running` carries accumulated progress lines;
-/// `.done` carries the review plus which account acted (approve/comment).
+/// `.done` carries the review plus which account acted (approve/request-changes).
 enum AIReviewPhase: Equatable {
     case idle
     case running([String])
@@ -31,20 +31,20 @@ final class AIReviewStore {
     private let runReview: (PRRow, String, @escaping @Sendable (String) -> Void) async -> ClaudeReviewOutcome
     private let resolveApprover: (PRRow) async -> ApproverResolution
     private let approve: (PRRow, GitHubAccount, String) async -> String?
-    private let comment: (PRRow, GitHubAccount, String) async -> String?
+    private let requestChanges: (PRRow, GitHubAccount, String) async -> String?
 
     init(
         loadFiles: @escaping (PRRow) async throws -> [PRFileChange],
         runReview: @escaping (PRRow, String, @escaping @Sendable (String) -> Void) async -> ClaudeReviewOutcome,
         resolveApprover: @escaping (PRRow) async -> ApproverResolution,
         approve: @escaping (PRRow, GitHubAccount, String) async -> String?,
-        comment: @escaping (PRRow, GitHubAccount, String) async -> String?
+        requestChanges: @escaping (PRRow, GitHubAccount, String) async -> String?
     ) {
         self.loadFiles = loadFiles
         self.runReview = runReview
         self.resolveApprover = resolveApprover
         self.approve = approve
-        self.comment = comment
+        self.requestChanges = requestChanges
     }
 
     /// Stable per-PR key. `PullRequest.id` is a fresh UUID on every API fetch, so
@@ -126,8 +126,8 @@ final class AIReviewStore {
                         self.phases[key] = .done(review, actedAs: approver.login)
                     }
                 case .issuesFound:
-                    if let err = await self.comment(row, approver, Self.reviewBody(from: review)) {
-                        self.phases[key] = .failed("發 comment 失敗:\(err)")
+                    if let err = await self.requestChanges(row, approver, Self.reviewBody(from: review)) {
+                        self.phases[key] = .failed("Request changes 失敗:\(err)")
                     } else {
                         self.phases[key] = .done(review, actedAs: approver.login)
                     }
@@ -143,8 +143,8 @@ final class AIReviewStore {
         phases[key] = .running(lines)
     }
 
-    /// Formats a review into a tidy markdown body for the GitHub PR comment /
-    /// approval review. Header reflects the verdict; Claude's `summary` (already
+    /// Formats a review into a tidy markdown body for the GitHub review
+    /// (approval or changes-requested). Header reflects the verdict; Claude's `summary` (already
     /// markdown bullets) is the body; concrete issues get their own section; a
     /// footer attributes the review.
     static func reviewBody(from review: ClaudeReview) -> String {

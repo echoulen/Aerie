@@ -158,13 +158,12 @@ protocol GitHubAPIClient: Sendable {
         token: String
     ) async throws
 
-    /// Posts a plain comment on a PR/issue thread
-    /// (`POST /repos/{owner}/{repo}/issues/{number}/comments`). Unlike a review,
-    /// any account may comment (no self-approval restriction). Declared on the
-    /// protocol (with an extension default) for the same dynamic-dispatch reason
-    /// as `approvePR`: test stubs inherit a harmless no-op, while
-    /// `LiveGitHubAPIClient` overrides it with the real REST call.
-    func addIssueComment(
+    /// Submits a changes-requested review on a PR (REST `POST .../pulls/{n}/reviews`
+    /// with `event: REQUEST_CHANGES`) — this is what blocks the PR from merging
+    /// under branch protection, unlike a plain comment. GitHub rejects the event
+    /// with an empty body, so `body` is required. Same self-review restriction as
+    /// `approvePR`: the token's account must not be the PR author.
+    func requestChangesPR(
         owner: String,
         repo: String,
         number: Int,
@@ -231,9 +230,9 @@ extension GitHubAPIClient {
         token: String
     ) async throws {}
 
-    /// Default: no-op. Stubs that don't exercise addIssueComment inherit a
+    /// Default: no-op. Stubs that don't exercise request-changes inherit a
     /// harmless no-op; the live client overrides it with the real REST call.
-    func addIssueComment(
+    func requestChangesPR(
         owner: String,
         repo: String,
         number: Int,
@@ -636,9 +635,37 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         let patch: String?
     }
 
-    // MARK: approvePR
+    // MARK: approvePR / requestChangesPR
 
     func approvePR(
+        owner: String,
+        repo: String,
+        number: Int,
+        body: String?,
+        token: String
+    ) async throws {
+        try await submitReview(
+            event: "APPROVE", owner: owner, repo: repo,
+            number: number, body: body, token: token)
+    }
+
+    func requestChangesPR(
+        owner: String,
+        repo: String,
+        number: Int,
+        body: String,
+        token: String
+    ) async throws {
+        try await submitReview(
+            event: "REQUEST_CHANGES", owner: owner, repo: repo,
+            number: number, body: body, token: token)
+    }
+
+    /// Shared `POST .../pulls/{n}/reviews` call. `body` is omitted from the
+    /// payload when blank — fine for APPROVE, and REQUEST_CHANGES callers are
+    /// typed to always pass one (GitHub 422s on an empty changes-requested body).
+    private func submitReview(
+        event: String,
         owner: String,
         repo: String,
         number: Int,
@@ -653,35 +680,11 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        var payload: [String: Any] = ["event": "APPROVE"]
+        var payload: [String: Any] = ["event": event]
         if let body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["body"] = body
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-
-        let (data, response) = try await session.data(for: request)
-        let http = response as? HTTPURLResponse
-        recordRateLimit(token: token, response: http)
-        try checkOK(status: http?.statusCode ?? 0, data: data)
-    }
-
-    // MARK: addIssueComment
-
-    func addIssueComment(
-        owner: String,
-        repo: String,
-        number: Int,
-        body: String,
-        token: String
-    ) async throws {
-        let urlString =
-            "https://api.github.com/repos/\(owner)/\(repo)/issues/\(number)/comments"
-        var request = URLRequest(url: URL(string: urlString)!)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["body": body])
 
         let (data, response) = try await session.data(for: request)
         let http = response as? HTTPURLResponse

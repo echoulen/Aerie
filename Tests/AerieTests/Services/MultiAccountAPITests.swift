@@ -136,12 +136,12 @@ actor StubGitHubAPIClient: GitHubAPIClient {
         if let err = approveErrorByToken[token] { throw err }
     }
 
-    // MARK: Comment recording
-    private(set) var commentCalls: [(token: String, body: String)] = []
-    func addIssueComment(
+    // MARK: Request-changes recording
+    private(set) var requestChangesCalls: [(token: String, body: String)] = []
+    func requestChangesPR(
         owner: String, repo: String, number: Int, body: String, token: String
     ) async throws {
-        commentCalls.append((token, body))
+        requestChangesCalls.append((token, body))
     }
 
     // MARK: PR files (review screen / get_pr_diff)
@@ -777,30 +777,29 @@ final class MultiAccountAPITests: XCTestCase {
         XCTAssertEqual(out.first?.filename, "a.swift")
     }
 
-    // MARK: addIssueComment
+    // MARK: requestChangesPR
 
-    func test_addIssueComment_usesGivenAccountToken() async throws {
-        let commenter = UUID()
+    func test_requestChangesPR_usesGivenAccountToken() async throws {
+        let reviewer = UUID()
         let other = UUID()
-        let commenterToken = "commenter_tok"
-        let otherToken = "other_tok"
+        let reviewerToken = "reviewer_tok"
         let stub = StubGitHubAPIClient()
 
         let api = MultiAccountAPI(
             client: stub,
-            tokensByAccount: { [commenter: commenterToken, other: otherToken] },
-            accountsInOrder: { [other, commenter] } // 'other' is first in order…
+            tokensByAccount: { [reviewer: reviewerToken, other: "other_tok"] },
+            accountsInOrder: { [other, reviewer] } // 'other' is first in order…
         )
 
-        let result = try await api.addIssueComment(
+        let result = try await api.requestChangesPR(
             owner: "acme", repo: "widgets", number: 148,
-            body: "hi", accountId: commenter // …but we picked 'commenter' explicitly
+            body: "needs work", accountId: reviewer // …but we picked 'reviewer' explicitly
         )
-        XCTAssertEqual(result.successfulAccountId, commenter)
-        let calls = await stub.commentCalls
+        XCTAssertEqual(result.successfulAccountId, reviewer)
+        let calls = await stub.requestChangesCalls
         XCTAssertEqual(calls.count, 1)
-        XCTAssertEqual(calls.first?.token, commenterToken)
-        XCTAssertEqual(calls.first?.body, "hi")
+        XCTAssertEqual(calls.first?.token, reviewerToken)
+        XCTAssertEqual(calls.first?.body, "needs work")
     }
 
     func test_approvePR_doesNotFallBackOnError() async throws {

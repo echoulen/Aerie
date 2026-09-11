@@ -407,7 +407,7 @@ private struct AIReviewCard: View {
             }
 
             if let actedAs {
-                Text("\(isApprove ? "Approved" : "Commented") as \(actedAs)")
+                Text("\(isApprove ? "Approved" : "Requested changes") as \(actedAs)")
                     .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text4)
             }

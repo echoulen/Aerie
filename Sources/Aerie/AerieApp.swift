@@ -493,9 +493,9 @@ struct MainShell: View {
                     return nil
                 } catch { return error.localizedDescription }
             },
-            comment: { r, approver, body in
+            requestChanges: { r, approver, body in
                 do {
-                    _ = try await services.multiApi.addIssueComment(
+                    _ = try await services.multiApi.requestChangesPR(
                         owner: r.repo.githubOwner, repo: r.repo.githubRepo,
                         number: r.pr.number, body: body, accountId: approver.id)
                     await services.refreshNow()
