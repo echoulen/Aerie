@@ -237,7 +237,6 @@ struct PRCard: View {
                     .lineLimit(1)
                     .fixedSize()
                 if row.pr.isMine { MiniPill(text: "yours", tone: .amber) }
-                if row.pr.isDraftPR { MiniPill(text: "draft") }
                 Text(row.pr.title)
                     .aerieFont(AerieFont.custom(.sans, size: 14))
                     .foregroundStyle(AerieColor.text1)
@@ -248,51 +247,40 @@ struct PRCard: View {
                     .foregroundStyle(AerieColor.text4)
                     .fixedSize()
             }
-            // Telemetry drops (diffstat + review, then local flags) before
-            // the keys would push the row wider than the window.
-            ViewThatFits(in: .horizontal) {
-                mediumTelemetryLine(detail: 2)
-                mediumTelemetryLine(detail: 1)
-                mediumTelemetryLine(detail: 0)
+            // Line 2 carries the same PR information as the regular card.
+            // When it doesn't fit, the chips wrap onto another row — nothing
+            // is dropped — and the keys stay pinned on the right.
+            HStack(alignment: .center, spacing: 10) {
+                FlowLayout(itemSpacing: 8, rowSpacing: 6) {
+                    mediumBranchChip
+                    prInfoChips
+                    if let add = row.pr.additions, let del = row.pr.deletions {
+                        HStack(spacing: 4) {
+                            Text("+\(add)").foregroundStyle(AerieColor.ok)
+                            Text("−\(del)").foregroundStyle(AerieColor.crimsonHot)
+                        }
+                        .aerieFont(AerieFont.code(10.5))
+                        .fixedSize()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                mediumActions
             }
         }
     }
 
-    /// Line 2 of the medium row. `detail` 2 = everything, 1 = no diffstat /
-    /// review pill, 0 = branch + CI only. The branch chip truncates last.
-    private func mediumTelemetryLine(detail: Int) -> some View {
-        HStack(spacing: 9) {
-            Text(row.pr.sourceBranch)
-                .aerieFont(AerieFont.code(11))
-                .foregroundStyle(AerieColor.text1)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
-                .background(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).fill(AerieColor.glass2))
-                .overlay(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).strokeBorder(AerieColor.glassLine, lineWidth: 1))
-                // Hugs its text, but is the first thing to give up width
-                // (truncating in the middle) when the line gets tight.
-                .layoutPriority(-1)
-            MiniPill(text: ciShortLabel, tone: ciTone)
-            if detail >= 2 {
-                if let review = reviewShortLabel { MiniPill(text: review) }
-                if let add = row.pr.additions, let del = row.pr.deletions {
-                    HStack(spacing: 4) {
-                        Text("+\(add)").foregroundStyle(AerieColor.ok)
-                        Text("−\(del)").foregroundStyle(AerieColor.crimsonHot)
-                    }
-                    .aerieFont(AerieFont.code(10.5))
-                    .fixedSize()
-                }
-            }
-            if detail >= 1 {
-                localTags
-                AheadBehindCounts(ahead: row.localState?.ahead ?? 0, behind: row.localState?.behind ?? 0)
-            }
-            Spacer(minLength: 10)
-            mediumActions
-        }
+    /// The branch in a `.wt-branch` chip; truncates (middle) when a long name
+    /// would be wider than the row.
+    private var mediumBranchChip: some View {
+        Text(row.pr.sourceBranch)
+            .aerieFont(AerieFont.code(11))
+            .foregroundStyle(AerieColor.text1)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).fill(AerieColor.glass2))
+            .overlay(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).strokeBorder(AerieColor.glassLine, lineWidth: 1))
     }
 
     private var mediumActions: some View {
@@ -340,7 +328,7 @@ struct PRCard: View {
         }
     }
 
-    private var reviewShortLabel: String? {
+    private var reviewShortLabel: String {
         switch row.pr.reviewState {
         case .approved:         return "approved"
         case .changesRequested: return "changes requested"
@@ -359,7 +347,6 @@ struct PRCard: View {
                     .foregroundStyle(AerieColor.text3)
                     .lineLimit(1)
                 if row.pr.isMine { MiniPill(text: "yours", tone: .amber) }
-                if row.pr.isDraftPR { MiniPill(text: "draft", tone: .muted) }
                 Spacer(minLength: 4)
                 Text(CardRelativeTime.label(for: row.pr.updatedAt, now: now))
                     .aerieFont(AerieFont.code(10.5))
@@ -375,17 +362,18 @@ struct PRCard: View {
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 7)
-            HStack(spacing: 8) {
-                Text(row.pr.sourceBranch)
-                    .aerieFont(AerieFont.code(10.5))
-                    .foregroundStyle(AerieColor.text3)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 8)
-                localTags
-                AheadBehindCounts(ahead: row.localState?.ahead ?? 0, behind: row.localState?.behind ?? 0)
+            Text(row.pr.sourceBranch)
+                .aerieFont(AerieFont.code(10.5))
+                .foregroundStyle(AerieColor.text3)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.top, 9)
+            // Same PR information as the regular card, wrapping as needed.
+            FlowLayout(itemSpacing: 6, rowSpacing: 6) {
+                prInfoChips
             }
-            .padding(.top, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 7)
         }
     }
 
@@ -398,14 +386,43 @@ struct PRCard: View {
         }
     }
 
-    /// LOCAL when the PR's branch is the checkout, DIRTY when that tree has
-    /// changes, CONFLICTS when GitHub can't merge it.
+    /// The regular card's status chips in the narrow rows' dense form, in the
+    /// same order: Draft · CI · Review · Conflicts · local state. Local state
+    /// mirrors the regular sentence pill: not checked out / LOCAL + DIRTY /
+    /// LOCAL + ahead · behind · unpushed / LOCAL + IN SYNC.
     @ViewBuilder
-    private var localTags: some View {
+    private var prInfoChips: some View {
+        if row.pr.isDraftPR { MiniPill(text: "draft", tone: .muted) }
+        MiniPill(text: ciShortLabel, tone: ciTone)
+        MiniPill(text: reviewShortLabel, tone: reviewTone)
         if row.pr.hasMergeConflicts { MiniPill(text: "conflicts", tone: .err) }
         if let local = row.localState, local.isCurrentBranch {
+            let ahead = local.ahead ?? 0, behind = local.behind ?? 0, unpushed = local.unpushed ?? 0
             MiniPill(text: "local", tone: .amber)
-            if local.dirty == true { MiniPill(text: "dirty", tone: .err) }
+            if local.dirty == true {
+                MiniPill(text: "dirty", tone: .warn)
+            } else if ahead == 0 && behind == 0 && unpushed == 0 {
+                MiniPill(text: "in sync", tone: .ok)
+            }
+            if ahead > 0 || behind > 0 {
+                AheadBehindCounts(ahead: ahead, behind: behind)
+            }
+            if unpushed > 0 {
+                Text("\(unpushed) unpushed")
+                    .aerieFont(AerieFont.code(10.5))
+                    .foregroundStyle(AerieColor.amber)
+                    .fixedSize()
+            }
+        } else {
+            MiniPill(text: "not checked out", tone: .muted)
+        }
+    }
+
+    private var reviewTone: StatusPill.Tone {
+        switch row.pr.reviewState {
+        case .approved:         return .ok
+        case .changesRequested: return .err
+        case .reviewRequired:   return .neutral
         }
     }
 
