@@ -1,126 +1,200 @@
 import SwiftUI
+import AppKit
 
 /// First-run-after-setup popup. Asks the user to let Aerie write its entry
 /// into `~/.claude/.mcp.json` so Claude Code can auto-discover the local MCP
-/// server. Wraps `DialogShell` with the warning tone (gold plate ring + gold
-/// `.btn.amber` "Allow" CTA) and shows a JSON-diff preview of what will be added.
+/// server, showing a JSON-diff preview of what will be added.
 ///
-/// Wiring into `AerieApp.AppRoot` (showing the dialog when bootstrap is `.ok`
-/// AND `mcp.consent_decision == "unset"`) is intentionally left for a
-/// follow-up task — this file delivers the view + a snapshot.
+/// Visual contract: `v2/mcp.jsx` consent dialog — its own 560pt card (not
+/// `DialogShell`): gold ring, a Claude ↔ Aerie hero, a diff preview with a
+/// Copy key, a dotted notes list, and a footer with a settings hint, a ghost
+/// "Not now" and the gold `.btn.amber` "Allow".
 struct MCPConsentDialog: View {
     var onAllow: () async -> Void
     var onDecline: () -> Void
 
+    /// The block Aerie adds to `~/.claude/.mcp.json`; `true` marks added lines.
+    private static let diffLines: [(String, Bool)] = [
+        ("{", false),
+        ("  \"mcpServers\": {", false),
+        ("+   \"aerie\": {", true),
+        ("+     \"type\": \"http\",", true),
+        ("+     \"url\": \"http://127.0.0.1:<port>/mcp\",", true),
+        ("+     \"headers\": {", true),
+        ("+       \"Authorization\": \"Bearer <token>\"", true),
+        ("+     }", true),
+        ("+   }", true),
+        ("  }", false),
+        ("}", false),
+    ]
+
     var body: some View {
-        DialogShell(
-            tone: .warning,
-            title: "Let Claude Code talk to Aerie?",
-            subtitle: "Aerie can expose your tracked repos and PRs to Claude Code via a local MCP server.",
-            primaryTitle: "Allow",
-            onPrimary: { Task { await onAllow() } },
-            secondaryTitle: "Not now",
-            onSecondary: onDecline,
-            primaryProminent: true
-        ) {
-            VStack(alignment: .leading, spacing: 16) {
-                hero
-                description
-                jsonDiffPreview
-                footnotes
-            }
+        ZStack {
+            Color.black.opacity(0.45)
+            card
         }
+        .ignoresSafeArea()
+        .environment(\.colorScheme, .dark)
+    }
+
+    private var card: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                hero
+                Text("Let Claude Code talk to Aerie?")
+                    .aerieFont(AerieFont.custom(.sans, size: 20).weight(.medium))
+                    .foregroundStyle(AerieColor.text1)
+                    .padding(.top, 18)
+                Text("Aerie can expose your tracked repos and PRs to Claude Code via a local MCP server. If you allow this, Aerie will add a local entry to ~/.claude/.mcp.json.")
+                    .aerieFont(AerieFont.custom(.sans, size: 13.5))
+                    .foregroundStyle(AerieColor.text2)
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+                jsonDiffPreview
+                    .padding(.top, 16)
+                notes
+                    .padding(.top, 14)
+            }
+            .padding(.horizontal, 30)
+            .padding(.top, 28)
+            .padding(.bottom, 18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            footer
+        }
+        .frame(width: 560)
+        .background(
+            ZStack {
+                VisualEffectBlur(material: .hudWindow, blendingMode: .withinWindow)
+                Color(red: 28/255, green: 26/255, blue: 32/255).opacity(0.82)
+            }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AerieMetric.radiusDialog, style: .continuous))
+        .overlay(alignment: .top) {
+            Rectangle().fill(AerieColor.glassHighlight).frame(height: 1)
+                .padding(.horizontal, 1)
+                .allowsHitTesting(false)
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: AerieMetric.radiusDialog, style: .continuous)
+                .strokeBorder(AerieColor.amberLine, lineWidth: 1)
+                .allowsHitTesting(false)
+        )
+        .shadow(color: .black.opacity(0.7), radius: 30, y: 30)
     }
 
     // MARK: - Sections
 
+    /// Claude tile — "—" — Aerie tile.
     private var hero: some View {
-        HStack(spacing: 24) {
-            iconCircle(systemImage: "sparkle", tint: AerieColor.amber)
-            HStack(spacing: 6) {
-                HudRail(spacing: 6, height: 5, color: AerieColor.amberLine)
-                    .frame(width: 30)
-                Image(systemName: "arrow.left.and.right")
-                    .foregroundStyle(AerieColor.text3)
-                HudRail(spacing: 6, height: 5, color: AerieColor.amberLine)
-                    .frame(width: 30)
-            }
-            iconCircle(systemImage: "antenna.radiowaves.left.and.right", tint: AerieColor.ok)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func iconCircle(systemImage: String, tint: Color) -> some View {
-        ZStack {
-            Circle()
-                .fill(tint.opacity(0.12))
-                .overlay(Circle().strokeBorder(tint.opacity(0.42), lineWidth: 1))
-                .frame(width: 56, height: 56)
-                .shadow(color: tint.opacity(0.35), radius: 10)
-            Image(systemName: systemImage)
-                .font(.system(size: 22))
-                .foregroundStyle(tint)
+        HStack(spacing: 12) {
+            claudeTile
+            Text("—")
+                .aerieFont(AerieFont.custom(.sans, size: 18))
+                .foregroundStyle(AerieColor.text4)
+            aerieTile
         }
     }
 
-    private var description: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HudNote(text: "If you allow this, Aerie will")
-            Text("• Add a local entry to ~/.claude/.mcp.json")
-                .aerieFont(AerieFont.small())
-                .foregroundStyle(AerieColor.text2)
-            Text("• Keep the server bound to 127.0.0.1 with a rotating bearer token")
-                .aerieFont(AerieFont.small())
-                .foregroundStyle(AerieColor.text2)
-        }
+    // `radial-gradient(oklch(0.75 0.13 30), oklch(0.50 0.16 25))` with a white "C".
+    private var claudeTile: some View {
+        RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+            .fill(RadialGradient(
+                colors: [Color(red: 0.93, green: 0.53, blue: 0.44), Color(red: 0.64, green: 0.20, blue: 0.18)],
+                center: .center, startRadius: 0, endRadius: 27
+            ))
+            .frame(width: 38, height: 38)
+            .overlay(
+                Text("C")
+                    .aerieFont(AerieFont.custom(.sans, size: 18).weight(.semibold))
+                    .foregroundStyle(.white)
+            )
     }
 
-    /// A pretty-printed diff of the JSON we'd add. Lines that begin with `+`
-    /// render in the success-green tint; the rest stay in the neutral muted
-    /// glass-text color.
+    // Gold tile with the brand orb and a gold glow.
+    private var aerieTile: some View {
+        RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+            .fill(AerieColor.amberSoft)
+            .overlay(
+                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                    .strokeBorder(AerieColor.amberLine, lineWidth: 1)
+            )
+            .frame(width: 38, height: 38)
+            .overlay(BrandMark(size: 16, pulses: false))
+            .shadow(color: AerieColor.amberGlow.opacity(0.5), radius: 10)
+    }
+
+    /// Diff preview: a header row (path · diff + ghost Copy) over the JSON, with
+    /// added lines in ok green and the rest in text-2.
     private var jsonDiffPreview: some View {
-        let lines: [(String, Bool)] = [
-            ("{", false),
-            ("  \"mcpServers\": {", false),
-            ("+   \"aerie\": {", true),
-            ("+     \"type\": \"http\",", true),
-            ("+     \"url\": \"http://127.0.0.1:<port>/mcp\",", true),
-            ("+     \"headers\": {", true),
-            ("+       \"Authorization\": \"Bearer <token>\"", true),
-            ("+     }", true),
-            ("+   }", true),
-            ("  }", false),
-            ("}", false),
-        ]
-        return VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                Text(line.0)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("~/.claude/.mcp.json · diff")
                     .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(line.1 ? AerieColor.ok : AerieColor.text2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(AerieColor.text4)
+                Spacer(minLength: 8)
+                Button("Copy") {
+                    let added = Self.diffLines.filter(\.1).map { String($0.0.dropFirst()) }
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(added.joined(separator: "\n"), forType: .string)
+                }
+                .buttonStyle(.hud(.ghost, size: .small))
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.20))
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(AerieColor.glassLine).frame(height: 1)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(Self.diffLines.enumerated()), id: \.offset) { _, line in
+                    Text(line.0)
+                        .aerieFont(AerieFont.code(11.5))
+                        .foregroundStyle(line.1 ? AerieColor.ok : AerieColor.text2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dialogInset()
+        .dialogInset(fill: Color.black.opacity(0.32))
     }
 
-    private var footnotes: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            footnote("Localhost-only — no inbound exposure.")
-            footnote("Bearer token rotates on every launch.")
-            footnote("Disable anytime in Settings → MCP.")
+    private var notes: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            note("Localhost-only — bound to 127.0.0.1, no inbound exposure.")
+            note("Bearer token rotates on every launch.")
+            note("Disable anytime in Settings → MCP.")
         }
     }
 
-    private func footnote(_ text: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(AerieColor.ok)
-                .font(.system(size: 11))
+    private func note(_ text: String) -> some View {
+        HStack(spacing: 9) {
+            Circle()
+                .fill(AerieColor.text4)
+                .frame(width: 4, height: 4)
             Text(text)
-                .aerieFont(AerieFont.small())
+                .aerieFont(AerieFont.custom(.sans, size: 12))
                 .foregroundStyle(AerieColor.text3)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Text("You can change this later in Settings")
+                .aerieFont(AerieFont.custom(.sans, size: 11.5))
+                .foregroundStyle(AerieColor.text4)
+            Spacer(minLength: 8)
+            Button("Not now", action: onDecline)
+                .buttonStyle(.hud(.ghost))
+            Button("Allow") { Task { await onAllow() } }
+                .buttonStyle(.hud(.amber))
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+        .background(Color.black.opacity(0.22))
+        .overlay(alignment: .top) {
+            Rectangle().fill(AerieColor.glassLine).frame(height: 1)
         }
     }
 }

@@ -76,7 +76,7 @@ struct DialogDeleteWorktree: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
-                    .dialogInset(fill: Color.black.opacity(0.18))
+                    .dialogInset()
                     .padding(.top, 12)
             }
         }

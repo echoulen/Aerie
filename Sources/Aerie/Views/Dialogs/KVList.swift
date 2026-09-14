@@ -2,11 +2,12 @@ import SwiftUI
 
 /// Key/value list used inside Aerie's confirmation dialogs.
 ///
-/// Visual contract: `v2/dialogs.jsx` `KVList` — a recessed dark console panel
-/// with a fixed mono telemetry label column (uppercase, tracked) and hairline
-/// separators between rows. Values can be plain strings (via ``init(pairs:)``)
-/// or styled views (via ``init(rows:)``) so a dialog can colour a value (e.g. a
-/// crimson "dirty" line) or render it mono (paths / SHAs).
+/// Visual contract: `v2/dialogs.jsx` `KVList` — a recessed dark panel (2pt
+/// radius, glass-line border, black/0.22) with a fixed 130pt mono key column
+/// (11pt text-4, lowercase, 0.02em tracking) and hairline separators between
+/// rows. Values can be plain strings (via ``init(pairs:)``) or styled views
+/// (via ``init(rows:)``) so a dialog can colour a value (e.g. a crimson "dirty"
+/// line) or render it mono (paths / SHAs).
 struct KVList: View {
     struct Row: Identifiable {
         let id = UUID()
@@ -41,9 +42,9 @@ struct KVList: View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 HStack(alignment: .firstTextBaseline, spacing: 14) {
-                    Text(row.key.uppercased())
-                        .aerieFont(AerieFont.code(10))
-                        .tracking(1.2)
+                    Text(row.key)
+                        .aerieFont(AerieFont.code(11))
+                        .tracking(0.22)
                         .foregroundStyle(AerieColor.text4)
                         .frame(width: 130, alignment: .leading)
                     row.value
@@ -59,19 +60,21 @@ struct KVList: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 2)
-        .dialogInset()
+        .dialogInset(fill: Color.black.opacity(0.22))
     }
 }
 
 extension View {
-    /// The recessed console panel used inside dialogs (KV lists, PR previews,
-    /// code / JSON blocks, text fields): a dark wash in a near-square plate with
-    /// a glass hairline. `fill` lets a caller lighten or darken the wash.
-    func dialogInset(fill: Color = Color.black.opacity(0.24)) -> some View {
-        let shape = RoundedRectangle(cornerRadius: AerieMetric.radiusCard, style: .continuous)
+    /// The recessed panel used inside dialogs (KV lists, PR previews, text
+    /// fields): a dark wash in a 2pt-radius box with a hairline border.
+    func dialogInset(
+        fill: Color = Color.black.opacity(0.22),
+        border: Color = AerieColor.glassLine
+    ) -> some View {
+        let shape = RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
         return self
             .background(fill)
             .clipShape(shape)
-            .overlay(shape.strokeBorder(AerieColor.glassLine, lineWidth: 1))
+            .overlay(shape.strokeBorder(border, lineWidth: 1))
     }
 }

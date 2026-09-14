@@ -1,68 +1,86 @@
 import SwiftUI
 import AppKit
 
-/// Shared layout for the first-run panels: gold eyebrow + title, prose, a
-/// console command block with Copy, optional extra content, and an action row
-/// (gold primary CTA + ghost Quit Aerie + the arc-cyan "checking every 5s"
-/// polling tick — the one live-energy element on the screen).
+/// Shared layout for the first-run panels (`v2/first-run.jsx`): a 54pt icon
+/// tile, a 32pt title, prose, a `$ command` box with a Copy key, optional extra
+/// content, and an action row (gold primary + ghost Quit Aerie + the amber
+/// "checking every 5s" indicator). No card — the body sits directly on the
+/// warm-washed backdrop.
 struct FirstRunPanel<ExtraBody: View>: View {
+    let icon: String
     let title: String
     let prose: String
     let command: String
     let primaryButtonTitle: String
     var onPrimary: () -> Void
     var onQuit: () -> Void = { NSApplication.shared.terminate(nil) }
+    /// Gap between the command box and the action row (32; 28 when `extra`
+    /// carries a tip block).
+    var actionsSpacing: CGFloat = 32
     @ViewBuilder var extra: () -> ExtraBody
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
-                SectionEyebrow(text: "First run")
-                Text(title)
-                    .aerieFont(AerieFont.custom(.sans, size: 32).weight(.semibold))
-                    .tracking(0.3)
-                    .foregroundStyle(AerieColor.text1)
-                HudRail(color: AerieColor.amberLine)
-                    .frame(width: 180)
-                    .padding(.top, 4)
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            iconTile
+            Text(title)
+                .aerieFont(AerieFont.custom(.sans, size: 32).weight(.medium))
+                .foregroundStyle(AerieColor.text1)
+                .lineSpacing(1)
+                .padding(.top, 24)
             Text(prose)
-                .aerieFont(AerieFont.body())
+                .aerieFont(AerieFont.custom(.sans, size: 14.5))
                 .foregroundStyle(AerieColor.text2)
-                .lineSpacing(3)
+                .lineSpacing(5)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 560, alignment: .leading)
+                .padding(.top, 14)
             commandBlock
+                .padding(.top, 24)
             extra()
             actionRow
+                .padding(.top, actionsSpacing)
         }
-        .padding(.horizontal, 48)
-        .padding(.vertical, 36)
-        .frame(maxWidth: 640, alignment: .leading)
+        .frame(width: 640, alignment: .leading)
+    }
+
+    private var iconTile: some View {
+        RoundedRectangle(cornerRadius: AerieMetric.radiusCard, style: .continuous)
+            .fill(AerieColor.glass2)
+            .overlay(
+                RoundedRectangle(cornerRadius: AerieMetric.radiusCard, style: .continuous)
+                    .strokeBorder(AerieColor.glassLine2, lineWidth: 1)
+            )
+            .frame(width: 54, height: 54)
+            .overlay(
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(AerieColor.amber)
+            )
     }
 
     private var commandBlock: some View {
-        HStack {
+        HStack(spacing: 10) {
+            Text("$")
+                .aerieFont(AerieFont.code(13.5))
+                .foregroundStyle(AerieColor.text4)
             Text(command)
-                .aerieFont(AerieFont.code())
-                .foregroundStyle(AerieColor.text2)
-                .padding(.horizontal, 14).padding(.vertical, 12)
+                .aerieFont(AerieFont.code(13.5))
+                .foregroundStyle(AerieColor.text1)
+                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .dialogInset()
-                .overlay(alignment: .leading) {
-                    // `.console` prompt strut — a gold hairline on the leading edge.
-                    Rectangle().fill(AerieColor.amberLine).frame(width: 2)
-                        .padding(.vertical, 1)
-                        .allowsHitTesting(false)
-                }
             Button("Copy") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(command, forType: .string)
             }
-            .buttonStyle(.hud(.standard))
+            .buttonStyle(.hud(.standard, size: .small))
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .dialogInset(fill: Color.black.opacity(0.32), border: AerieColor.glassLine2)
     }
 
     private var actionRow: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Button(primaryButtonTitle, action: onPrimary)
                 .buttonStyle(.hud(.amber))
             Button("Quit Aerie", action: onQuit)
@@ -72,39 +90,22 @@ struct FirstRunPanel<ExtraBody: View>: View {
         }
     }
 
-    // Live polling tick — arc cyan is reserved for exactly this kind of energy.
     private var checkingIndicator: some View {
         HStack(spacing: 8) {
-            PollingTick()
-            Text("CHECKING EVERY 5S")
-                .aerieFont(AerieFont.eyebrow())
-                .tracking(1.8)
-                .foregroundStyle(AerieColor.text3)
+            Text("checking every 5s")
+                .aerieFont(AerieFont.code(11))
+                .foregroundStyle(AerieColor.text4)
+            Circle().fill(AerieColor.amber)
+                .frame(width: 7, height: 7)
+                .shadow(color: AerieColor.amberGlow, radius: 5)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("checking every 5s")
-    }
-}
-
-/// A pulsing arc-cyan dot marking a live background poll.
-private struct PollingTick: View {
-    @State private var pulsing = false
-
-    var body: some View {
-        Circle()
-            .fill(AerieColor.arc)
-            .frame(width: 6, height: 6)
-            .shadow(color: AerieColor.arcGlow, radius: pulsing ? 6 : 3)
-            .opacity(pulsing ? 0.55 : 1)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulsing = true }
-            }
     }
 }
 
 /// Convenience initializer for panels without extra body content.
 extension FirstRunPanel where ExtraBody == EmptyView {
     init(
+        icon: String,
         title: String,
         prose: String,
         command: String,
@@ -112,6 +113,7 @@ extension FirstRunPanel where ExtraBody == EmptyView {
         onPrimary: @escaping () -> Void,
         onQuit: @escaping () -> Void = { NSApplication.shared.terminate(nil) }
     ) {
+        self.icon = icon
         self.title = title
         self.prose = prose
         self.command = command
@@ -127,6 +129,7 @@ struct NoGhBody: View {
     var onRecheck: () -> Void
     var body: some View {
         FirstRunPanel(
+            icon: "terminal",
             title: "Install GitHub CLI",
             prose: "Aerie reads your existing gh credentials. Install gh first — Aerie never asks for your tokens directly.",
             command: "brew install gh",

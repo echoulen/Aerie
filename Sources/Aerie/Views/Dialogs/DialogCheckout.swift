@@ -70,8 +70,7 @@ struct DialogCheckout: View {
             onPrimary: onConfirm,
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
-            iconView: AnyView(checkoutIcon(destructive: plan.destructive)),
-            primaryProminent: !plan.destructive
+            iconView: AnyView(checkoutIcon(destructive: plan.destructive))
         ) {
             KVList(rows: rows(plan: plan))
         }
@@ -121,8 +120,8 @@ struct DialogCheckout: View {
     private func checkoutIcon(destructive: Bool) -> some View {
         CheckoutGlyphShape()
             .stroke(
-                destructive ? AerieColor.dangerText : AerieColor.amber,
-                style: StrokeStyle(lineWidth: 1.6, lineCap: .square, lineJoin: .miter)
+                destructive ? AerieColor.crimsonHot : AerieColor.amber,
+                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
             )
             .frame(width: 16, height: 16)
     }
