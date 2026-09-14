@@ -30,7 +30,13 @@ struct DialogReset: View {
             secondaryTitle: "Cancel",
             onSecondary: onCancel
         ) {
-            KVList(rows: kvRows)
+            VStack(alignment: .leading, spacing: 12) {
+                KVList(rows: kvRows)
+                // `system.jsx` `DialogResetDeleteMerged` — crimson irreversible note.
+                if mergedBranch != nil {
+                    DialogNote(text: "git branch -D · irreversible", color: AerieColor.crimsonHot)
+                }
+            }
         }
     }
 

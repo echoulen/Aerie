@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Confirmation dialog for submitting an approving review on a PR. Mirrors
-/// `DialogMerge`: an amber CTA tone, a compact PR preview, the account the
+/// `DialogMerge`: a gold `.btn.amber` CTA, a compact PR preview, the account the
 /// approval will be submitted as (a picker when more than one is eligible), and
 /// an optional review comment.
 ///
@@ -43,12 +43,9 @@ struct DialogApprove: View {
             onPrimary: { run() },
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
-            icon: "checkmark.circle",
-            primaryProminent: true,
-            headerSpacing: 7,
-            titleWeight: .regular
+            icon: "checkmark.circle"
         ) {
-            VStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
                 preview
                 if context.resolution.needsPicker {
                     approverPicker
@@ -62,26 +59,22 @@ struct DialogApprove: View {
         }
     }
 
-    // PR preview — a `repo · #N` eyebrow over the title.
+    // PR preview — an `owner/repo · #N` mono eyebrow over the title
+    // (`review.jsx` `DialogApprove`: black/0.30, padding 16/18).
     private var preview: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("\(repo.githubRepo) · #\(pr.number)")
+            Text("\(repo.githubOwner)/\(repo.githubRepo) · #\(pr.number)")
                 .aerieFont(AerieFont.code(11))
                 .foregroundStyle(AerieColor.text4)
             Text(pr.title)
-                .aerieFont(AerieFont.custom(.sans, size: 14.5).weight(.light))
+                .aerieFont(AerieFont.custom(.sans, size: 14.5))
                 .foregroundStyle(AerieColor.text1)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.black.opacity(0.22))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-        )
+        .dialogInset(fill: Color.black.opacity(0.30))
     }
 
     private var approverPicker: some View {
@@ -94,29 +87,40 @@ struct DialogApprove: View {
                     Button("\(acc.login) · \(acc.host)") { selected = acc }
                 }
             } label: {
-                HStack(spacing: 6) {
-                    mono("\(selected.login) · \(selected.host)")
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
+                HStack(spacing: 8) {
+                    Text("\(selected.login) · \(selected.host)")
+                        .aerieFont(AerieFont.code(12))
+                        .foregroundStyle(AerieColor.text1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(AerieColor.text3)
                 }
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .fixedSize()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .dialogInset(fill: AerieColor.glass2)
+            // Eligible approvers exclude the PR author.
+            HudNote(text: "author can’t self-approve")
             Spacer(minLength: 0)
         }
     }
 
     private var commentField: some View {
-        TextField("Optional review comment", text: $comment, axis: .vertical)
-            .textFieldStyle(.plain)
-            .lineLimit(2...4)
-            .aerieFont(AerieFont.custom(.sans, size: 12.5))
-            .foregroundStyle(AerieColor.text1)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.black.opacity(0.22)))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        VStack(alignment: .leading, spacing: 6) {
+            HudNote(text: "review comment · optional")
+            TextField("Optional review comment", text: $comment, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(2...4)
+                .aerieFont(AerieFont.code(12))
+                .foregroundStyle(AerieColor.text1)
+                .frame(minHeight: 46, alignment: .topLeading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .dialogInset(fill: Color.black.opacity(0.30))
+        }
     }
 
     private func mono(_ text: String) -> some View {

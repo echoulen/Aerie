@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// Confirmation content for squash-merging a pull request, presented via
-/// `.popover(isPresented:)` anchored to the PR card's Merge button. Amber
-/// tone + a compact PR preview (title, owner/repo, number, author, CI +
-/// review chips) above a KV summary (method, commit subject, source branch,
-/// account).
+/// `.popover(isPresented:)` anchored to the PR card's Merge button. Gold
+/// (`amber`) tone with the `.btn.amber` CTA, a compact PR preview (repo · #N,
+/// title, CI / review / diff status) above a KV summary (method, commit
+/// subject, account).
 ///
 /// Carries no busy/error state of its own — `onConfirm` fires once,
 /// synchronously; the caller closes the popover immediately and hands off to
@@ -25,12 +25,9 @@ struct DialogMerge: View {
             onPrimary: onConfirm,
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
-            iconView: AnyView(MergeGlyph(color: AerieColor.amber)),
-            primaryProminent: true,
-            headerSpacing: 7,
-            titleWeight: .regular
+            iconView: AnyView(MergeGlyph(color: AerieColor.amber))
         ) {
-            VStack(spacing: 14) {
+            VStack(spacing: 12) {
                 preview
                 KVList(rows: [
                     KVList.Row("method", AnyView(mono("squash + merge"))),
@@ -52,26 +49,21 @@ struct DialogMerge: View {
                 .aerieFont(AerieFont.code(11))
                 .foregroundStyle(AerieColor.text4)
             Text(pr.title)
-                .aerieFont(AerieFont.custom(.sans, size: 14.5).weight(.light))
+                .aerieFont(AerieFont.custom(.sans, size: 14.5))
                 .foregroundStyle(AerieColor.text1)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 6)
+                .padding(.top, 5)
             HStack(spacing: 14) {
                 ciSummary
                 reviewSummary
                 diffSummary
             }
-            .padding(.top, 12)
+            .padding(.top, 10)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.black.opacity(0.22))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-        )
+        .dialogInset()
     }
 
     private func mono(_ text: String) -> some View {
