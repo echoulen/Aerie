@@ -261,11 +261,22 @@ struct CardConsole: View {
     let lines: [String]
     var maxHeight: CGFloat = 150
 
+    /// Only the newest lines are rendered — the well shows ~7 at a time, and a
+    /// long claude run can stream hundreds.
+    static let maxRenderedLines = 200
+
     var body: some View {
+        // Index of the first rendered line in `lines`, so ids and the
+        // newest-line highlight stay anchored to the full stream.
+        let firstIndex = max(0, lines.count - Self.maxRenderedLines)
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 5) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                // A plain VStack, not LazyVStack: with lines streaming in and
+                // `scrollTo` firing on every append, a lazy stack never
+                // realised its rows — the well stayed blank while the header
+                // counted "8 lines".
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(Array(lines.enumerated().dropFirst(firstIndex)), id: \.offset) { i, line in
                         Text(line)
                             .aerieFont(AerieFont.code(11))
                             .foregroundStyle(color(for: line, at: i))
