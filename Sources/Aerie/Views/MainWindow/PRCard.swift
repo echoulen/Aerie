@@ -256,7 +256,6 @@ struct PRCard: View {
                 aiReviewIcon
                 Text(aiReviewLabel)
             }
-            .foregroundStyle(aiReviewTint)
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.hud(isAIReviewing ? .arc : .standard, size: .small))
@@ -294,24 +293,10 @@ struct PRCard: View {
         }
     }
 
-    /// Verdict tint on the finished key: green for approved, gold for issues
-    /// found, crimson for a failed run. Idle/running use the style's own ink.
-    private var aiReviewTint: Color {
-        switch aiReviewPhase {
-        case .idle: return AerieColor.text1
-        case .running: return AerieColor.arc
-        case .done(let review, _): return review.verdict == .approve ? AerieColor.ok : AerieColor.amber
-        case .failed: return AerieColor.dangerText
-        }
-    }
-
     private var openButton: some View {
         Button(action: onOpen) {
-            HStack(spacing: 6) {
-                Text("Open")
-                Text("↗")
-            }
-            .frame(maxWidth: .infinity)
+            Text("Open ↗")
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.hud(.ghost, size: .small))
     }
@@ -413,8 +398,8 @@ struct PRCard: View {
 
 /// The gold "Update branch" control on a PR card's status row. Mirrors the
 /// design's `UpdateBranchButton` (`.update-branch-btn` in `styles.css`): a small
-/// bevelled key — deliberately *not* a status pill — with a gold outline at rest
-/// that fills solid gold (dark ink, glow) on hover. It sits immediately after
+/// radius-2 box in button vocabulary — deliberately *not* a status pill — gold
+/// text on a gold wash at rest that fills solid gold (dark ink, glow) on hover. It sits immediately after
 /// the local-status chip and appears only when the branch is behind its base.
 ///
 /// It lives in the **status row, never the actions column**, so the trailing
@@ -422,8 +407,8 @@ struct PRCard: View {
 /// the list (a deliberate design decision — a conditional third action button
 /// made the column width vary per row and broke that alignment).
 ///
-/// Clicking it merges `origin/<base>` into the branch; while that runs the key
-/// turns arc cyan with a spinning icon and is disabled. Once the branch is level
+/// Clicking it merges `origin/<base>` into the branch; while that runs the
+/// control turns arc cyan with a spinning icon and is disabled. Once the branch is level
 /// again (`behind == 0`) the parent stops rendering it.
 struct UpdateBranchButton: View {
     /// Commits the branch is behind its base — drives the tooltip count. Nil
@@ -449,13 +434,13 @@ struct UpdateBranchButton: View {
         return "Update this branch with \(behind) new commit\(behind == 1 ? "" : "s") from origin/main"
     }
 
-    private static let shape = HudKeyShape(cut: 5)
+    private static let shape = RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
 
     var body: some View {
         Button(action: tapped) {
             HStack(spacing: 5) {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .rotationEffect(.degrees(busy ? 360 : 0))
                     .animation(
                         busy
@@ -463,19 +448,19 @@ struct UpdateBranchButton: View {
                             : .default,
                         value: busy
                     )
-                Text("Update branch".uppercased())
-                    .aerieFont(AerieFont.custom(.sans, size: 10.5).weight(.semibold))
-                    .tracking(1.05)
+                Text("Update branch")
+                    .aerieFont(AerieFont.custom(.sans, size: 11).weight(.semibold))
+                    .tracking(0.66) // 0.06em @ 11px
             }
             .foregroundStyle(foreground)
-            // Matches `.update-branch-btn`: less padding on the leading edge so
-            // the icon optically aligns with the pills beside it.
+            // Matches `.update-branch-btn`: padding 3px 9px 3px 7px (less on the
+            // leading edge so the icon optically aligns with the pills beside it).
             .padding(.leading, 7)
             .padding(.trailing, 9)
             .padding(.vertical, 3)
             .background(fill, in: Self.shape)
             .overlay(Self.shape.strokeBorder(border, lineWidth: 1))
-            .shadow(color: glow, radius: glow == .clear ? 0 : 8)
+            .shadow(color: glow, radius: glow == .clear ? 0 : 9)
             .contentShape(Self.shape)
         }
         .buttonStyle(CopyLinkPressStyle())
@@ -494,22 +479,20 @@ struct UpdateBranchButton: View {
         return lit ? AerieColor.amberInk : AerieColor.amber
     }
 
-    private var fill: AnyShapeStyle {
-        if busy { return AnyShapeStyle(AerieColor.arcSoft) }
-        return lit
-            ? AnyShapeStyle(LinearGradient(colors: [AerieColor.amberFillTop, AerieColor.amberFillBot],
-                                           startPoint: .top, endPoint: .bottom))
-            : AnyShapeStyle(Color.clear)
+    private var fill: Color {
+        if busy { return AerieColor.arcSoft }
+        return lit ? AerieColor.amber : AerieColor.amberSoft
     }
 
     private var border: Color {
         if busy { return AerieColor.arcLine }
-        return lit ? AerieColor.amberCtaLine : AerieColor.amberLine
+        return lit ? AerieColor.amber : AerieColor.amberLine
     }
 
+    // `0 0 18px -3px var(--amber-glow)` on hover.
     private var glow: Color {
-        if busy { return AerieColor.arcGlow.opacity(0.35) }
-        return lit ? AerieColor.amberGlow.opacity(0.45) : .clear
+        if busy { return .clear }
+        return lit ? AerieColor.amberGlow : .clear
     }
 
     private func tapped() {
@@ -524,7 +507,7 @@ struct UpdateBranchButton: View {
 
 /// The quiet "copy link" icon button that pairs with `Open ↗` on a PR card.
 /// Mirrors the design's `CopyLinkButton` (`.copy-link-btn` in `v2/styles.css`):
-/// a fixed 30×26 ghost bevelled key that's grey at rest, hints gold on hover,
+/// a fixed 30×26 `.btn.ghost.sm` bevelled key that's grey at rest, hints gold on hover,
 /// and — once the PR's GitHub URL is on the clipboard — flips to a green
 /// checkmark for ~1.6s before settling back. That confirm-then-fade is the same
 /// instant feedback language the Merge button uses, so the two read as one family.
@@ -554,7 +537,6 @@ struct CopyLinkButton: View {
                 .frame(width: 30, height: 26)
                 .background(fill, in: Self.shape)
                 .overlay(Self.shape.strokeBorder(border, lineWidth: 1))
-                .shadow(color: glow, radius: glow == .clear ? 0 : 6)
                 .contentShape(Self.shape)
         }
         .buttonStyle(CopyLinkPressStyle())
@@ -588,10 +570,6 @@ struct CopyLinkButton: View {
     private var border: Color {
         if copied { return AerieColor.ok.opacity(0.45) }
         return hovering ? AerieColor.amberLine : .clear
-    }
-    private var glow: Color {
-        if copied { return AerieColor.ok.opacity(0.35) }
-        return hovering ? AerieColor.amberGlow.opacity(0.30) : .clear
     }
 
     private func copy() {

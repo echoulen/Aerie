@@ -5,8 +5,8 @@ import Observation
 // Titlebar account menu — shows the active gh account in the top-right of
 // the main window and is the entry point into Settings.
 //
-// Visual contract: design `src/v2/app.jsx` `TitlebarAccount`. A bevelled HUD
-// key (24 pt avatar + chevron) opens a 250 pt chamfered dropdown plate with the
+// Visual contract: design `src/v2/app.jsx` `TitlebarAccount`. A round pill
+// button (24 pt avatar + chevron) opens a 250 pt radius-2 dropdown panel with the
 // current account header (avatar · login · primary pill · @host) and a single
 // "Settings…" item. The "Switch account" / "Sign out" rows from the earlier
 // exploration were dropped — the avatar's only job is *identity + Settings*.
@@ -116,28 +116,21 @@ private struct AccountMenuButton: View {
     let open: Bool
     let action: () -> Void
 
-    @State private var hovering = false
-
-    private static let shape = HudKeyShape(cut: 6)
-
     var body: some View {
         Button(action: action) {
             HStack(spacing: 7) {
                 AccountAvatar(login: login, size: 24)
                 ChevronDownShape()
-                    .stroke(open ? AerieColor.amber : AerieColor.text3,
+                    .stroke(AerieColor.text3,
                             style: StrokeStyle(lineWidth: 1.6 * 11 / 16, lineCap: .round, lineJoin: .round))
                     .frame(width: 11, height: 11)
             }
             .padding(EdgeInsets(top: 3, leading: 4, bottom: 3, trailing: 7))
-            .background(Self.shape.fill(open ? AerieColor.glass3 : (hovering ? AerieColor.glass2 : Color.clear)))
-            .overlay(Self.shape.strokeBorder(
-                open ? AerieColor.amberLine : (hovering ? AerieColor.glassLine : Color.clear), lineWidth: 1))
-            .contentShape(Self.shape)
+            .background(Capsule().fill(open ? AerieColor.glass3 : Color.clear))
+            .overlay(Capsule().strokeBorder(open ? AerieColor.glassLine : Color.clear, lineWidth: 1))
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }
 
@@ -147,8 +140,7 @@ private struct AccountMenuPanel: View {
     let active: ActiveAccount
     let onSettings: () -> Void
 
-    /// Chamfered dropdown plate (TR + BL cut), like the MARK III `.card`.
-    private static let shape = HudPlateShape(cut: 12)
+    private static let shape = RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -165,21 +157,9 @@ private struct AccountMenuPanel: View {
         .frame(width: 250)
         .background(panelBackground)
         .clipShape(Self.shape)
-        .overlay(Self.shape.strokeBorder(AerieColor.glassLine2, lineWidth: 1))
-        // Gold-lit top edge fading right — the MARK III plate hairline.
-        .overlay(
-            Self.shape.strokeBorder(AerieColor.amberLine, lineWidth: 1)
-                .mask(
-                    LinearGradient(
-                        stops: [.init(color: .white, location: 0), .init(color: .clear, location: 0.08)],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                    .mask(LinearGradient(
-                        stops: [.init(color: .white, location: 0), .init(color: .clear, location: 0.6)],
-                        startPoint: .leading, endPoint: .trailing))
-                )
-        )
-        .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 12)
+        .overlay(Self.shape.strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        // `0 16px 40px rgba(0,0,0,.5)`.
+        .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 16)
     }
 
     // Current-account header: avatar · (login + primary pill) · @host.
@@ -261,19 +241,10 @@ private struct AccountMenuRow<Icon: View>: View {
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: AerieMetric.radiusRow, style: .continuous)
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                 .fill(hover ? AerieColor.glass3 : Color.clear)
         )
-        // Gold tick on the leading edge of the hovered row.
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(AerieColor.amber)
-                .frame(width: 2)
-                .padding(.vertical, 7)
-                .shadow(color: AerieColor.amberGlow, radius: 3)
-                .opacity(hover ? 1 : 0)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: AerieMetric.radiusRow, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous))
         .onHover { hover = $0 }
         .onTapGesture { action() }
     }

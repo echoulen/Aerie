@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// The small gold "refresh this list" button that sits in the page header,
-/// just after the count. Mirrors `v2/app.jsx` `RefreshButton`: a 26×26 gold
-/// ghost bevelled key whose icon spins (arc cyan) while a refresh is in flight.
+/// just after the count. Mirrors `v2/app.jsx` `RefreshButton`: a 26×26
+/// `.btn.ghost.sm` bevelled key with a gold glyph, gold/0.30 rim and gold/0.08
+/// wash, whose icon spins (0.7s turns) while a refresh is in flight.
 ///
 /// `action` is the real refresh (an immediate poll tick). The icon spins in
 /// whole forward turns: when the refresh ends it finishes the current turn
@@ -22,36 +23,22 @@ struct RefreshButton: View {
     /// True while the spin loop is running, so a re-press doesn't start a second
     /// overlapping loop.
     @State private var isAnimating = false
-    @State private var hovering = false
 
-    /// Bevelled HUD key (`.btn.sm` geometry) instead of a rounded square.
+    /// Bevelled HUD key (`.btn.sm` geometry, 6pt cut).
     private static let shape = HudKeyShape(cut: 6)
-
-    /// A refresh in flight is live polling energy, so the glyph and rim switch
-    /// from gold to arc cyan for as long as the icon spins.
-    private var spinning: Bool { isAnimating }
 
     var body: some View {
         Button(action: tapped) {
             Image(systemName: "arrow.clockwise")
                 .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(spinning ? AerieColor.arc : AerieColor.amber)
-                .shadow(color: spinning ? AerieColor.arcGlow : .clear, radius: spinning ? 4 : 0)
+                .foregroundStyle(AerieColor.amber)
                 .rotationEffect(.degrees(rotation))
                 .frame(width: 26, height: 26)
-                .background(Self.shape.fill(spinning ? AerieColor.arcSoft : (hovering ? AerieColor.amberSoft : AerieColor.amber.opacity(0.08))))
-                .overlay(
-                    Self.shape.strokeBorder(
-                        spinning ? AerieColor.arcLine : (hovering ? AerieColor.amberLine : AerieColor.amber.opacity(0.30)),
-                        lineWidth: 1)
-                )
+                .background(Self.shape.fill(AerieColor.amber.opacity(0.08)))
+                .overlay(Self.shape.strokeBorder(AerieColor.amber.opacity(0.30), lineWidth: 1))
                 .contentShape(Self.shape)
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        // No implicit animation keyed on `spinning`: it would override the
-        // explicit linear turn transaction and disturb its completion.
-        .animation(.easeOut(duration: 0.15), value: hovering)
         // ⌘R refreshes the current tab's list. Only the active tab's screen —
         // and thus a single RefreshButton — is mounted at a time, so this
         // shortcut routes to the active tab's `action` automatically and reuses
@@ -95,7 +82,7 @@ struct RefreshButton: View {
     /// `Task { @MainActor … }` lets the run loop advance between turns, so the
     /// stop flag actually flips and the loop always ends.
     private func spinForwardOneTurn() {
-        withAnimation(.linear(duration: 0.8)) {
+        withAnimation(.linear(duration: 0.7)) {
             rotation += 360
         } completion: {
             Task { @MainActor in
