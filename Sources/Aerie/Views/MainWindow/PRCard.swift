@@ -212,10 +212,11 @@ struct PRCard: View {
             }
         }
         .adaptiveRowPlate(widthClass)
-        // Compact: tapping the row opens the review — its only inline
-        // affordance besides the ⋯ menu. Medium has a real Review key.
+        // Clicking the row body opens the PR on GitHub; the keys and the ⋯
+        // menu keep their own clicks.
         .contentShape(Rectangle())
-        .onTapGesture { if widthClass == .compact { onReview() } }
+        .onTapGesture(perform: onOpen)
+        .help("Open \(row.repo.name) #\(row.pr.number) on GitHub")
         .popover(isPresented: $showMergeConfirm) { mergeDialog }
         .background(Color.clear.popover(isPresented: $showCheckoutConfirm) { checkoutDialog })
     }
@@ -283,39 +284,38 @@ struct PRCard: View {
             .overlay(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).strokeBorder(AerieColor.glassLine, lineWidth: 1))
     }
 
+    /// Narrow rows keep one primary key — AI Review — plus Update when the
+    /// branch is behind. Review, Checkout, Merge and the rest live in the ⋯
+    /// menu; the row body itself opens the PR.
     private var mediumActions: some View {
         HStack(spacing: 7) {
             runningSpinner
             if Self.shouldShowUpdateBranch(row.pr, row.localState) {
                 UpdateBranchButton(behind: row.localState?.behind, onUpdate: onUpdateBranch, label: "Update")
             }
-            if row.localState?.isCurrentBranch == true {
-                Button("Open ↗", action: onOpen)
-                    .buttonStyle(.hud(.ghost, size: .small))
-            } else {
-                mediumCheckoutKey
-            }
-            Button("Review", action: onReview)
-                .buttonStyle(.hud(.amber, size: .small))
-                .help("Review the diff for \(row.repo.name) #\(row.pr.number)")
+            narrowAIReviewKey
             overflowMenu
         }
         .fixedSize()
     }
 
-    /// `.btn.sm` Checkout — crimson label when the checkout would discard work,
-    /// arc cyan while it runs. The confirmation popover hangs off the row.
-    private var mediumCheckoutKey: some View {
-        let destructive = CheckoutPlan.make(for: row.localState).destructive
-        return Button {
-            guard !isCheckingOut else { return }
-            showCheckoutConfirm = true
+    /// The narrow rows' primary key: gold `.btn.amber.sm` "AI Review", arc
+    /// cyan with a spinner while the review runs, disabled on drafts.
+    private var narrowAIReviewKey: some View {
+        Button {
+            guard !isAIReviewing, !row.pr.isDraftPR else { return }
+            onStartAIReview()
         } label: {
-            Text(isCheckingOut ? "Checking out…" : "Checkout")
-                .foregroundStyle(isCheckingOut ? AerieColor.arc : (destructive ? AerieColor.dangerText : AerieColor.text1))
+            HStack(spacing: 6) {
+                aiReviewIcon
+                Text(aiReviewLabel)
+            }
         }
-        .buttonStyle(.hud(isCheckingOut ? .arc : .standard, size: .small))
-        .help("Force checkout \(row.repo.name) to origin/\(row.pr.sourceBranch)")
+        .buttonStyle(.hud(isAIReviewing ? .arc : .amber, size: .small))
+        .disabled(row.pr.isDraftPR && !isAIReviewing)
+        .help(row.pr.isDraftPR
+            ? "\(row.repo.name) #\(row.pr.number) is still a draft — mark it ready for review first"
+            : "Run AI Review for \(row.repo.name) #\(row.pr.number)")
     }
 
     /// "CI PASS" / "CI FAIL" / "CI ···".
@@ -353,6 +353,7 @@ struct PRCard: View {
                     .foregroundStyle(AerieColor.text4)
                     .fixedSize()
                 runningSpinner
+                narrowAIReviewKey
                 overflowMenu
             }
             Text(row.pr.title)
@@ -428,7 +429,9 @@ struct PRCard: View {
 
     @ViewBuilder
     private var runningSpinner: some View {
-        if isMerging || isCheckingOut || isAIReviewing {
+        // Merge / checkout run from the ⋯ menu, so the row shows they're in
+        // flight here; AI Review shows its own state on its key.
+        if isMerging || isCheckingOut {
             CardArcSpinner(size: 11)
         }
     }

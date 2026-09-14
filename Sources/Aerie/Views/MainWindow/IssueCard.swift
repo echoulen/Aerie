@@ -12,7 +12,7 @@ import SwiftUI
 ///
 /// Below regular width it mirrors the PR row's `compact.jsx` treatment (the
 /// design has no issue-specific narrow artboard): one line at medium, three
-/// stacked lines at compact, with a single "↗" key to open it on GitHub.
+/// stacked lines at compact; clicking the row opens the issue on GitHub.
 struct IssueCard: View {
     let row: IssueRow
     var onOpen: () -> Void
@@ -31,9 +31,11 @@ struct IssueCard: View {
         case .medium:
             mediumLine
                 .adaptiveRowPlate(widthClass)
+                .modifier(OpensOnClick(issue: issue, onOpen: onOpen))
         case .compact:
             compactLines
                 .adaptiveRowPlate(widthClass)
+                .modifier(OpensOnClick(issue: issue, onOpen: onOpen))
         }
     }
 
@@ -54,7 +56,6 @@ struct IssueCard: View {
                 .aerieFont(AerieFont.code(10.5))
                 .foregroundStyle(AerieColor.text4)
                 .lineLimit(1)
-            openKey
         }
     }
 
@@ -73,7 +74,6 @@ struct IssueCard: View {
                     .aerieFont(AerieFont.code(10.5))
                     .foregroundStyle(AerieColor.text4)
                     .fixedSize()
-                openKey
             }
             Text(issue.title)
                 .aerieFont(AerieFont.custom(.sans, size: 13.5))
@@ -97,10 +97,6 @@ struct IssueCard: View {
                 .padding(.top, 9)
             }
         }
-    }
-
-    private var openKey: some View {
-        RowGlyphButton(glyph: "↗", help: "Open #\(issue.number) on GitHub", action: onOpen)
     }
 
     private var commentCount: some View {
@@ -195,5 +191,18 @@ extension Color {
             b = b + (1 - b) * lift
         }
         self.init(red: r, green: g, blue: b)
+    }
+}
+
+/// Narrow issue rows open on GitHub when the row body is clicked.
+private struct OpensOnClick: ViewModifier {
+    let issue: Issue
+    let onOpen: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onOpen)
+            .help("Open #\(issue.number) on GitHub")
     }
 }

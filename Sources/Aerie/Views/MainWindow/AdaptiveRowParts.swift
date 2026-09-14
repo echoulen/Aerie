@@ -144,20 +144,3 @@ struct RowOverflowMenu<Items: View>: View {
         .fixedSize()
     }
 }
-
-/// The single glyph key (`btn sm`, 3×9 padding) a medium row keeps inline —
-/// "→" into the PR review, "↗" out to GitHub.
-struct RowGlyphButton: View {
-    let glyph: String
-    var help: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(glyph)
-        }
-        .buttonStyle(.hud(.standard, size: .small))
-        .help(help)
-        .fixedSize()
-    }
-}
