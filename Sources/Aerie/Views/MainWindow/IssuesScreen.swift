@@ -54,9 +54,8 @@ struct IssuesScreen: View {
 
     private var loadingView: some View {
         VStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.regular)
-                .tint(AerieColor.amber)
+            // Fetching is a running process → the arc-reactor loader.
+            ArcRing(size: 30)
             Text("Loading issues…")
                 .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text3)
@@ -83,7 +82,7 @@ struct IssuesScreen: View {
                 .foregroundStyle(AerieColor.text1)
             Text(message)
                 .aerieFont(AerieFont.small())
-                .foregroundStyle(AerieColor.err)
+                .foregroundStyle(AerieColor.dangerText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 480)
         }

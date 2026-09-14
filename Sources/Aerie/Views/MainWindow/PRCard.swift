@@ -12,7 +12,7 @@ import AppKit
 ///   └───────────────────────────────────────────────────────────────┘
 ///
 /// The whole local-branch picture collapses into one calm sentence pill, and
-/// `Merge` only lights amber when CI passes *and* the PR is approved.
+/// `Merge` only lights hot gold when CI passes *and* the PR is approved.
 struct PRCard: View {
     let row: PRRow
     /// Background store for Merge/Approve/Force-checkout. Defaulted so
@@ -177,8 +177,8 @@ struct PRCard: View {
     //
     // Open · Merge · Checkout stacked top→bottom, equal width and centred — the
     // design's `PRCard` right column (`v2/app.jsx`: "actions, stacked top →
-    // bottom"). All three are `.btn.sm` (12pt) sized; Open is ghost (borderless),
-    // Merge/Checkout carry the glass/amber `.btn` chrome. A fixed column width
+    // bottom"). All are MARK III `.btn.sm` bevelled keys (`HudButtonStyle`); Open
+    // is ghost (borderless), Merge/Checkout carry the glass/gold `.btn` chrome. A fixed column width
     // keeps the three equal and the cards' action columns aligned down the list.
     //
     // Open shares its top row with a small ``CopyLinkButton`` (`v2/app.jsx`: the
@@ -225,8 +225,8 @@ struct PRCard: View {
         }
     }
 
-    // Glass-chrome button (matches Checkout) that drills into the code review
-    // screen — the in-app "read the diff → approve" entry point.
+    // MARK III `.btn.sm` key (glass chrome, gold rim on hover) that drills into
+    // the code review screen — the in-app "read the diff → approve" entry point.
     private var reviewButton: some View {
         Button(action: onReview) {
             HStack(spacing: 6) {
@@ -234,30 +234,19 @@ struct PRCard: View {
                     .font(.system(size: 10, weight: .semibold))
                 Text("Review")
             }
-            .aerieFont(AerieFont.custom(.sans, size: 12))
-            .foregroundStyle(AerieColor.text1)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(AerieColor.glass2)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hud(.standard, size: .small))
         .help("Review the diff for \(row.repo.name) #\(row.pr.number)")
     }
 
-    // Sparkles-icon glass-chrome button that runs Claude AI Review directly
-    // from the list — starts `AIReviewStore.start(row:)` without navigating
-    // to the detail screen first. Mirrors the detail screen's
-    // `AIReviewButton` (`PRReviewScreen.swift`) but degrades to a plain tap
-    // (no account picker) since the row has no room for one; switching
-    // accounts still works from the detail screen's split button.
+    // Sparkles-icon `.btn.sm` that runs Claude AI Review directly from the
+    // list — starts `AIReviewStore.start(row:)` without navigating to the
+    // detail screen first. Mirrors the detail screen's `AIReviewButton`
+    // (`PRReviewScreen.swift`) but degrades to a plain tap (no account picker)
+    // since the row has no room for one; switching accounts still works from
+    // the detail screen's split button. While the review runs the key turns
+    // arc cyan (`.btn.arc`) — a live process — and taps are ignored.
     private var aiReviewButton: some View {
         Button {
             guard !isAIReviewing, !row.pr.isDraftPR else { return }
@@ -267,22 +256,13 @@ struct PRCard: View {
                 aiReviewIcon
                 Text(aiReviewLabel)
             }
-            .aerieFont(AerieFont.custom(.sans, size: 12))
-            .foregroundStyle(AerieColor.text1)
+            .foregroundStyle(aiReviewTint)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(AerieColor.glass2)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .disabled(isAIReviewing || row.pr.isDraftPR)
+        .buttonStyle(.hud(isAIReviewing ? .arc : .standard, size: .small))
+        // Running stays enabled (the guard above ignores taps) so the arc key
+        // isn't dimmed by the disabled treatment; drafts are truly disabled.
+        .disabled(row.pr.isDraftPR && !isAIReviewing)
         .help(row.pr.isDraftPR
             ? "\(row.repo.name) #\(row.pr.number) is still a draft — mark it ready for review first"
             : "Run AI Review for \(row.repo.name) #\(row.pr.number) without opening the diff")
@@ -292,7 +272,7 @@ struct PRCard: View {
     private var aiReviewIcon: some View {
         switch aiReviewPhase {
         case .running:
-            ProgressView().controlSize(.small)
+            CardArcSpinner(size: 10)
         case .done(let review, _):
             Image(systemName: review.verdict == .approve ? "checkmark" : "exclamationmark.triangle")
                 .font(.system(size: 10, weight: .semibold))
@@ -314,33 +294,41 @@ struct PRCard: View {
         }
     }
 
+    /// Verdict tint on the finished key: green for approved, gold for issues
+    /// found, crimson for a failed run. Idle/running use the style's own ink.
+    private var aiReviewTint: Color {
+        switch aiReviewPhase {
+        case .idle: return AerieColor.text1
+        case .running: return AerieColor.arc
+        case .done(let review, _): return review.verdict == .approve ? AerieColor.ok : AerieColor.amber
+        case .failed: return AerieColor.dangerText
+        }
+    }
+
     private var openButton: some View {
         Button(action: onOpen) {
             HStack(spacing: 6) {
                 Text("Open")
                 Text("↗")
             }
-            .aerieFont(AerieFont.custom(.sans, size: 12))
-            .foregroundStyle(AerieColor.text2)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hud(.ghost, size: .small))
     }
 
     private var checkoutButton: some View {
         let plan = CheckoutPlan.make(for: row.localState)
-        // Destructive checkouts hint with red label text (design: `color:
+        // Destructive checkouts hint with crimson label text (design: `color:
         // destructive ? red : text-1`); the nuance otherwise lives in the dialog.
-        let tint = plan.destructive ? AerieColor.err : AerieColor.text1
+        // A running checkout turns the key arc cyan.
+        let tint = isCheckingOut ? AerieColor.arc : (plan.destructive ? AerieColor.dangerText : AerieColor.text1)
         return Button {
             guard !isCheckingOut else { return }
             showCheckoutConfirm = true
         } label: {
             HStack(spacing: 6) {
                 if isCheckingOut {
-                    ProgressView().controlSize(.small)
+                    CardArcSpinner(size: 10)
                 } else {
                     CheckoutGlyphShape()
                         .stroke(tint, style: StrokeStyle(lineWidth: 1.6 * 11 / 16, lineCap: .round, lineJoin: .round))
@@ -348,22 +336,10 @@ struct PRCard: View {
                 }
                 Text(isCheckingOut ? "Checking out…" : "Checkout")
             }
-            .aerieFont(AerieFont.custom(.sans, size: 12))
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(AerieColor.glass2)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .disabled(isCheckingOut)
+        .buttonStyle(.hud(isCheckingOut ? .arc : .standard, size: .small))
         .help(plan.current
             ? "Local repo is already on origin/\(row.pr.sourceBranch)"
             : "Force checkout \(row.repo.name) to origin/\(row.pr.sourceBranch)")
@@ -405,29 +381,23 @@ struct PRCard: View {
 
     // MARK: - Merge button
 
+    /// `.btn.amber.sm` (hot-gold gradient CTA) when mergeable, a dimmed glass
+    /// key otherwise, and an arc-cyan running key while the merge is in flight.
     private var mergeButton: some View {
         Button {
             guard !isMerging else { return }
             showMergeConfirm = true
         } label: {
             HStack(spacing: 6) {
-                if isMerging { ProgressView().controlSize(.small) }
+                if isMerging { CardArcSpinner(size: 10) }
                 Text(isMerging ? "Merging…" : "Merge")
-                    .aerieFont(AerieFont.custom(.sans, size: 12).weight(mergeable ? .semibold : .medium))
             }
-            .foregroundStyle(mergeable ? AerieColor.amberInk : AerieColor.text2)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .background(mergeBackground)
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(mergeable ? AerieColor.amberCtaLine : AerieColor.glassLine, lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .opacity(mergeable ? 1 : 0.45)
-        .disabled(!mergeable || isMerging)
+        .buttonStyle(.hud(isMerging ? .arc : (mergeable ? .amber : .standard), size: .small))
+        // Not-mergeable is disabled (and dimmed by the style); a running merge
+        // stays enabled so the arc key isn't dimmed — the guard ignores taps.
+        .disabled(!mergeable && !isMerging)
         .popover(isPresented: $showMergeConfirm) {
             DialogMerge(
                 pr: row.pr, repo: row.repo, account: mergeAccount(row),
@@ -439,50 +409,22 @@ struct PRCard: View {
             )
         }
     }
-
-    @ViewBuilder
-    private var mergeBackground: some View {
-        if mergeable {
-            // The design's `.btn.amber`: vertical amber gradient + bright top edge.
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [AerieColor.amberFillTop, AerieColor.amberFillBot],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [Color.white.opacity(0.40), Color.clear],
-                                startPoint: .top, endPoint: .bottom
-                            ),
-                            lineWidth: 1
-                        )
-                        .blendMode(.plusLighter)
-                )
-        } else {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(AerieColor.glass2)
-        }
-    }
 }
 
-/// The amber "Update branch" control on a PR card's status row. Mirrors the
+/// The gold "Update branch" control on a PR card's status row. Mirrors the
 /// design's `UpdateBranchButton` (`.update-branch-btn` in `styles.css`): a small
-/// amber, square-cornered button — deliberately *not* a round status pill — that
-/// sits immediately after the local-status chip and appears only when the
-/// checked-out branch is behind its base.
+/// bevelled key — deliberately *not* a status pill — with a gold outline at rest
+/// that fills solid gold (dark ink, glow) on hover. It sits immediately after
+/// the local-status chip and appears only when the branch is behind its base.
 ///
 /// It lives in the **status row, never the actions column**, so the trailing
 /// `Open ↗` / `Merge` controls stay uniform and the Merge buttons line up down
 /// the list (a deliberate design decision — a conditional third action button
 /// made the column width vary per row and broke that alignment).
 ///
-/// Clicking it merges `origin/<base>` into the branch; while that runs the icon
-/// spins and the button is disabled. Once the branch is level again
-/// (`behind == 0`) the parent stops rendering it.
+/// Clicking it merges `origin/<base>` into the branch; while that runs the key
+/// turns arc cyan with a spinning icon and is disabled. Once the branch is level
+/// again (`behind == 0`) the parent stops rendering it.
 struct UpdateBranchButton: View {
     /// Commits the branch is behind its base — drives the tooltip count. Nil
     /// when the count is unknown: the parent renders this view off GitHub's
@@ -494,6 +436,7 @@ struct UpdateBranchButton: View {
     var onUpdate: () async -> Void = {}
 
     @State private var busy = false
+    @State private var hovering = false
 
     /// Pluralised tooltip — "…with 1 new commit…" / "…with 3 new commits…".
     /// Falls back to a count-free sentence when the behind count is unknown
@@ -506,11 +449,13 @@ struct UpdateBranchButton: View {
         return "Update this branch with \(behind) new commit\(behind == 1 ? "" : "s") from origin/main"
     }
 
+    private static let shape = HudKeyShape(cut: 5)
+
     var body: some View {
         Button(action: tapped) {
             HStack(spacing: 5) {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 10.5, weight: .semibold))
                     .rotationEffect(.degrees(busy ? 360 : 0))
                     .animation(
                         busy
@@ -518,30 +463,53 @@ struct UpdateBranchButton: View {
                             : .default,
                         value: busy
                     )
-                Text("Update branch")
-                    .aerieFont(AerieFont.custom(.sans, size: 11.5).weight(.medium))
+                Text("Update branch".uppercased())
+                    .aerieFont(AerieFont.custom(.sans, size: 10.5).weight(.semibold))
+                    .tracking(1.05)
             }
-            .foregroundStyle(AerieColor.amber)
-            // Matches `.update-branch-btn`: padding 3px 9px 3px 7px (less on the
-            // leading edge so the icon optically aligns), 7pt square-ish corners.
+            .foregroundStyle(foreground)
+            // Matches `.update-branch-btn`: less padding on the leading edge so
+            // the icon optically aligns with the pills beside it.
             .padding(.leading, 7)
             .padding(.trailing, 9)
             .padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(AerieColor.amberSoft)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(AerieColor.amberLine, lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .background(fill, in: Self.shape)
+            .overlay(Self.shape.strokeBorder(border, lineWidth: 1))
+            .shadow(color: glow, radius: glow == .clear ? 0 : 8)
+            .contentShape(Self.shape)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(CopyLinkPressStyle())
         .disabled(busy)
-        .opacity(busy ? 0.6 : 1)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
+        .animation(.easeOut(duration: 0.15), value: busy)
         .help(Self.tooltip(behind: behind))
         .fixedSize()
+    }
+
+    private var lit: Bool { hovering && !busy }
+
+    private var foreground: Color {
+        if busy { return AerieColor.arc }
+        return lit ? AerieColor.amberInk : AerieColor.amber
+    }
+
+    private var fill: AnyShapeStyle {
+        if busy { return AnyShapeStyle(AerieColor.arcSoft) }
+        return lit
+            ? AnyShapeStyle(LinearGradient(colors: [AerieColor.amberFillTop, AerieColor.amberFillBot],
+                                           startPoint: .top, endPoint: .bottom))
+            : AnyShapeStyle(Color.clear)
+    }
+
+    private var border: Color {
+        if busy { return AerieColor.arcLine }
+        return lit ? AerieColor.amberCtaLine : AerieColor.amberLine
+    }
+
+    private var glow: Color {
+        if busy { return AerieColor.arcGlow.opacity(0.35) }
+        return lit ? AerieColor.amberGlow.opacity(0.45) : .clear
     }
 
     private func tapped() {
@@ -556,10 +524,10 @@ struct UpdateBranchButton: View {
 
 /// The quiet "copy link" icon button that pairs with `Open ↗` on a PR card.
 /// Mirrors the design's `CopyLinkButton` (`.copy-link-btn` in `v2/styles.css`):
-/// a fixed 30×26 ghost square that's grey at rest, hints amber on hover, and —
-/// once the PR's GitHub URL is on the clipboard — flips to a green checkmark for
-/// ~1.6s before settling back. That confirm-then-fade is the same instant
-/// feedback language the Merge button uses, so the two read as one family.
+/// a fixed 30×26 ghost bevelled key that's grey at rest, hints gold on hover,
+/// and — once the PR's GitHub URL is on the clipboard — flips to a green
+/// checkmark for ~1.6s before settling back. That confirm-then-fade is the same
+/// instant feedback language the Merge button uses, so the two read as one family.
 ///
 /// The tooltip doubles as a preview: it shows the URL at rest ("Copy link · …")
 /// and "Copied to clipboard" while the checkmark is up, so the user can see
@@ -577,19 +545,17 @@ struct CopyLinkButton: View {
     /// new `setTimeout(…, 1600)`.
     @State private var resetTask: Task<Void, Never>?
 
+    private static let shape = HudKeyShape(cut: 6)
+
     var body: some View {
         Button(action: copy) {
             icon
                 .foregroundStyle(foreground)
                 .frame(width: 30, height: 26)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous).fill(fill)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(border, lineWidth: 1)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .background(fill, in: Self.shape)
+                .overlay(Self.shape.strokeBorder(border, lineWidth: 1))
+                .shadow(color: glow, radius: glow == .clear ? 0 : 6)
+                .contentShape(Self.shape)
         }
         .buttonStyle(CopyLinkPressStyle())
         .onHover { hovering = $0 }
@@ -609,7 +575,7 @@ struct CopyLinkButton: View {
         }
     }
 
-    // Resting grey → amber hint on hover → green once copied. The copied tint
+    // Resting grey → gold hint on hover → green once copied. The copied tint
     // wins over hover, matching `.copy-link-btn.copied:hover` (stays green).
     private var foreground: Color {
         if copied { return AerieColor.ok }
@@ -617,11 +583,15 @@ struct CopyLinkButton: View {
     }
     private var fill: Color {
         if copied { return AerieColor.ok.opacity(0.14) }
-        return hovering ? AerieColor.amber.opacity(0.10) : .clear
+        return hovering ? AerieColor.amberSoft : .clear
     }
     private var border: Color {
         if copied { return AerieColor.ok.opacity(0.45) }
-        return hovering ? AerieColor.amber.opacity(0.40) : .clear
+        return hovering ? AerieColor.amberLine : .clear
+    }
+    private var glow: Color {
+        if copied { return AerieColor.ok.opacity(0.35) }
+        return hovering ? AerieColor.amberGlow.opacity(0.30) : .clear
     }
 
     private func copy() {

@@ -17,7 +17,7 @@ import AppKit
 /// - Chips: the checked-out branch as a ``BranchTag``, then a single
 ///   tone-coloured ``StatusPill`` summarising the working tree — "Working tree
 ///   dirty", "Clean · in sync with origin", or an "N ahead · M behind …" line.
-/// - Actions: a ghost "Open ↗" and a red `.btn.danger` "Reset to origin/<b>".
+/// - Actions: a ghost "Open ↗" and a crimson `.btn.danger` "Reset to origin/<b>".
 struct RepoCard: View {
     let row: RepoRow
     var onOpen: () -> Void
@@ -217,7 +217,7 @@ struct RepoCard: View {
 
     // The trailing action cluster. Wide: the uniform Open ↗ / Reset row stays
     // on top so those line up across cards; the conditional second row holds
-    // the amber Create PR button and the quieter dirty-only Discard. Compact:
+    // the gold Create PR button and the quieter dirty-only Discard. Compact:
     // CardContent puts this slot under the content, so the same buttons wrap
     // as a flow instead of forcing fixed rows wider than the card.
     // Destructive actions are disabled while claude is running git —
@@ -258,8 +258,10 @@ struct RepoCard: View {
             action: { if !isResetting { showResetConfirm = true } },
             isRunning: isResetting
         )
-        .disabled(isCreating || isResetting)
-        .opacity((isCreating || isResetting) ? 0.45 : 1)
+        // Blocked (and dimmed by the HUD style) while a publish runs. A running
+        // reset stays enabled so its arc key isn't dimmed — the action's
+        // `!isResetting` guard already ignores taps.
+        .disabled(isCreating && !isResetting)
         .popover(isPresented: $showResetConfirm) {
             if let status = row.status {
                 DialogReset(
@@ -288,7 +290,8 @@ struct RepoCard: View {
         if Self.shouldShowDiscard(row.status) {
             DiscardButton(isRunning: isDiscarding, action: { if !isDiscarding { showDiscardConfirm = true } })
                 .disabled(isCreating || isDiscarding)
-                .opacity((isCreating || isDiscarding) ? 0.45 : 1)
+                // Only the publish block dims; a running discard shows arc cyan.
+                .opacity((isCreating && !isDiscarding) ? 0.45 : 1)
                 .popover(isPresented: $showDiscardConfirm) {
                     if let status = row.status {
                         DialogDiscard(
@@ -307,62 +310,45 @@ struct RepoCard: View {
     }
 
     private var offDefaultPill: some View {
-        Text("off default")
-            .aerieFont(AerieFont.custom(.sans, size: 10))
-            .foregroundStyle(AerieColor.text3)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 1)
-            .background(Capsule(style: .continuous).fill(AerieColor.glass2))
-            .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        RepoMetaTag(text: "off default")
     }
 
-    /// Grey pill shown when `apiSyncDisabled` is true — the sibling of
+    /// Grey tag shown when `apiSyncDisabled` is true — the sibling of
     /// `offDefaultPill`, same styling, independent of it (both can show
     /// together).
     private var apiSyncPausedPill: some View {
-        Text("API sync paused")
-            .aerieFont(AerieFont.custom(.sans, size: 10))
-            .foregroundStyle(AerieColor.text3)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 1)
-            .background(Capsule(style: .continuous).fill(AerieColor.glass2))
-            .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        RepoMetaTag(text: "API sync paused")
     }
 
-    /// Amber-toned, clickable pill replacing `off default` when the checked-out
-    /// branch is already merged. Opens the merged PR. Amber (not err/ok) reads as
+    /// Gold-toned, clickable tag replacing `off default` when the checked-out
+    /// branch is already merged. Opens the merged PR. Gold (not err/ok) reads as
     /// "needs action" without colliding with the danger or clean tones.
     private func mergedPill(_ merged: MergedBranchInfo) -> some View {
         Button {
             NSWorkspace.shared.open(merged.prUrl)
         } label: {
-            Text("merged · #\(merged.prNumber)")
-                .aerieFont(AerieFont.custom(.sans, size: 10))
-                .foregroundStyle(AerieColor.amber)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 1)
-                .background(Capsule(style: .continuous).fill(AerieColor.amberSoft))
-                .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.amberLine, lineWidth: 1))
-                .contentShape(Capsule())
+            RepoMetaTag(text: "merged · #\(merged.prNumber)", tone: .amber)
         }
         .buttonStyle(.plain)
         .help("Open merged PR #\(merged.prNumber)")
     }
 
-    /// PR-publish status line in the card footer: live progress while running,
-    /// a clickable PR pill on success (mergedPill's palette), an error + Retry
-    /// on failure, and a transient neutral line for "nothing to publish".
+    /// PR-publish status line in the card footer: live progress while running
+    /// (arc spinner + the newest claude line in mono — a running process), a
+    /// clickable gold PR tag on success (mergedPill's palette), an error +
+    /// Retry key on failure, and a transient neutral line for "nothing to
+    /// publish".
     @ViewBuilder
     private var createStatusFooter: some View {
         switch createPhase {
         case .idle:
             EmptyView()
         case .running(let lines):
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.mini).tint(AerieColor.amber)
+            HStack(spacing: 8) {
+                CardArcSpinner(size: 10)
                 Text(lines.last ?? "Starting claude…")
-                    .aerieFont(AerieFont.custom(.sans, size: 12))
-                    .foregroundStyle(AerieColor.text3)
+                    .aerieFont(AerieFont.code(11))
+                    .foregroundStyle(AerieColor.arc.opacity(0.85))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -370,14 +356,7 @@ struct RepoCard: View {
             Button {
                 NSWorkspace.shared.open(url)
             } label: {
-                Text("PR #\(n) ↗")
-                    .aerieFont(AerieFont.custom(.sans, size: 10))
-                    .foregroundStyle(AerieColor.amber)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 1)
-                    .background(Capsule(style: .continuous).fill(AerieColor.amberSoft))
-                    .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.amberLine, lineWidth: 1))
-                    .contentShape(Capsule())
+                RepoMetaTag(text: "PR #\(n) ↗", tone: .amber)
             }
             .buttonStyle(.plain)
             .help("Open PR #\(n)")
@@ -385,12 +364,10 @@ struct RepoCard: View {
             HStack(spacing: 8) {
                 Text(message)
                     .aerieFont(AerieFont.custom(.sans, size: 12))
-                    .foregroundStyle(AerieColor.err)
+                    .foregroundStyle(AerieColor.dangerText)
                     .lineLimit(2)
                 Button("Retry", action: onCreatePR)
-                    .buttonStyle(.plain)
-                    .aerieFont(AerieFont.custom(.sans, size: 12).weight(.medium))
-                    .foregroundStyle(AerieColor.text2)
+                    .buttonStyle(.hud(.standard, size: .small))
             }
         case .nothingToDo:
             Text("沒有可發佈的變更")
@@ -400,78 +377,114 @@ struct RepoCard: View {
     }
 }
 
+// MARK: - Meta tags
+
+/// The small uppercase tag used in the repo card's meta row ("off default",
+/// "API sync paused", "merged · #N") and the publish footer's "PR #N ↗" — a
+/// near-square MARK III `.pill` at meta-row scale. `amber` is the gold,
+/// clickable variant.
+private struct RepoMetaTag: View {
+    enum Tone { case neutral, amber }
+    let text: String
+    var tone: Tone = .neutral
+
+    var body: some View {
+        Text(text.uppercased())
+            .aerieFont(AerieFont.custom(.sans, size: 9.5).weight(.semibold))
+            .tracking(0.95)
+            .foregroundStyle(tone == .amber ? AerieColor.amber : AerieColor.text3)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                    .fill(tone == .amber ? AerieColor.amberSoft : AerieColor.glass2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                    .strokeBorder(tone == .amber ? AerieColor.amberLine : AerieColor.glassLine, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+    }
+}
+
 // MARK: - Buttons
 
-/// `.btn.danger` — lighter-red text on an `err`-tinted fill with a matching
-/// hairline; the fill deepens on hover. 13pt medium sans, 8×14 padding.
+/// `.btn.danger` — the MARK III crimson bevelled key (crimson-hot text on a
+/// crimson wash, brighter rim + glow on hover). While the reset runs the key
+/// switches to `.btn.arc` with an inline arc spinner.
 private struct DangerButton: View {
     let title: String
     let action: () -> Void
     var isRunning: Bool = false
-    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                if isRunning { ProgressView().controlSize(.small).tint(AerieColor.dangerText) }
+                if isRunning { CardArcSpinner(size: 11) }
                 Text(title)
-                    .aerieFont(AerieFont.custom(.sans, size: 13).weight(.medium))
             }
-            .foregroundStyle(AerieColor.dangerText)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(hovering ? AerieColor.dangerFillHover : AerieColor.dangerFill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(AerieColor.dangerLine, lineWidth: 1)
-            )
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .buttonStyle(.hud(isRunning ? .arc : .danger))
     }
 }
 
-/// `.btn.ghost.sm.discard-all-btn` — a quiet ghost button (undo curved-arrow
-/// glyph + label) that's the destructive-but-secondary affordance below the
-/// Open ↗ / Reset row. Neutral (`text3`) at rest; text + icon turn danger red
-/// (`err`) on hover — louder than a normal ghost, quieter than the always-red
-/// `Reset to origin/<b>`. Smaller than the primary actions (12pt, 5×10 padding).
+/// `.btn.ghost.sm.discard-all-btn` — a quiet ghost bevelled key (undo
+/// curved-arrow glyph + label) that's the destructive-but-secondary affordance
+/// below the Open ↗ / Reset row. Neutral (`text3`) at rest; text, icon, rim and
+/// wash turn crimson on hover — louder than a normal ghost, quieter than the
+/// always-crimson `Reset to origin/<b>`. Arc cyan + spinner while discarding.
 private struct DiscardButton: View {
     var isRunning: Bool = false
     let action: () -> Void
     @State private var hovering = false
 
+    private static let shape = HudKeyShape(cut: 6)
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 if isRunning {
-                    ProgressView().controlSize(.small)
+                    CardArcSpinner(size: 11)
                 } else {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 11, weight: .semibold))
                 }
                 Text(isRunning ? "Discarding…" : "Discard all unstaged")
-                    .aerieFont(AerieFont.custom(.sans, size: 12))
+                    .aerieFont(AerieFont.custom(.sans, size: 11.5).weight(.medium))
+                    .tracking(0.75)
             }
-            .foregroundStyle(hovering ? AerieColor.err : AerieColor.text3)
-            .padding(.horizontal, 10)
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 11)
             .padding(.vertical, 5)
-            .contentShape(Rectangle())
+            .background(Self.shape.fill(fill))
+            .overlay(Self.shape.strokeBorder(border, lineWidth: 1))
+            .contentShape(Self.shape)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help("Discard all unstaged changes in the working tree")
         .animation(.easeOut(duration: 0.15), value: hovering)
     }
+
+    private var lit: Bool { hovering && !isRunning }
+
+    private var foreground: Color {
+        if isRunning { return AerieColor.arc }
+        return lit ? AerieColor.dangerText : AerieColor.text3
+    }
+    private var fill: Color {
+        if isRunning { return AerieColor.arcSoft }
+        return lit ? AerieColor.dangerFill : .clear
+    }
+    private var border: Color {
+        if isRunning { return AerieColor.arcLine }
+        return lit ? AerieColor.dangerLine : .clear
+    }
 }
 
 /// Icon-only ghost toggle that pauses/resumes this repo's GitHub API sync.
 /// Mirrors `DiscardButton`'s scale (icon-only, `.plain` style, hover color
-/// shift) but swaps to amber when paused so a glance at the card row shows
+/// shift) but swaps to gold when paused so a glance at the card row shows
 /// whether sync is active.
 private struct ApiSyncToggleButton: View {
     let icon: String
@@ -494,41 +507,56 @@ private struct ApiSyncToggleButton: View {
     }
 }
 
-/// The amber "Create Pull Request" action — amber text on `amberSoft` fill
-/// with an `amberLine` hairline (mergedPill's palette at button scale), so it
-/// reads constructive next to the red danger button and grey ghosts. Swaps to
-/// a spinner + "Creating PR…" while a publish runs.
+/// The gold "Create Pull Request" action — a bevelled key with gold text on a
+/// `amberSoft` wash and `amberLine` rim (mergedPill's palette at button scale),
+/// brightening with a gold glow on hover, so it reads constructive next to the
+/// crimson danger key and grey ghosts. Swaps to an arc-cyan running key with a
+/// spinner + "Creating PR…" while a publish runs.
 private struct CreatePRButton: View {
     let isCreating: Bool
     let action: () -> Void
     @State private var hovering = false
 
+    private static let shape = HudKeyShape(cut: 9)
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 if isCreating {
-                    ProgressView().controlSize(.small).tint(AerieColor.amber)
+                    CardArcSpinner(size: 11)
                 }
                 Text(isCreating ? "Creating PR…" : "Create Pull Request")
-                    .aerieFont(AerieFont.custom(.sans, size: 13).weight(.medium))
+                    .aerieFont(AerieFont.custom(.sans, size: 12.5).weight(.medium))
+                    .tracking(0.75)
             }
-            .foregroundStyle(AerieColor.amber)
-            .padding(.horizontal, 14)
+            .foregroundStyle(isCreating ? AerieColor.arc : AerieColor.amber)
+            .padding(.horizontal, 15)
             .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(AerieColor.amberSoft.opacity(hovering && !isCreating ? 0.75 : 1))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(AerieColor.amberLine, lineWidth: 1)
-            )
-            .contentShape(Rectangle())
+            .background(Self.shape.fill(fill))
+            .overlay(Self.shape.strokeBorder(border, lineWidth: 1))
+            .shadow(color: glow, radius: glow == .clear ? 0 : 9)
+            .contentShape(Self.shape)
         }
         .buttonStyle(.plain)
         .disabled(isCreating)
         .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
         .help("用本地 claude 依 Settings 的 PR 發布模板建立 pull request")
+    }
+
+    private var lit: Bool { hovering && !isCreating }
+
+    private var fill: Color {
+        if isCreating { return AerieColor.arcSoft }
+        return lit ? AerieColor.amber.opacity(0.22) : AerieColor.amberSoft
+    }
+    private var border: Color {
+        if isCreating { return AerieColor.arcLine }
+        return lit ? AerieColor.amber : AerieColor.amberLine
+    }
+    private var glow: Color {
+        if isCreating { return AerieColor.arcGlow.opacity(0.30) }
+        return lit ? AerieColor.amberGlow.opacity(0.40) : .clear
     }
 }
 

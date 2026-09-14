@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// One file's diff in the review screen: a collapsible header (path, status,
-/// +/− counts) over its unified-diff hunks. Files with no textual patch (binary
-/// or over-large) show a short notice instead.
+/// +/− counts) over its unified-diff hunks, on a chamfered MARK III plate
+/// (`.diff-file`). Files with no textual patch (binary or over-large) show a
+/// short notice instead.
 struct DiffFileSection: View {
     let file: PRFileChange
     let highlighter: CodeHighlighter
@@ -11,6 +12,8 @@ struct DiffFileSection: View {
 
     private let hunks: [DiffHunk]
     private let language: CodeLanguage
+
+    private static let plate = HudPlateShape(cut: 10)
 
     /// Files with this many changed lines (additions + deletions) or more
     /// start collapsed, so opening a review with several huge files doesn't
@@ -30,16 +33,20 @@ struct DiffFileSection: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if expanded {
-                Divider().overlay(AerieColor.glassLine)
+                Rectangle().fill(AerieColor.glassLine).frame(height: 1)
                 body(for: hunks)
             }
         }
         .background(AerieColor.glass2)
+        .clipShape(Self.plate)
+        .overlay(Self.plate.strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        // Gold-lit top-left of the plate edge, like `.card::before`.
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(AerieColor.glassLine, lineWidth: 1)
+            Self.plate.strokeBorder(AerieColor.amberLine, lineWidth: 1)
+                .mask(LinearGradient(stops: [.init(color: .white, location: 0), .init(color: .clear, location: 0.35)],
+                                     startPoint: .leading, endPoint: .trailing))
+                .allowsHitTesting(false)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     // MARK: Header
@@ -51,7 +58,7 @@ struct DiffFileSection: View {
             HStack(spacing: 10) {
                 Image(systemName: expanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(AerieColor.text3)
+                    .foregroundStyle(expanded ? AerieColor.amber : AerieColor.text3)
                 Text(file.filename)
                     .aerieFont(AerieFont.code(12.5))
                     .foregroundStyle(AerieColor.text1)
@@ -75,7 +82,7 @@ struct DiffFileSection: View {
                 .foregroundStyle(AerieColor.ok)
             Text("-\(file.deletions)")
                 .aerieFont(AerieFont.code(12))
-                .foregroundStyle(AerieColor.err)
+                .foregroundStyle(AerieColor.crimsonHot)
         }
     }
 
@@ -112,14 +119,19 @@ struct DiffFileSection: View {
         }
     }
 
+    /// `.diff-hunk` — the `@@ … @@` band: gold-tinted mono on a faint gold wash
+    /// with hairlines above and below.
     private func hunkHeader(_ text: String) -> some View {
         Text(text)
-            .aerieFont(AerieFont.code(11.5))
-            .foregroundStyle(AerieColor.text3)
+            .aerieFont(AerieFont.code(11))
+            .tracking(0.4)
+            .foregroundStyle(AerieColor.amber.opacity(0.75))
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
             .padding(.vertical, 5)
-            .background(AerieColor.amberSoft.opacity(0.4))
+            .background(AerieColor.diffHunkBg)
+            .overlay(alignment: .top) { Rectangle().fill(AerieColor.amberLine.opacity(0.35)).frame(height: 1) }
+            .overlay(alignment: .bottom) { Rectangle().fill(AerieColor.amberLine.opacity(0.35)).frame(height: 1) }
     }
 
     private var noPatchNotice: String {

@@ -3,7 +3,9 @@ import SwiftUI
 /// A pill-style chip that summarises the CI status of a pull request.
 ///
 /// Visual contract: `docs/superpowers/design/v2/app.jsx` `CIStatus(...)` — a
-/// tone-coloured `StatusPill` with a leading dot and a `CI …` label.
+/// tone-coloured `StatusPill` with a leading dot and a `CI …` label. MARK III
+/// tones: green passing, crimson failing, and arc cyan while checks are still
+/// running (in-progress work is the one thing allowed to glow cyan).
 struct CIChip: View {
     let state: CIState
 
@@ -15,7 +17,7 @@ struct CIChip: View {
         switch state {
         case .success: return .ok
         case .failure: return .err
-        case .pending: return .warn
+        case .pending: return .arc
         case .none:    return .muted
         }
     }

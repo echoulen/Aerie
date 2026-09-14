@@ -1,13 +1,14 @@
 import SwiftUI
 
-/// The main window's outer shell: aurora `Backdrop` + custom `Titlebar`
-/// (centred brand only) + a caller-provided content slot. The view switcher
-/// (`SegmentedToggle`) now lives in each screen's page header, right-aligned,
+/// The main window's outer shell: deep-space `Backdrop` + custom `Titlebar`
+/// (centred brand only) + a caller-provided content slot, all inside the
+/// MARK III chamfered hull (`.aerieHull()`). The view switcher
+/// (`SegmentedToggle`) lives in each screen's page header, right-aligned,
 /// per the v2 design — not in the titlebar.
 ///
 /// Design note: the v2 spec lists an "AmbientGlow" overlay alongside the
-/// backdrop. We rely on `Backdrop`'s existing amber + cool-blue radial
-/// gradients to satisfy that intent and do not stack a second glow layer.
+/// backdrop. We rely on `Backdrop`'s own nebula washes (warm / violet / cyan)
+/// to satisfy that intent and do not stack a second glow layer.
 struct AppFrame<Content: View>: View {
     @Bindable var viewModel: AppViewModel
     /// Optional toast manager. When non-nil, a `ToastsOverlay` is rendered

@@ -2,6 +2,8 @@ import SwiftUI
 
 /// A single rendered line of a unified diff: old/new line-number gutters, a
 /// +/−/space marker, and the syntax-highlighted content with an add/remove wash.
+/// MARK III `.diff-*` palette: green add, crimson delete, with a 2pt leading
+/// accent bar on changed lines.
 struct DiffLineRow: View {
     let line: DiffLine
     let language: CodeLanguage
@@ -26,6 +28,11 @@ struct DiffLineRow: View {
         }
         .padding(.vertical, 1.5)
         .background(rowBackground)
+        .overlay(alignment: .leading) {
+            if line.kind != .context {
+                Rectangle().fill(markerColor.opacity(0.7)).frame(width: 2)
+            }
+        }
     }
 
     private func gutter(_ number: Int?) -> some View {
@@ -46,16 +53,16 @@ struct DiffLineRow: View {
 
     private var markerColor: Color {
         switch line.kind {
-        case .addition: return AerieColor.ok
-        case .deletion: return AerieColor.err
+        case .addition: return AerieColor.diffAddText
+        case .deletion: return AerieColor.diffDelText
         case .context:  return AerieColor.text4
         }
     }
 
     private var rowBackground: Color {
         switch line.kind {
-        case .addition: return AerieColor.ok.opacity(0.12)
-        case .deletion: return AerieColor.err.opacity(0.12)
+        case .addition: return AerieColor.diffAddBg
+        case .deletion: return AerieColor.diffDelBg
         case .context:  return .clear
         }
     }

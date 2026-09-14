@@ -187,16 +187,16 @@ struct MetaDot: View {
     }
 }
 
-/// The amber pill shown in a card's meta row — "assigned to you" on an issue,
-/// "yours" on a PR.
+/// The gold pill shown in a card's meta row — "assigned to you" on an issue,
+/// "yours" on a PR. Uppercase mono, like the MARK III `.pill`.
 struct CardBadge: View {
     let text: String
 
     var body: some View {
-        Text(text)
+        Text(text.uppercased())
             .aerieFont(AerieFont.eyebrow())
             .foregroundStyle(AerieColor.amber)
-            .tracking(0.6)
+            .tracking(1.0)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(
@@ -210,9 +210,9 @@ struct CardBadge: View {
     }
 }
 
-/// The shared "Open ↗" ghost control on the trailing edge of every card.
-/// Standardised on the Issue card's styling (13pt sans, `text2`, 8×6 padding)
-/// so all three rows present an identical open affordance.
+/// The shared "Open ↗" ghost control on the trailing edge of every card — a
+/// MARK III `.btn.ghost` (borderless bevelled key that lights on hover), so all
+/// three rows present an identical open affordance.
 struct CardOpenButton: View {
     let action: () -> Void
 
@@ -222,13 +222,36 @@ struct CardOpenButton: View {
                 Text("Open")
                 Text("↗")
             }
-            .aerieFont(AerieFont.custom(.sans, size: 13))
-            .foregroundStyle(AerieColor.text2)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hud(.ghost))
         .fixedSize()
+    }
+}
+
+/// The `.spinner` used inside running-state buttons and status lines: a thin
+/// arc-cyan ring with a clear quadrant, spinning continuously. Cyan because a
+/// running process is live energy — the one place MARK III lets it glow.
+/// (`ArcRing` is the larger, standalone loader; this fits inline beside text.)
+struct CardArcSpinner: View {
+    var size: CGFloat = 11
+    var lineWidth: CGFloat = 1.6
+    @State private var spinning = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(AerieColor.arcLine.opacity(0.5), lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: 0.3)
+                .stroke(AerieColor.arc, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .shadow(color: AerieColor.arcGlow, radius: 3)
+                .rotationEffect(.degrees(spinning ? 360 : 0))
+        }
+        .frame(width: size, height: size)
+        .onAppear {
+            withAnimation(.linear(duration: 0.7).repeatForever(autoreverses: false)) {
+                spinning = true
+            }
+        }
     }
 }
