@@ -248,20 +248,34 @@ struct PRCard: View {
                     .foregroundStyle(AerieColor.text4)
                     .fixedSize()
             }
-            HStack(spacing: 9) {
-                Text(row.pr.sourceBranch)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text1)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).fill(AerieColor.glass2))
-                    .overlay(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).strokeBorder(AerieColor.glassLine, lineWidth: 1))
-                    // Hugs its text, but is the first thing to give up width
-                    // (truncating in the middle) when the line gets tight.
-                    .layoutPriority(-1)
-                MiniPill(text: ciShortLabel, tone: ciTone)
+            // Telemetry drops (diffstat + review, then local flags) before
+            // the keys would push the row wider than the window.
+            ViewThatFits(in: .horizontal) {
+                mediumTelemetryLine(detail: 2)
+                mediumTelemetryLine(detail: 1)
+                mediumTelemetryLine(detail: 0)
+            }
+        }
+    }
+
+    /// Line 2 of the medium row. `detail` 2 = everything, 1 = no diffstat /
+    /// review pill, 0 = branch + CI only. The branch chip truncates last.
+    private func mediumTelemetryLine(detail: Int) -> some View {
+        HStack(spacing: 9) {
+            Text(row.pr.sourceBranch)
+                .aerieFont(AerieFont.code(11))
+                .foregroundStyle(AerieColor.text1)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).fill(AerieColor.glass2))
+                .overlay(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+                // Hugs its text, but is the first thing to give up width
+                // (truncating in the middle) when the line gets tight.
+                .layoutPriority(-1)
+            MiniPill(text: ciShortLabel, tone: ciTone)
+            if detail >= 2 {
                 if let review = reviewShortLabel { MiniPill(text: review) }
                 if let add = row.pr.additions, let del = row.pr.deletions {
                     HStack(spacing: 4) {
@@ -271,28 +285,34 @@ struct PRCard: View {
                     .aerieFont(AerieFont.code(10.5))
                     .fixedSize()
                 }
+            }
+            if detail >= 1 {
                 localTags
                 AheadBehindCounts(ahead: row.localState?.ahead ?? 0, behind: row.localState?.behind ?? 0)
-                Spacer(minLength: 10)
-                HStack(spacing: 7) {
-                    runningSpinner
-                    if Self.shouldShowUpdateBranch(row.pr, row.localState) {
-                        UpdateBranchButton(behind: row.localState?.behind, onUpdate: onUpdateBranch, label: "Update")
-                    }
-                    if row.localState?.isCurrentBranch == true {
-                        Button("Open ↗", action: onOpen)
-                            .buttonStyle(.hud(.ghost, size: .small))
-                    } else {
-                        mediumCheckoutKey
-                    }
-                    Button("Review", action: onReview)
-                        .buttonStyle(.hud(.amber, size: .small))
-                        .help("Review the diff for \(row.repo.name) #\(row.pr.number)")
-                    overflowMenu
-                }
-                .fixedSize()
             }
+            Spacer(minLength: 10)
+            mediumActions
         }
+    }
+
+    private var mediumActions: some View {
+        HStack(spacing: 7) {
+            runningSpinner
+            if Self.shouldShowUpdateBranch(row.pr, row.localState) {
+                UpdateBranchButton(behind: row.localState?.behind, onUpdate: onUpdateBranch, label: "Update")
+            }
+            if row.localState?.isCurrentBranch == true {
+                Button("Open ↗", action: onOpen)
+                    .buttonStyle(.hud(.ghost, size: .small))
+            } else {
+                mediumCheckoutKey
+            }
+            Button("Review", action: onReview)
+                .buttonStyle(.hud(.amber, size: .small))
+                .help("Review the diff for \(row.repo.name) #\(row.pr.number)")
+            overflowMenu
+        }
+        .fixedSize()
     }
 
     /// `.btn.sm` Checkout — crimson label when the checkout would discard work,

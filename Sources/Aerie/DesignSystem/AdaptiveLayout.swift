@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Width classes
 
@@ -60,6 +61,59 @@ extension View {
     func widthClass(_ widthClass: WidthClass, bucket: Int) -> some View {
         environment(\.widthClass, widthClass)
             .environment(\.contentWidthBucket, bucket)
+    }
+}
+
+// MARK: - Window width
+
+/// Reports the host window's width — the real, content-independent width.
+///
+/// Measuring the SwiftUI frame instead is circular: a layout that's too wide
+/// for the window inflates that frame, so the measurement stays above the next
+/// breakpoint and the tier never steps down. Dragging the window edge happens
+/// to shrink gradually enough to flip tiers before content overflows; a
+/// keyboard / window-manager resize jumps straight to the narrow size and got
+/// stuck in the medium layout, overflowing and clipped on both sides.
+struct WindowWidthReader: NSViewRepresentable {
+    var onChange: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> WindowWidthView {
+        let view = WindowWidthView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ nsView: WindowWidthView, context: Context) {
+        nsView.onChange = onChange
+    }
+
+    final class WindowWidthView: NSView {
+        var onChange: ((CGFloat) -> Void)?
+        private var observer: NSObjectProtocol?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
+            guard let window else { return }
+            observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResizeNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                self?.report()
+            }
+            // Deferred: this runs during view attachment, and the callback
+            // writes SwiftUI state.
+            DispatchQueue.main.async { [weak self] in self?.report() }
+        }
+
+        private func report() {
+            guard let window else { return }
+            onChange?(window.frame.width)
+        }
+
+        deinit {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
     }
 }
 

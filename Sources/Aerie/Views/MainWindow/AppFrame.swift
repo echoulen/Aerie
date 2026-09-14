@@ -40,6 +40,9 @@ struct AppFrame<Content: View>: View {
 
     @State private var widthClass: WidthClass = .regular
     @State private var widthBucket = 0
+    /// The host window's width, once attached. Nil in snapshot tests, which
+    /// have no window and fall back to the measured frame width.
+    @State private var windowWidth: CGFloat?
 
     var body: some View {
         ZStack {
@@ -90,11 +93,21 @@ struct AppFrame<Content: View>: View {
         .aerieHull(compact: widthClass == .compact)
         .frame(minWidth: AerieMetric.mainWindowW, minHeight: AerieMetric.mainWindowH)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-            widthClass = WidthClass.forWidth(width)
-            widthBucket = Int((width / 8).rounded())
+            if windowWidth == nil { applyWidth(width) }
         }
+        .background(WindowWidthReader { width in
+            windowWidth = width
+            applyWidth(width)
+        })
         .widthClass(widthClass, bucket: widthBucket)
         .aerieWindowChrome()
+    }
+
+    private func applyWidth(_ width: CGFloat) {
+        let newClass = WidthClass.forWidth(width)
+        if newClass != widthClass { widthClass = newClass }
+        let bucket = Int((width / 8).rounded())
+        if bucket != widthBucket { widthBucket = bucket }
     }
 
     @ViewBuilder

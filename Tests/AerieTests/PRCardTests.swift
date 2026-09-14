@@ -434,4 +434,34 @@ final class PRCardTests: XCTestCase {
             "Update this branch with the latest changes from origin/main"
         )
     }
+
+    // MARK: - Medium tier under pressure
+
+    /// A 640pt window (the narrowest medium width) leaves ~560pt for the card.
+    /// With a big diffstat, a dirty checkout and a behind count, line 2 used to
+    /// be wider than that and inflated the whole window; it must now shed
+    /// telemetry and stay inside the card.
+    func test_prCard_medium_narrowestWidth_staysInsideCard() {
+        var pr = makePR(title: "feat: HEMS 7.0 redesign (1280x720, PRD Walmart Demo V2)",
+                        isMine: false, review: .reviewRequired,
+                        sourceBranch: "feat/hems7-redesign-with-a-long-branch-name")
+        pr.additions = 17_922
+        pr.deletions = 78_721
+        let row = PRRow(
+            pr: pr, repo: makeRepo(name: "hems-demo-ui"),
+            localState: PRLocalState(
+                prId: pr.id, sourceBranch: pr.sourceBranch,
+                localBranchExists: true, isCurrentBranch: true,
+                dirty: true, ahead: 10, behind: 3, unpushed: 0))
+        let width: CGFloat = 596   // 640 − 2 × 22 gutter
+        let view = ZStack {
+            Backdrop()
+            PRCard(row: row, onOpen: {}, now: fixedNow)
+                .environment(\.widthClass, .medium)
+                .frame(width: width)
+        }
+        .frame(width: width + 40, height: 140)
+        assertSnapshot(of: NSHostingView(rootView: view),
+                       as: .image(size: CGSize(width: width + 40, height: 140)))
+    }
 }
