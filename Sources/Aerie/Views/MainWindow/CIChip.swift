@@ -3,7 +3,8 @@ import SwiftUI
 /// A pill-style chip that summarises the CI status of a pull request.
 ///
 /// Visual contract: `docs/superpowers/design/v2/app.jsx` `CIStatus(...)` — a
-/// tone-coloured `StatusPill` with a leading dot and a `CI …` label.
+/// tone-coloured `StatusPill` with a leading dot and a `CI …` label: `pill ok`
+/// passing, `pill err` failing, `pill warn` pending.
 struct CIChip: View {
     let state: CIState
 

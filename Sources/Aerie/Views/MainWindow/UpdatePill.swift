@@ -4,8 +4,11 @@ import SwiftUI
 /// there's no news (`.idle`) — the titlebar's default state is empty, so an
 /// always-present update control would be permanent chrome for a rare event.
 ///
-/// Visual language: the amber capsule from `AboutScreen`'s GitHub link, sized
-/// to sit alongside the account pill on the other end of the titlebar.
+/// Visual language (`system.jsx`): a MARK III `.pill` (radius 2, 600 11pt
+/// uppercase, 0.10em tracking, 6×12 padding) sized to sit alongside the account
+/// button on the other end of the titlebar — `pill amber` "↓ Update to x" when
+/// available, `pill arc` with an 11pt spinner while installing (a running
+/// process), `pill err` "▲ Update failed" when the install failed.
 struct UpdatePill: View {
     let phase: UpdatePhase
     /// Asks the shell to confirm + start the install (the confirmation is an
@@ -13,6 +16,8 @@ struct UpdatePill: View {
     var onInstall: () -> Void = {}
     /// Asks the shell to show the failure message behind a `.failed` pill.
     var onShowFailure: () -> Void = {}
+
+    private static let shape = RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
 
     /// The pill's text, or nil when the pill shouldn't render. Pure + static so
     /// the copy is testable without building a view hierarchy.
@@ -30,16 +35,18 @@ struct UpdatePill: View {
             Button(action: tapped) {
                 HStack(spacing: 6) {
                     icon
-                    Text(label)
-                        .aerieFont(AerieFont.custom(.sans, size: 12).weight(.medium))
+                    Text(label.uppercased())
+                        .aerieFont(AerieFont.custom(.sans, size: 11).weight(.semibold))
+                        .tracking(1.1) // 0.10em @ 11px
                 }
-                .foregroundStyle(isFailure ? AerieColor.err : AerieColor.amber)
+                .foregroundStyle(foreground)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(Capsule().fill(isFailure ? AerieColor.dangerFill : AerieColor.amberSoft))
-                .overlay(Capsule().strokeBorder(
-                    isFailure ? AerieColor.dangerLine : AerieColor.amberLine, lineWidth: 1))
-                .contentShape(Capsule())
+                .padding(.vertical, 6)
+                .background(Self.shape.fill(fill))
+                .overlay(Self.shape.strokeBorder(border, lineWidth: 1))
+                // `.pill.amber` / `.pill.arc`: `0 0 16px -8px <glow>`.
+                .shadow(color: glow, radius: glow == .clear ? 0 : 6)
+                .contentShape(Self.shape)
             }
             .buttonStyle(.plain)
             .disabled(phase == .installing)
@@ -51,15 +58,40 @@ struct UpdatePill: View {
     private var icon: some View {
         switch phase {
         case .installing:
-            ProgressView().controlSize(.small)
+            CardArcSpinner(size: 11)
         case .failed:
-            Image(systemName: "exclamationmark.triangle").font(.system(size: 10, weight: .semibold))
+            Text("▲").aerieFont(AerieFont.custom(.sans, size: 9))
         default:
-            Image(systemName: "arrow.down.circle").font(.system(size: 11, weight: .semibold))
+            Text("↓").aerieFont(AerieFont.custom(.sans, size: 11).weight(.semibold))
         }
     }
 
     private var isFailure: Bool { if case .failed = phase { return true }; return false }
+    private var isInstalling: Bool { phase == .installing }
+
+    private var foreground: Color {
+        if isFailure { return AerieColor.crimsonHot }
+        if isInstalling { return AerieColor.arc }
+        return AerieColor.amber
+    }
+
+    private var fill: Color {
+        if isFailure { return AerieColor.crimsonSoft }
+        if isInstalling { return AerieColor.arcSoft }
+        return AerieColor.amberSoft
+    }
+
+    private var border: Color {
+        if isFailure { return AerieColor.crimsonLine }
+        if isInstalling { return AerieColor.arcLine }
+        return AerieColor.amberLine
+    }
+
+    private var glow: Color {
+        if isFailure { return .clear }
+        if isInstalling { return AerieColor.arcGlow.opacity(0.35) }
+        return AerieColor.amberGlow.opacity(0.35)
+    }
 
     private var helpText: String {
         switch phase {

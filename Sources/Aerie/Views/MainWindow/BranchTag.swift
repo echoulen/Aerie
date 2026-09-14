@@ -3,8 +3,8 @@ import SwiftUI
 /// A monospace branch-name tag with a small branch glyph.
 ///
 /// Visual contract: `docs/superpowers/design/v2/screens.jsx` `BranchTag(...)`.
-/// Amber-tinted when `isCurrent == true` so the user can spot the checked-out
-/// branch at a glance.
+/// Gold-tinted (with a faint glow) when `isCurrent == true` so the user can
+/// spot the checked-out branch at a glance. Near-square MARK III tag corners.
 struct BranchTag: View {
     let name: String
     var isCurrent: Bool = false
@@ -21,13 +21,14 @@ struct BranchTag: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                 .fill(background)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                 .strokeBorder(border, lineWidth: 1)
         )
+        .shadow(color: isCurrent ? AerieColor.amberGlow.opacity(0.25) : .clear, radius: isCurrent ? 6 : 0)
     }
 
     private var foreground: Color {
