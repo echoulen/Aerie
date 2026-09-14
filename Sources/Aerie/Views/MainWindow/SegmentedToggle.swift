@@ -4,9 +4,8 @@ import SwiftUI
 /// and toggles between Pull Requests, Issues, and Repositories.
 ///
 /// Visual contract: `v2/app.jsx` `Header` segmented switch (three buttons).
-/// Selected pill: amber-tinted text on `AerieColor.amberSoft` with an
-/// `AerieColor.amberLine` 1pt border. Unselected: `AerieColor.text2` text on
-/// a transparent background.
+/// MARK III `.segmented`: uppercase 600 labels in a recessed black well; the
+/// selected key glows gold with an `amberLine` border. Unselected: `text3`.
 ///
 /// Keyboard shortcuts (⌘1 / ⌘2 / ⌘3) live on the segment buttons.
 struct SegmentedToggle: View {
@@ -19,10 +18,10 @@ struct SegmentedToggle: View {
             segmentButton(tab: .repos, label: "Repositories")
         }
         .padding(3)
-        .background(AerieColor.glass2)
-        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .background(Color.black.opacity(0.40))
+        .clipShape(RoundedRectangle(cornerRadius: AerieMetric.radiusPill))
         .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill)
                 .strokeBorder(AerieColor.glassLine, lineWidth: 1)
         )
     }
@@ -40,19 +39,26 @@ struct SegmentedToggle: View {
     private func segmentButton(tab: MainTab, label: String) -> some View {
         let isSelected = selection == tab
         Button(action: { selection = tab }) {
-            Text(label)
-                .aerieFont(AerieFont.small().weight(.medium))
-                .foregroundStyle(isSelected ? AerieColor.amber : AerieColor.text2)
+            Text(label.uppercased())
+                .aerieFont(AerieFont.small().weight(.semibold))
+                .tracking(0.96)                          // 0.08em @ 12pt
+                .lineLimit(1)
+                .foregroundStyle(isSelected ? AerieColor.amber : AerieColor.text3)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 7)
+                .padding(.vertical, 6)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isSelected ? AerieColor.amberSoft : Color.clear)
+                    RoundedRectangle(cornerRadius: AerieMetric.radiusPill)
+                        .fill(isSelected
+                              ? AnyShapeStyle(LinearGradient(colors: [AerieColor.glass3, AerieColor.cardSheen.opacity(0.04)],
+                                                             startPoint: .top, endPoint: .bottom))
+                              : AnyShapeStyle(Color.clear))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: AerieMetric.radiusPill)
                         .strokeBorder(isSelected ? AerieColor.amberLine : Color.clear, lineWidth: 1)
                 )
+                .shadow(color: isSelected ? AerieColor.amberGlow.opacity(0.35) : .clear, radius: 8)
+                .animation(.easeOut(duration: 0.2), value: isSelected)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

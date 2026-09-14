@@ -4,7 +4,7 @@ import SwiftUI
 /// Mirrors the design's `aerieCheckoutPlan` (`v2/checkout.jsx`):
 ///   - `losses`      — the local work a force-checkout would discard.
 ///   - `destructive` — true when there's anything to lose (dirty / ahead /
-///                     unpushed). Drives the dialog's red danger tone.
+///                     unpushed). Drives the dialog's crimson danger tone.
 ///   - `current`     — the repo is already on this branch, clean and level
 ///                     (checked out · not destructive · not behind).
 ///
@@ -38,8 +38,8 @@ struct CheckoutPlan: Equatable {
 
 /// Confirmation dialog for force-checking-out the repo onto a PR's origin
 /// branch. Tone switches on the local state: a destructive checkout (dirty /
-/// ahead / unpushed) reads red and spells out what's discarded; a safe one reads
-/// amber and reassures nothing local is at risk.
+/// ahead / unpushed) reads crimson and spells out what's discarded; a safe one
+/// reads gold (with the `.btn.amber` CTA) and reassures nothing local is at risk.
 ///
 /// Carries no busy/error state of its own — `onConfirm` fires once,
 /// synchronously; the caller closes the popover immediately and hands off to
@@ -70,8 +70,7 @@ struct DialogCheckout: View {
             onPrimary: onConfirm,
             secondaryTitle: "Cancel",
             onSecondary: onCancel,
-            iconView: AnyView(checkoutIcon(destructive: plan.destructive)),
-            primaryProminent: !plan.destructive
+            iconView: AnyView(checkoutIcon(destructive: plan.destructive))
         ) {
             KVList(rows: rows(plan: plan))
         }
@@ -115,14 +114,14 @@ struct DialogCheckout: View {
             .truncationMode(.middle)
     }
 
-    // The design's CheckoutGlyph, stroked to match the tone (red / amber) so it
-    // reads correctly inside DialogShell's icon tile (which paints the bg/ring
+    // The design's CheckoutGlyph, stroked to match the tone (crimson / gold) so
+    // it reads correctly inside the shell's icon key (which paints the bg/ring
     // but leaves a custom `iconView` to colour itself).
     private func checkoutIcon(destructive: Bool) -> some View {
         CheckoutGlyphShape()
             .stroke(
-                destructive ? AerieColor.dangerText : AerieColor.amber,
-                style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round)
+                destructive ? AerieColor.crimsonHot : AerieColor.amber,
+                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
             )
             .frame(width: 16, height: 16)
     }

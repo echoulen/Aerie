@@ -53,7 +53,6 @@ struct AccountsScreen: View {
     var onSignOut: (AccountRow) -> Void = { _ in }
 
     @State private var isRescanning: Bool = false
-    @State private var isRescanHovered: Bool = false
 
     var body: some View {
         ScrollView {
@@ -85,7 +84,7 @@ struct AccountsScreen: View {
                         .padding(.top, 18)
                 }
             }
-            .padding(AerieMetric.pagePadding)
+            .settingsPagePadding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -93,18 +92,12 @@ struct AccountsScreen: View {
     // MARK: - Page header
 
     private var pageHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionEyebrow("ACCOUNTS")
-            HStack(alignment: .firstTextBaseline) {
-                Text("GitHub identities")
-                    .aerieFont(AerieFont.sectionTitle())
-                    .foregroundStyle(AerieColor.text1)
-                Text("\(viewModel.rows.count) account\(viewModel.rows.count == 1 ? "" : "s") · via gh CLI")
-                    .aerieFont(AerieFont.code(13))
-                    .foregroundStyle(AerieColor.text3)
-                Spacer(minLength: 16)
-                rescanButton
-            }
+        SettingsPageHeader(
+            eyebrow: "Accounts",
+            title: "GitHub identities",
+            subtitle: "\(viewModel.rows.count) account\(viewModel.rows.count == 1 ? "" : "s") · via gh CLI"
+        ) {
+            rescanButton
         }
     }
 
@@ -122,43 +115,22 @@ struct AccountsScreen: View {
                 isRescanning = false
             }
         } label: {
-            HStack(spacing: 8) {
+            // Design: `.btn ghost sm` "↻ Rescan ⌘R".
+            HStack(spacing: 7) {
                 ZStack {
-                    // Inherit the surrounding text's font / colour so the
-                    // glyph sits at the same baseline weight as "Rescan"
-                    // instead of falling back to a tiny near-black symbol.
-                    Image(systemName: "arrow.clockwise")
-                        .aerieFont(AerieFont.small().weight(.medium))
-                        .foregroundStyle(AerieColor.text2)
+                    Text("↻")
                         .opacity(isRescanning ? 0 : 1)
                     ProgressView()
                         .controlSize(.small)
                         .scaleEffect(0.55)
                         .opacity(isRescanning ? 1 : 0)
                 }
+                .frame(width: 12, height: 12)
                 Text(isRescanning ? "Rescanning…" : "Rescan")
-                    .aerieFont(AerieFont.small().weight(.medium))
-                    .foregroundStyle(AerieColor.text2)
                 Text("⌘R")
-                    .aerieFont(AerieFont.code(10.5))
-                    .foregroundStyle(AerieColor.text4)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
         }
-        .buttonStyle(.plain)
-        // Per `.btn:hover` in styles.css: glass-3 + glass-line-2 on hover,
-        // glass-2 + glass-line at rest. `.onHover` fires on macOS only —
-        // no-op on iOS, which is fine since this is a Settings window.
-        .background(Capsule().fill(isRescanHovered ? AerieColor.glass3 : AerieColor.glass2))
-        .overlay(
-            Capsule().strokeBorder(
-                isRescanHovered ? AerieColor.glassLine2 : AerieColor.glassLine,
-                lineWidth: 1
-            )
-        )
-        .animation(.easeOut(duration: 0.12), value: isRescanHovered)
-        .onHover { isRescanHovered = $0 }
+        .buttonStyle(.hud(.ghost, size: .small))
         .keyboardShortcut("r", modifiers: .command)
     }
 
@@ -182,20 +154,17 @@ struct AccountsScreen: View {
             )
             Spacer(minLength: 16)
             Text("tokens kept in memory only")
-                .aerieFont(AerieFont.code(11))
+                .aerieFont(AerieFont.code(11.5))
                 .foregroundStyle(AerieColor.text3)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 20)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glass(.card)
     }
 
     private var okDot: some View {
-        Circle()
-            .fill(AerieColor.ok)
-            .frame(width: 7, height: 7)
-            .shadow(color: AerieColor.ok.opacity(0.6), radius: 6)
+        SettingsDot(tone: .ok)
     }
 
     /// Strips the leading `"gh version "` that `gh --version` prints so the
@@ -232,37 +201,25 @@ struct AccountsScreen: View {
             Text("Run this in a terminal — Aerie will pick the new account up automatically within a few seconds.")
                 .aerieFont(AerieFont.body())
                 .foregroundStyle(AerieColor.text2)
+                .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
                 Text("$")
                     .aerieFont(AerieFont.code())
                     .foregroundStyle(AerieColor.text4)
                 Text(addAccountCommand)
-                    .aerieFont(AerieFont.code())
+                    .aerieFont(AerieFont.code(13))
                     .foregroundStyle(AerieColor.text1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Button("Copy") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(addAccountCommand, forType: .string)
                 }
-                .buttonStyle(.plain)
-                .aerieFont(AerieFont.small().weight(.medium))
-                .foregroundStyle(AerieColor.text1)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(AerieColor.glass2))
-                .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
+                .buttonStyle(.hud(.standard, size: .small))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.black.opacity(0.32))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-            )
+            .hudWell()
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
@@ -273,9 +230,6 @@ struct AccountsScreen: View {
     // MARK: - Building blocks
 
     private func sectionEyebrow(_ text: String) -> some View {
-        Text(text)
-            .aerieFont(AerieFont.eyebrow())
-            .tracking(2.0)
-            .foregroundStyle(AerieColor.text4)
+        SectionEyebrow(text: text)
     }
 }

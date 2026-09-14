@@ -11,7 +11,7 @@ struct StatusPill: View {
     /// The pill's colour family. `neutral` is the untinted glass pill;
     /// `muted` is the same untinted glass but with dimmer (`text-3`) text — it
     /// mirrors the design's `<span className="pill" style={{color:text-3}}>`.
-    enum Tone { case neutral, ok, warn, err, amber, muted }
+    enum Tone { case neutral, ok, warn, err, amber, arc, muted }
 
     let text: String
     var tone: Tone = .neutral
@@ -25,10 +25,12 @@ struct StatusPill: View {
                 Circle()
                     .fill(dotColor)
                     .frame(width: 7, height: 7)
+                    .shadow(color: tone == .neutral || tone == .muted ? .clear : dotColor.opacity(0.85), radius: 5)
             }
-            Text(text)
-                .aerieFont(AerieFont.custom(.sans, size: 11).weight(.medium))
-                .tracking(0.22) // letter-spacing 0.02em at 11px
+            // MARK III `.pill`: 600 10.5px, uppercase, 0.10em tracking.
+            Text(text.uppercased())
+                .aerieFont(AerieFont.custom(.sans, size: 10.5).weight(.semibold))
+                .tracking(1.05)
         }
         .foregroundStyle(textColor)
         .padding(.horizontal, 9)
@@ -41,6 +43,7 @@ struct StatusPill: View {
             RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                 .strokeBorder(borderColor, lineWidth: 1)
         )
+        .shadow(color: glowColor, radius: glowColor == .clear ? 0 : 6)
         .fixedSize()
     }
 
@@ -51,6 +54,7 @@ struct StatusPill: View {
         case .warn:    return AerieColor.warn
         case .err:     return AerieColor.err
         case .amber:   return AerieColor.amber
+        case .arc:     return AerieColor.arc
         case .muted:   return AerieColor.text3
         }
     }
@@ -62,6 +66,7 @@ struct StatusPill: View {
         case .warn:    return AerieColor.warn
         case .err:     return AerieColor.err
         case .amber:   return AerieColor.amber
+        case .arc:     return AerieColor.arc
         case .muted:   return AerieColor.text4
         }
     }
@@ -71,18 +76,28 @@ struct StatusPill: View {
         case .neutral, .muted: return AerieColor.glass2
         case .ok:    return AerieColor.ok.opacity(0.10)
         case .warn:  return AerieColor.warn.opacity(0.10)
-        case .err:   return AerieColor.err.opacity(0.10)
+        case .err:   return AerieColor.crimsonSoft
         case .amber: return AerieColor.amberSoft
+        case .arc:   return AerieColor.arcSoft
         }
     }
 
     private var borderColor: Color {
         switch tone {
         case .neutral, .muted: return AerieColor.glassLine
-        case .ok:    return AerieColor.ok.opacity(0.32)
-        case .warn:  return AerieColor.warn.opacity(0.32)
-        case .err:   return AerieColor.err.opacity(0.36)
+        case .ok:    return AerieColor.ok.opacity(0.40)
+        case .warn:  return AerieColor.warn.opacity(0.40)
+        case .err:   return AerieColor.crimsonLine
         case .amber: return AerieColor.amberLine
+        case .arc:   return AerieColor.arcLine
+        }
+    }
+
+    private var glowColor: Color {
+        switch tone {
+        case .amber: return AerieColor.amberGlow.opacity(0.35)
+        case .arc:   return AerieColor.arcGlow.opacity(0.35)
+        default:     return .clear
         }
     }
 }

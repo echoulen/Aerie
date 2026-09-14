@@ -96,7 +96,9 @@ struct SettingsWindow: View {
                             selection: route,
                             mcpRunning: mcpVM.status.running,
                             accountsCount: accountsVM.rows.count,
-                            repositoriesCount: reposVM.repos.count
+                            repositoriesCount: reposVM.repos.count,
+                            aiModelName: aiModelVM.selected.displayName
+                                .split(separator: " ").first.map { $0.lowercased() }
                         )
                         body(for: route.wrappedValue)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -154,11 +156,15 @@ struct SettingsWindow: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: signOutTarget)
+        .aerieHull()
         .frame(minWidth: AerieMetric.settingsWindowW, minHeight: AerieMetric.settingsWindowH)
         .aerieWindowChrome()
         .task(id: route.wrappedValue) {
             await refreshActive(route: route.wrappedValue)
         }
+        // The sidebar's AI Model row shows the persisted model name, so load
+        // it once up front rather than only when that page is opened.
+        .task { await aiModelVM.refresh() }
         // Honour a deep-link from the main window's "Add repository" button.
         // `onAppear` covers a freshly-opened Settings window; `onChange` covers
         // the case where Settings is already open and merely refocused.

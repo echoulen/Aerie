@@ -1,8 +1,22 @@
 import SwiftUI
+import CoreText
 
 enum AerieFont {
-    static let sans = "Inter"            // installed via the .app bundle (see Task 1.6)
-    static let mono = "JetBrains Mono"
+    // MARK III type: a squared, technical sans + a telemetry mono. Both are
+    // OFL fonts shipped in `Resources/Fonts` and registered process-wide on
+    // first use (see `registerBundledFonts`).
+    static let sans = "Chakra Petch"
+    static let mono = "IBM Plex Mono"
+
+    /// Registers the bundled TTFs with CoreText for this process. Runs once, the
+    /// first time any style resolves — which covers the app *and* snapshot
+    /// tests without either needing an explicit setup call.
+    static let registerBundledFonts: Void = {
+        let urls = (Bundle.aerieResources.urls(forResourcesWithExtension: "ttf", subdirectory: nil) ?? [])
+            + (Bundle.aerieResources.urls(forResourcesWithExtension: "ttf", subdirectory: "Fonts") ?? [])
+        guard !urls.isEmpty else { return }
+        CTFontManagerRegisterFontURLs(urls as CFArray, .process, true, nil)
+    }()
 
     /// The two bundled families, for the `custom(_:size:)` escape hatch used by
     /// the few call sites that need an arbitrary one-off size.
@@ -30,6 +44,7 @@ enum AerieFont {
         }
 
         func resolve(scale: CGFloat) -> Font {
+            _ = AerieFont.registerBundledFonts
             var font = Font.custom(family, size: size * scale).weight(weight)
             if usesMonospacedDigit { font = font.monospacedDigit() }
             return font
@@ -45,8 +60,8 @@ enum AerieFont {
     // NOT geometrically (a root `scaleEffect` rasterises and blurs text) and NOT
     // via Dynamic Type (macOS SwiftUI ignores `\.dynamicTypeSize` for fonts).
     static func display() -> Style  { Style(family: sans, size: 30, weight: .light) }
-    /// Main-window page heading (`.section-title`): 26pt medium.
-    static func pageTitle() -> Style { Style(family: sans, size: 26, weight: .medium) }
+    /// Main-window page heading (`.section-title`): 27pt semibold.
+    static func pageTitle() -> Style { Style(family: sans, size: 27, weight: .semibold) }
     static func sectionTitle() -> Style  { Style(family: sans, size: 22, weight: .medium) }
     static func body() -> Style      { Style(family: sans, size: 13.5) }
     static func small() -> Style     { Style(family: sans, size: 12) }

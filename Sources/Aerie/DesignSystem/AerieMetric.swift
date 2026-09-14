@@ -1,12 +1,22 @@
 import SwiftUI
 
 enum AerieMetric {
-    // Radii
-    static let radiusCard:  CGFloat = 14
-    static let radiusRow:   CGFloat = 12
-    static let radiusPill:  CGFloat = 999
-    static let radiusWindow: CGFloat = 16
-    static let radiusDialog: CGFloat = 18
+    // Radii — MARK III is angular: plates are chamfered (see `HudPlateShape`)
+    // and the few remaining rounded rects are nearly square.
+    static let radiusCard:  CGFloat = 3
+    static let radiusRow:   CGFloat = 3
+    /// Pills, chips and small controls (`.pill`, `.segmented`, `.wt-*`): 2px.
+    static let radiusPill:  CGFloat = 2
+    static let radiusWindow: CGFloat = 3
+    static let radiusDialog: CGFloat = 3
+
+    // Chamfer cuts
+    static let cutCard:   CGFloat = 16
+    static let cutDialog: CGFloat = 18
+    static let cutWindow: CGFloat = 26
+    /// Trailing space titlebar controls keep so they clear the hull's
+    /// top-right notched step (`HullShape.notchInset` + a little air).
+    static let hullNotchClearance: CGFloat = 140
 
     // Spacing
     static let pagePadding: CGFloat = 44

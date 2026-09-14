@@ -1,23 +1,22 @@
 import SwiftUI
 import AppKit
 
-/// A single repository row. Renders through the shared ``CardContent`` skeleton,
-/// so it stays pixel-consistent with the PR and Issue cards.
+/// A single repository row on a MARK III `.card` plate.
 ///
-/// Visual contract: `docs/superpowers/design/v2/app.jsx` `RepoCard(...)`, mapped
-/// onto the shared Issue-style layout:
+/// Visual contract: `v2/app.jsx` `RepoCard(...)` (+ `worktrees-views.jsx`
+/// `WtRepoHead`, `publish.jsx`, `system.jsx`) — a `1.4fr 1fr auto` grid:
 ///   ┌──────────────────────────────────────────────────────────────────┐
 ///   │ <owner> · [off default]                                            │
-///   │ <name>                                       [Open ↗] [Reset…]     │
-///   │ ⎇ <branch>  ● <status sentence>                                    │
+///   │ <name>                    ● <status sentence>   [Open ↗] [Reset…]  │
+///   │ ⎇ <branch>                                      [Discard all…]     │
 ///   └──────────────────────────────────────────────────────────────────┘
-/// - Meta: the owner, plus an "off default" pill when the checked-out branch
-///   isn't the default.
-/// - Title: the repo name.
-/// - Chips: the checked-out branch as a ``BranchTag``, then a single
-///   tone-coloured ``StatusPill`` summarising the working tree — "Working tree
-///   dirty", "Clean · in sync with origin", or an "N ahead · M behind …" line.
-/// - Actions: a ghost "Open ↗" and a red `.btn.danger` "Reset to origin/<b>".
+/// - Identity: the owner (plus "off default" / "merged · #N" / "API sync
+///   paused" tags), the 20pt repo name, and the checked-out branch.
+/// - Status: a tone dot + sentence — "Working tree dirty", "Clean · in sync
+///   with origin", or an "N ahead · M behind …" line.
+/// - Actions: a ghost "Open ↗" and a crimson `.btn.danger` "Reset to
+///   origin/<b>", with Create PR / Discard below when relevant.
+/// - Footer: failure / publish / merged-branch strips, then the worktree rail.
 struct RepoCard: View {
     let row: RepoRow
     var onOpen: () -> Void
@@ -148,64 +147,37 @@ struct RepoCard: View {
 
     // MARK: - Body
 
+    @Environment(\.isCompactWidth) private var isCompact
+
     var body: some View {
-        CardContent(title: repoTitle) {
-            HStack(spacing: 10) {
-                Text(owner)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text2)
-                if row.repo.apiSyncDisabled {
-                    MetaDot()
-                    apiSyncPausedPill
+        VStack(alignment: .leading, spacing: 0) {
+            if isCompact {
+                // Narrow window: identity, status and actions stack so the
+                // text keeps the full card width.
+                VStack(alignment: .leading, spacing: 12) {
+                    identityColumn
+                    statusLine
+                    actionCluster
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if let merged = row.mergedBranch {
-                    MetaDot()
-                    mergedPill(merged)
-                } else if !isOnDefault {
-                    MetaDot()
-                    offDefaultPill
-                }
-            }
-        } chips: {
-            BranchTag(name: branchName, isCurrent: !isOnDefault)
-            StatusPill(text: statusText, tone: statusTone, showsDot: true)
-        } actions: {
-            actionCluster
-        } footer: {
-            if !row.worktrees.isEmpty || !createFooterIsEmpty || resetFailure != nil || discardFailure != nil {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let resetFailure {
-                        // `resetFailure` already reads "Reset failed: …" (the
-                        // `onHardResetConfirmed` closure's error string) — pass
-                        // it through as-is, don't add a second prefix.
-                        ActionErrorStrip(
-                            message: resetFailure,
-                            onRetry: { repoActionStore.retry(.hardReset, target: .repo(row.repo)) },
-                            onDismiss: { repoActionStore.dismiss(.hardReset, target: .repo(row.repo)) })
-                    }
-                    if let discardFailure {
-                        // Already reads "Discard failed: …" — pass through as-is.
-                        ActionErrorStrip(
-                            message: discardFailure,
-                            onRetry: { repoActionStore.retry(.discardUnstaged, target: .repo(row.repo)) },
-                            onDismiss: { repoActionStore.dismiss(.discardUnstaged, target: .repo(row.repo)) })
-                    }
-                    if !createFooterIsEmpty {
-                        createStatusFooter
-                    }
-                    if !row.worktrees.isEmpty {
-                        WorktreeRail(
-                            worktrees: row.worktrees,
-                            repo: row.repo,
-                            defaultBranch: row.repo.defaultBranch,
-                            repoActionStore: repoActionStore,
-                            onMerge: onMergeWorktree,
-                            onDiscardConfirmed: onDiscardWorktreeConfirmed,
-                            onDeleteConfirmed: onDeleteWorktreeConfirmed)
-                    }
+            } else {
+                // Design grid `1.4fr 1fr auto`, column gap 28.
+                HStack(alignment: .center, spacing: 28) {
+                    identityColumn
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .layoutPriority(1)
+                    statusLine
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    actionCluster
+                        .fixedSize()
                 }
             }
+
+            footer
         }
+        .padding(.vertical, AerieMetric.cardPaddingV)
+        .padding(.horizontal, AerieMetric.cardPaddingH)
+        .glass(.card)
         .overlay(alignment: .topTrailing) {
             CardRemoveButton(action: onRemove)
                 .padding(.top, 10)
@@ -213,14 +185,126 @@ struct RepoCard: View {
         }
     }
 
-    @Environment(\.isCompactWidth) private var isCompact
+    /// Identity column: owner meta row (12pt text-3 + tags) · 20pt name ·
+    /// branch glyph + mono branch name.
+    private var identityColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(owner)
+                    .aerieFont(AerieFont.custom(.sans, size: 12))
+                    .foregroundStyle(AerieColor.text3)
+                    .lineLimit(1)
+                if row.repo.apiSyncDisabled {
+                    MetaDot()
+                    apiSyncPausedPill
+                }
+                if let merged = row.mergedBranch {
+                    MetaDot()
+                    if isResetting {
+                        resettingPill
+                    } else {
+                        mergedPill(merged)
+                    }
+                } else if !isOnDefault {
+                    MetaDot()
+                    offDefaultPill
+                }
+            }
+
+            Text(repoTitle)
+                .aerieFont(AerieFont.custom(.sans, size: 20).weight(.medium))
+                .tracking(-0.16)
+                .foregroundStyle(AerieColor.text1)
+                .lineLimit(2)
+
+            HStack(spacing: 8) {
+                BranchGlyph()
+                    .frame(width: 13, height: 13)
+                    .foregroundStyle(AerieColor.text3)
+                Text(branchName)
+                    .aerieFont(AerieFont.code(13))
+                    .foregroundStyle(AerieColor.text2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    /// Status column: a 7pt tone dot (ok / warn / amber, 8pt glow at 0.6) and
+    /// the working-tree sentence in 13.5pt text-2.
+    private var statusLine: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 7, height: 7)
+                .shadow(color: statusColor.opacity(0.6), radius: 4)
+            Text(statusText)
+                .aerieFont(AerieFont.custom(.sans, size: 13.5))
+                .foregroundStyle(AerieColor.text2)
+                .lineLimit(2)
+        }
+    }
+
+    private var statusColor: Color {
+        switch statusTone {
+        case .warn:  return AerieColor.warn
+        case .amber: return AerieColor.amber
+        default:     return AerieColor.ok
+        }
+    }
+
+    private var showsFooter: Bool {
+        !row.worktrees.isEmpty || !createFooterIsEmpty || resetFailure != nil
+            || discardFailure != nil || (row.mergedBranch != nil && !isResetting)
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        if showsFooter {
+            VStack(alignment: .leading, spacing: 8) {
+                if let resetFailure {
+                    // `resetFailure` already reads "Reset failed: …" (the
+                    // `onHardResetConfirmed` closure's error string) — pass
+                    // it through as-is, don't add a second prefix.
+                    ActionErrorStrip(
+                        message: resetFailure,
+                        onRetry: { repoActionStore.retry(.hardReset, target: .repo(row.repo)) },
+                        onDismiss: { repoActionStore.dismiss(.hardReset, target: .repo(row.repo)) })
+                }
+                if let discardFailure {
+                    // Already reads "Discard failed: …" — pass through as-is.
+                    ActionErrorStrip(
+                        message: discardFailure,
+                        onRetry: { repoActionStore.retry(.discardUnstaged, target: .repo(row.repo)) },
+                        onDismiss: { repoActionStore.dismiss(.discardUnstaged, target: .repo(row.repo)) })
+                }
+                if let merged = row.mergedBranch, !isResetting {
+                    mergedHintStrip(merged)
+                }
+                if !createFooterIsEmpty {
+                    createStatusFooter
+                }
+                if !row.worktrees.isEmpty {
+                    WorktreeRail(
+                        worktrees: row.worktrees,
+                        repo: row.repo,
+                        defaultBranch: row.repo.defaultBranch,
+                        repoActionStore: repoActionStore,
+                        onMerge: onMergeWorktree,
+                        onDiscardConfirmed: onDiscardWorktreeConfirmed,
+                        onDeleteConfirmed: onDeleteWorktreeConfirmed)
+                }
+            }
+            .padding(.top, 14)
+        }
+    }
 
     // The trailing action cluster. Wide: the uniform Open ↗ / Reset row stays
     // on top so those line up across cards; the conditional second row holds
-    // the amber Create PR button and the quieter dirty-only Discard. Compact:
-    // CardContent puts this slot under the content, so the same buttons wrap
-    // as a flow instead of forcing fixed rows wider than the card.
-    // Destructive actions are disabled while claude is running git —
+    // the gold Create PR button and the quieter dirty-only Discard. Compact:
+    // the same buttons wrap as a flow instead of forcing fixed rows wider than
+    // the card. Destructive actions are disabled while claude is running git —
     // a hard reset mid-publish would corrupt the flow.
     @ViewBuilder
     private var actionCluster: some View {
@@ -254,12 +338,16 @@ struct RepoCard: View {
             action: onToggleApiSync)
         CardOpenButton(action: onOpen)
         DangerButton(
-            title: isResetting ? "Resetting…" : Self.resetTitle(row),
+            title: resetButtonTitle,
             action: { if !isResetting { showResetConfirm = true } },
-            isRunning: isResetting
+            isRunning: isResetting,
+            // The merged-branch cleanup is the smaller `.btn.danger.sm`.
+            isSmall: row.mergedBranch != nil
         )
-        .disabled(isCreating || isResetting)
-        .opacity((isCreating || isResetting) ? 0.45 : 1)
+        // Blocked (and dimmed by the HUD style) while a publish runs. A running
+        // reset stays enabled so its arc key isn't dimmed — the action's
+        // `!isResetting` guard already ignores taps.
+        .disabled(isCreating && !isResetting)
         .popover(isPresented: $showResetConfirm) {
             if let status = row.status {
                 DialogReset(
@@ -280,6 +368,13 @@ struct RepoCard: View {
         }
     }
 
+    /// Idle: `resetTitle`. Running: the merged-branch cleanup keeps its label
+    /// with a trailing ellipsis (`system.jsx`), a plain reset reads "Resetting…".
+    private var resetButtonTitle: String {
+        guard isResetting else { return Self.resetTitle(row) }
+        return row.mergedBranch != nil ? "Reset & delete branch…" : "Resetting…"
+    }
+
     @ViewBuilder
     private var secondaryActionButtons: some View {
         if Self.shouldShowCreatePR(row) || isCreating {
@@ -288,7 +383,8 @@ struct RepoCard: View {
         if Self.shouldShowDiscard(row.status) {
             DiscardButton(isRunning: isDiscarding, action: { if !isDiscarding { showDiscardConfirm = true } })
                 .disabled(isCreating || isDiscarding)
-                .opacity((isCreating || isDiscarding) ? 0.45 : 1)
+                // Only the publish block dims; a running discard shows arc cyan.
+                .opacity((isCreating && !isDiscarding) ? 0.45 : 1)
                 .popover(isPresented: $showDiscardConfirm) {
                     if let status = row.status {
                         DialogDiscard(
@@ -307,171 +403,280 @@ struct RepoCard: View {
     }
 
     private var offDefaultPill: some View {
-        Text("off default")
-            .aerieFont(AerieFont.custom(.sans, size: 10))
-            .foregroundStyle(AerieColor.text3)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 1)
-            .background(Capsule(style: .continuous).fill(AerieColor.glass2))
-            .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        RepoMetaTag(text: "off default")
     }
 
-    /// Grey pill shown when `apiSyncDisabled` is true — the sibling of
+    /// Grey tag shown when `apiSyncDisabled` is true — the sibling of
     /// `offDefaultPill`, same styling, independent of it (both can show
     /// together).
     private var apiSyncPausedPill: some View {
-        Text("API sync paused")
-            .aerieFont(AerieFont.custom(.sans, size: 10))
-            .foregroundStyle(AerieColor.text3)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 1)
-            .background(Capsule(style: .continuous).fill(AerieColor.glass2))
-            .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        RepoMetaTag(text: "API sync paused")
     }
 
-    /// Amber-toned, clickable pill replacing `off default` when the checked-out
-    /// branch is already merged. Opens the merged PR. Amber (not err/ok) reads as
+    /// `pill amber` "merged · #N" replacing `off default` when the checked-out
+    /// branch is already merged. Opens the merged PR. Gold (not err/ok) reads as
     /// "needs action" without colliding with the danger or clean tones.
     private func mergedPill(_ merged: MergedBranchInfo) -> some View {
         Button {
             NSWorkspace.shared.open(merged.prUrl)
         } label: {
-            Text("merged · #\(merged.prNumber)")
-                .aerieFont(AerieFont.custom(.sans, size: 10))
-                .foregroundStyle(AerieColor.amber)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 1)
-                .background(Capsule(style: .continuous).fill(AerieColor.amberSoft))
-                .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.amberLine, lineWidth: 1))
-                .contentShape(Capsule())
+            RepoMetaTag(text: "merged · #\(merged.prNumber)", tone: .amber)
         }
         .buttonStyle(.plain)
         .help("Open merged PR #\(merged.prNumber)")
     }
 
-    /// PR-publish status line in the card footer: live progress while running,
-    /// a clickable PR pill on success (mergedPill's palette), an error + Retry
-    /// on failure, and a transient neutral line for "nothing to publish".
+    /// `pill arc` with a 10pt spinner while the merged-branch cleanup runs.
+    private var resettingPill: some View {
+        RepoMetaTag(text: "Resetting", tone: .arc, spinner: true)
+    }
+
+    /// The merged-branch hint (`system.jsx`): a gold strip explaining why the
+    /// card offers "Reset & delete branch".
+    private func mergedHintStrip(_ merged: MergedBranchInfo) -> some View {
+        RepoFooterStrip(fill: AerieColor.amberSoft, line: AerieColor.amberLine) {
+            Text("◈")
+                .aerieFont(AerieFont.custom(.sans, size: 12.5))
+                .foregroundStyle(AerieColor.amber)
+            (Text(merged.branch).font(.custom(AerieFont.mono, size: 12)).foregroundColor(AerieColor.text1)
+             + Text(" was merged via #\(merged.prNumber) — reset to origin/\(row.repo.defaultBranch) and delete it"))
+                .aerieFont(AerieFont.custom(.sans, size: 12.5))
+                .foregroundStyle(AerieColor.text2)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// PR-publish status in the card footer (`publish.jsx`): a streaming
+    /// `.console` while claude runs, then an ok "Published" strip, a crimson
+    /// failure strip with Retry, or a transient "nothing to publish" strip.
     @ViewBuilder
     private var createStatusFooter: some View {
         switch createPhase {
         case .idle:
             EmptyView()
         case .running(let lines):
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.mini).tint(AerieColor.amber)
-                Text(lines.last ?? "Starting claude…")
-                    .aerieFont(AerieFont.custom(.sans, size: 12))
-                    .foregroundStyle(AerieColor.text3)
+            CardConsole(lines: lines.isEmpty ? ["Starting claude…"] : lines, maxHeight: 150)
+        case .done(let n, let url):
+            RepoFooterStrip(fill: AerieColor.ok.opacity(0.10), line: AerieColor.ok.opacity(0.38)) {
+                Circle()
+                    .fill(AerieColor.ok)
+                    .frame(width: 7, height: 7)
+                    .shadow(color: AerieColor.ok.opacity(0.85), radius: 5)
+                Text("Published")
+                    .aerieFont(AerieFont.custom(.sans, size: 12.5))
+                    .foregroundStyle(AerieColor.text2)
+                    .fixedSize()
+                StatusPill(text: "#\(n) opened", tone: .ok)
+                Text(url.absoluteString)
+                    .aerieFont(AerieFont.code(11))
+                    .foregroundStyle(AerieColor.text4)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                Spacer(minLength: 8)
+                Button("Open PR") { NSWorkspace.shared.open(url) }
+                    .buttonStyle(.hud(.standard, size: .small))
+                    .fixedSize()
+                    .help("Open PR #\(n)")
             }
-        case .done(let n, let url):
-            Button {
-                NSWorkspace.shared.open(url)
-            } label: {
-                Text("PR #\(n) ↗")
-                    .aerieFont(AerieFont.custom(.sans, size: 10))
-                    .foregroundStyle(AerieColor.amber)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 1)
-                    .background(Capsule(style: .continuous).fill(AerieColor.amberSoft))
-                    .overlay(Capsule(style: .continuous).strokeBorder(AerieColor.amberLine, lineWidth: 1))
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .help("Open PR #\(n)")
         case .failed(let message):
-            HStack(spacing: 8) {
-                Text(message)
-                    .aerieFont(AerieFont.custom(.sans, size: 12))
-                    .foregroundStyle(AerieColor.err)
-                    .lineLimit(2)
+            RepoFooterStrip(fill: AerieColor.crimsonSoft, line: AerieColor.crimsonLine) {
+                Text("⊗")
+                    .aerieFont(AerieFont.custom(.sans, size: 13))
+                    .foregroundStyle(AerieColor.crimsonHot)
+                (Text("Publish failed  ").fontWeight(.bold).foregroundColor(AerieColor.crimsonHot)
+                 + Text(message).foregroundColor(AerieColor.text2))
+                    .aerieFont(AerieFont.custom(.sans, size: 12.5))
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
                 Button("Retry", action: onCreatePR)
-                    .buttonStyle(.plain)
-                    .aerieFont(AerieFont.custom(.sans, size: 12).weight(.medium))
-                    .foregroundStyle(AerieColor.text2)
+                    .buttonStyle(.hud(.danger, size: .small))
+                    .fixedSize()
             }
         case .nothingToDo:
-            Text("沒有可發佈的變更")
-                .aerieFont(AerieFont.custom(.sans, size: 12))
-                .foregroundStyle(AerieColor.text3)
+            RepoFooterStrip(fill: Color.black.opacity(0.28), line: AerieColor.glassLine) {
+                Circle()
+                    .fill(AerieColor.text4)
+                    .frame(width: 7, height: 7)
+                Text("沒有可發佈的變更")
+                    .aerieFont(AerieFont.custom(.sans, size: 12.5))
+                    .foregroundStyle(AerieColor.text3)
+                Spacer(minLength: 8)
+                HudNote(text: "clears in 4s")
+            }
+        }
+    }
+}
+
+// MARK: - Footer strips + meta tags
+
+/// A radius-2 status strip in the repo card footer (publish result, merged
+/// hint): 9×12 padding, tone wash + 1px tone border, row gap 10.
+private struct RepoFooterStrip<Content: View>: View {
+    let fill: Color
+    let line: Color
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        HStack(spacing: 10) {
+            content()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous).fill(fill))
+        .overlay(
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                .strokeBorder(line, lineWidth: 1))
+    }
+}
+
+/// The small `.pill` used in the repo card's meta row — shrunk to `padding
+/// 1px 7px`, `fontSize 10` ("off default", "API sync paused" in text-3; gold
+/// "merged · #N"; arc "RESETTING" with a spinner).
+private struct RepoMetaTag: View {
+    enum Tone { case neutral, amber, arc }
+    let text: String
+    var tone: Tone = .neutral
+    var spinner: Bool = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if spinner {
+                CardArcSpinner(size: 10, color: foreground)
+            }
+            Text(text.uppercased())
+                .aerieFont(AerieFont.custom(.sans, size: 10).weight(.semibold))
+                .tracking(1.0)
+        }
+        .foregroundStyle(foreground)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 1)
+        .background(
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous).fill(fill))
+        .overlay(
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                .strokeBorder(border, lineWidth: 1))
+        .shadow(color: glow, radius: glow == .clear ? 0 : 6)
+        .contentShape(Rectangle())
+        .fixedSize()
+    }
+
+    private var foreground: Color {
+        switch tone {
+        case .neutral: return AerieColor.text3
+        case .amber:   return AerieColor.amber
+        case .arc:     return AerieColor.arc
+        }
+    }
+    private var fill: Color {
+        switch tone {
+        case .neutral: return AerieColor.glass2
+        case .amber:   return AerieColor.amberSoft
+        case .arc:     return AerieColor.arcSoft
+        }
+    }
+    private var border: Color {
+        switch tone {
+        case .neutral: return AerieColor.glassLine
+        case .amber:   return AerieColor.amberLine
+        case .arc:     return AerieColor.arcLine
+        }
+    }
+    private var glow: Color {
+        switch tone {
+        case .neutral: return .clear
+        case .amber:   return AerieColor.amberGlow.opacity(0.35)
+        case .arc:     return AerieColor.arcGlow.opacity(0.35)
         }
     }
 }
 
 // MARK: - Buttons
 
-/// `.btn.danger` — lighter-red text on an `err`-tinted fill with a matching
-/// hairline; the fill deepens on hover. 13pt medium sans, 8×14 padding.
+/// `.btn.danger` — the MARK III crimson bevelled key (crimson-hot text on a
+/// crimson wash, brighter rim + glow on hover); `.sm` for the merged-branch
+/// cleanup. While the reset runs the key switches to `.btn.arc` with an inline
+/// spinner.
 private struct DangerButton: View {
     let title: String
     let action: () -> Void
     var isRunning: Bool = false
-    @State private var hovering = false
+    var isSmall: Bool = false
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                if isRunning { ProgressView().controlSize(.small).tint(AerieColor.dangerText) }
+            HStack(spacing: 7) {
+                if isRunning { CardArcSpinner(size: isSmall ? 10 : 12) }
                 Text(title)
-                    .aerieFont(AerieFont.custom(.sans, size: 13).weight(.medium))
             }
-            .foregroundStyle(AerieColor.dangerText)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(hovering ? AerieColor.dangerFillHover : AerieColor.dangerFill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(AerieColor.dangerLine, lineWidth: 1)
-            )
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .buttonStyle(.hud(isRunning ? .arc : .danger, size: isSmall ? .small : .regular))
     }
 }
 
-/// `.btn.ghost.sm.discard-all-btn` — a quiet ghost button (undo curved-arrow
-/// glyph + label) that's the destructive-but-secondary affordance below the
-/// Open ↗ / Reset row. Neutral (`text3`) at rest; text + icon turn danger red
-/// (`err`) on hover — louder than a normal ghost, quieter than the always-red
-/// `Reset to origin/<b>`. Smaller than the primary actions (12pt, 5×10 padding).
+/// `.btn.ghost.sm.discard-all-btn` — a quiet ghost bevelled key (undo
+/// curved-arrow glyph + label) that's the destructive-but-secondary affordance
+/// below the Open ↗ / Reset row. text-3 with a glass hairline at rest; text,
+/// rim and wash turn crimson on hover — louder than a normal ghost, quieter
+/// than the always-crimson `Reset to origin/<b>`. Arc cyan + spinner while
+/// discarding.
 private struct DiscardButton: View {
     var isRunning: Bool = false
     let action: () -> Void
     @State private var hovering = false
 
+    private static let shape = HudKeyShape(cut: 6)
+
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: 7) {
                 if isRunning {
-                    ProgressView().controlSize(.small)
+                    CardArcSpinner(size: 11)
                 } else {
-                    Image(systemName: "arrow.counterclockwise")
+                    Image(systemName: "arrow.uturn.backward")
                         .font(.system(size: 11, weight: .semibold))
                 }
                 Text(isRunning ? "Discarding…" : "Discard all unstaged")
-                    .aerieFont(AerieFont.custom(.sans, size: 12))
+                    .aerieFont(AerieFont.custom(.sans, size: 11.5).weight(.medium))
+                    .tracking(0.69) // 0.06em @ 11.5px
+                    .lineLimit(1)
+                    .fixedSize()
             }
-            .foregroundStyle(hovering ? AerieColor.err : AerieColor.text3)
-            .padding(.horizontal, 10)
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 11)
             .padding(.vertical, 5)
-            .contentShape(Rectangle())
+            .background(Self.shape.fill(fill))
+            .overlay(Self.shape.strokeBorder(border, lineWidth: 1))
+            .contentShape(Self.shape)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help("Discard all unstaged changes in the working tree")
         .animation(.easeOut(duration: 0.15), value: hovering)
     }
+
+    private var lit: Bool { hovering && !isRunning }
+
+    private var foreground: Color {
+        if isRunning { return AerieColor.arc }
+        return lit ? AerieColor.crimsonHot : AerieColor.text3
+    }
+    private var fill: Color {
+        if isRunning { return AerieColor.arcSoft }
+        return lit ? AerieColor.crimsonSoft : .clear
+    }
+    private var border: Color {
+        if isRunning { return AerieColor.arcLine }
+        return lit ? AerieColor.crimsonLine : AerieColor.glassLine
+    }
 }
 
 /// Icon-only ghost toggle that pauses/resumes this repo's GitHub API sync.
 /// Mirrors `DiscardButton`'s scale (icon-only, `.plain` style, hover color
-/// shift) but swaps to amber when paused so a glance at the card row shows
+/// shift) but swaps to gold when paused so a glance at the card row shows
 /// whether sync is active.
 private struct ApiSyncToggleButton: View {
     let icon: String
@@ -494,40 +699,38 @@ private struct ApiSyncToggleButton: View {
     }
 }
 
-/// The amber "Create Pull Request" action — amber text on `amberSoft` fill
-/// with an `amberLine` hairline (mergedPill's palette at button scale), so it
-/// reads constructive next to the red danger button and grey ghosts. Swaps to
-/// a spinner + "Creating PR…" while a publish runs.
+/// The "Create Pull Request" action (`publish.jsx`). Idle: a regular `.btn`
+/// bevelled key with gold text on an `amberSoft` wash and `amberLine` rim, so
+/// it reads constructive next to the crimson danger key and grey ghosts.
+/// Running: a cut-9 arc block (arc text, `arcSoft`, `arcLine` + glow) with a
+/// 13pt spinner and "CREATING PR…" — the live console streams below in the
+/// card footer.
 private struct CreatePRButton: View {
     let isCreating: Bool
     let action: () -> Void
-    @State private var hovering = false
+
+    private static let shape = HudKeyShape(cut: 9)
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: 7) {
                 if isCreating {
-                    ProgressView().controlSize(.small).tint(AerieColor.amber)
+                    CardArcSpinner(size: 13)
                 }
-                Text(isCreating ? "Creating PR…" : "Create Pull Request")
-                    .aerieFont(AerieFont.custom(.sans, size: 13).weight(.medium))
+                Text(isCreating ? "CREATING PR…" : "Create Pull Request")
+                    .aerieFont(AerieFont.custom(.sans, size: 12.5).weight(isCreating ? .semibold : .medium))
+                    .tracking(0.75) // 0.06em @ 12.5px
             }
-            .foregroundStyle(AerieColor.amber)
-            .padding(.horizontal, 14)
+            .foregroundStyle(isCreating ? AerieColor.arc : AerieColor.amber)
+            .padding(.horizontal, 15)
             .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(AerieColor.amberSoft.opacity(hovering && !isCreating ? 0.75 : 1))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(AerieColor.amberLine, lineWidth: 1)
-            )
-            .contentShape(Rectangle())
+            .background(Self.shape.fill(isCreating ? AerieColor.arcSoft : AerieColor.amberSoft))
+            .overlay(Self.shape.strokeBorder(isCreating ? AerieColor.arcLine : AerieColor.amberLine, lineWidth: 1))
+            .shadow(color: isCreating ? AerieColor.arcGlow.opacity(0.35) : .clear, radius: isCreating ? 8 : 0)
+            .contentShape(Self.shape)
         }
         .buttonStyle(.plain)
         .disabled(isCreating)
-        .onHover { hovering = $0 }
         .help("用本地 claude 依 Settings 的 PR 發布模板建立 pull request")
     }
 }

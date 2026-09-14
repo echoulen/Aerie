@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The small amber "refresh this list" button that sits in the page header,
-/// just after the count. Mirrors `v2/app.jsx` `RefreshButton`: a 26×26 amber
-/// ghost square whose icon spins while a refresh is in flight.
+/// The small gold "refresh this list" button that sits in the page header,
+/// just after the count. Mirrors `v2/app.jsx` `RefreshButton`: a 26×26
+/// `.btn.ghost.sm` bevelled key with a gold glyph, gold/0.30 rim and gold/0.08
+/// wash, whose icon spins (0.7s turns) while a refresh is in flight.
 ///
 /// `action` is the real refresh (an immediate poll tick). The icon spins in
 /// whole forward turns: when the refresh ends it finishes the current turn
@@ -23,6 +24,9 @@ struct RefreshButton: View {
     /// overlapping loop.
     @State private var isAnimating = false
 
+    /// Bevelled HUD key (`.btn.sm` geometry, 6pt cut).
+    private static let shape = HudKeyShape(cut: 6)
+
     var body: some View {
         Button(action: tapped) {
             Image(systemName: "arrow.clockwise")
@@ -30,15 +34,9 @@ struct RefreshButton: View {
                 .foregroundStyle(AerieColor.amber)
                 .rotationEffect(.degrees(rotation))
                 .frame(width: 26, height: 26)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(AerieColor.amber.opacity(0.08))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(AerieColor.amber.opacity(0.30), lineWidth: 1)
-                )
-                .contentShape(Rectangle())
+                .background(Self.shape.fill(AerieColor.amber.opacity(0.08)))
+                .overlay(Self.shape.strokeBorder(AerieColor.amber.opacity(0.30), lineWidth: 1))
+                .contentShape(Self.shape)
         }
         .buttonStyle(.plain)
         // ⌘R refreshes the current tab's list. Only the active tab's screen —
@@ -84,7 +82,7 @@ struct RefreshButton: View {
     /// `Task { @MainActor … }` lets the run loop advance between turns, so the
     /// stop flag actually flips and the loop always ends.
     private func spinForwardOneTurn() {
-        withAnimation(.linear(duration: 0.8)) {
+        withAnimation(.linear(duration: 0.7)) {
             rotation += 360
         } completion: {
             Task { @MainActor in

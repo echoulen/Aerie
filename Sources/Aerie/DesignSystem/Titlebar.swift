@@ -1,15 +1,11 @@
 import SwiftUI
 
-/// Custom titlebar (`AerieMetric.titlebarHeight`, 52 pt) that sits flush under
-/// the native (transparent) title bar. The native macOS traffic lights stay at
-/// top-left; this view draws a horizontally-centred brand cluster — the amber
-/// `BrandMark` orb plus a title — exactly like the v2 design (`styles.css
-/// .brand`, centred via `left: 50%`).
-///
-/// The height is taller than the native title-bar band to give the brand
-/// breathing room above and below (matching the v2 design). The brand centres
-/// vertically at 26 pt; the traffic lights are system-pinned at 16 pt, so the
-/// brand sits slightly below them by design in exchange for the padding.
+/// Custom titlebar (`AerieMetric.titlebarHeight`) that sits flush under the
+/// native (transparent) title bar. The native macOS traffic lights stay at
+/// top-left; this view draws the centred MARK III brand cluster — the gold
+/// `BrandMark` orb plus a letter-spaced, uppercase title (`styles.css .brand`)
+/// — over a faint warm wash, with a gold hairline along the bottom that fades
+/// out and slants away before the right end (`.titlebar::after`).
 ///
 /// The title text is the only per-window difference: the main window shows
 /// "Aerie", the Settings window "Aerie · Settings".
@@ -20,18 +16,53 @@ struct Titlebar: View {
         ZStack {
             HStack(spacing: 10) {
                 BrandMark(size: 14)
-                Text(title)
-                    .aerieFont(AerieFont.body().weight(.medium))
+                Text(title.uppercased())
+                    .aerieFont(AerieFont.custom(.sans, size: 11).weight(.semibold))
+                    .tracking(3.3)                   // 0.30em @ 11pt
                     .foregroundStyle(AerieColor.text2)
-                    .tracking(0.13)
             }
         }
         .frame(maxWidth: .infinity)
         .frame(height: AerieMetric.titlebarHeight)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(AerieColor.glassLine)
-                .frame(height: 1)
+        .background(
+            LinearGradient(colors: [Color(red: 1, green: 198/255, blue: 130/255).opacity(0.07), .clear],
+                           startPoint: .top, endPoint: .bottom)
+        )
+        .overlay(alignment: .bottom) { TitlebarHairline() }
+    }
+}
+
+/// `.titlebar::after` — gold hairline from 34pt in, fading at both ends, that
+/// breaks into a short 42° slant ~118pt from the right and continues as a
+/// dimmer glass line one step higher.
+private struct TitlebarHairline: View {
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            let mainEnd = max(34, w - 150)
+            ZStack(alignment: .topLeading) {
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: AerieColor.amberLine, location: 0.08),
+                    .init(color: AerieColor.amberLine, location: 0.62),
+                    .init(color: .clear, location: 0.78),
+                ], startPoint: .leading, endPoint: .trailing)
+                .frame(width: mainEnd - 34, height: 1)
+                .offset(x: 34, y: h - 1)
+
+                Path { p in
+                    p.move(to: CGPoint(x: w - 134, y: h - 0.5))
+                    p.addLine(to: CGPoint(x: w - 118, y: 0.5))
+                }
+                .stroke(AerieColor.amberLine, lineWidth: 1)
+
+                LinearGradient(colors: [AerieColor.glassLine, .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 108, height: 1)
+                    .offset(x: w - 108, y: 0)
+            }
         }
+        .frame(height: 14)
+        .allowsHitTesting(false)
     }
 }

@@ -2,6 +2,11 @@ import SwiftUI
 
 /// Settings → Repositories main content.
 ///
+/// MARK III (`settings.jsx` `RepositoriesScreen`): header padded 34/40/18 with
+/// a `.btn ghost sm` "↻ Refresh all" and the gold `.btn amber` "+ Add
+/// repository"; a 9pt `.section-eyebrow` column legend (0/40, 6 below); the
+/// rows in a single `.card` plate padded 0/40/40.
+///
 /// Visual contract: `docs/superpowers/design/v2/settings.jsx` lines 200-310.
 /// Layout:
 ///   ┌──────────────────────────────────────────────────────────┐
@@ -40,18 +45,25 @@ struct RepositoriesScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 pageHeader
+                    .padding(.top, 34)
+                    .padding(.horizontal, 40)
+                    .padding(.bottom, 18)
                 if !viewModel.repos.isEmpty {
-                    columnLegend.padding(.top, 20)
-                    listCard.padding(.top, 6)
+                    columnLegend
+                        .padding(.horizontal, 40)
+                        .padding(.bottom, 6)
+                    listCard
+                        .padding(.horizontal, 40)
                 }
                 if let error = viewModel.error {
                     Text(error)
                         .aerieFont(AerieFont.small())
                         .foregroundStyle(AerieColor.err)
                         .padding(.top, 18)
+                        .padding(.horizontal, 40)
                 }
             }
-            .padding(AerieMetric.pagePadding)
+            .padding(.bottom, 40)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -59,29 +71,24 @@ struct RepositoriesScreen: View {
     // MARK: - Page header
 
     private var pageHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionEyebrow("REPOSITORIES")
-            HStack(alignment: .firstTextBaseline) {
-                Text("Tracked locally")
-                    .aerieFont(AerieFont.sectionTitle())
-                    .foregroundStyle(AerieColor.text1)
-                Text("\(viewModel.repos.count) repositor\(viewModel.repos.count == 1 ? "y" : "ies")")
-                    .aerieFont(AerieFont.code(13))
-                    .foregroundStyle(AerieColor.text3)
-                Spacer(minLength: 16)
+        SettingsPageHeader(
+            eyebrow: "Repositories",
+            title: "Tracked locally",
+            subtitle: "\(viewModel.repos.count) repositor\(viewModel.repos.count == 1 ? "y" : "ies")"
+        ) {
+            HStack(spacing: 8) {
                 Button("↻ Refresh all", action: onRefreshAll)
-                    .buttonStyle(GhostButtonStyle())
+                    .buttonStyle(.hud(.ghost, size: .small))
                 Button("+ Add repository", action: onAddRepo)
-                    .buttonStyle(AmberButtonStyle())
+                    .buttonStyle(.hud(.amber))
             }
         }
     }
 
     // MARK: - Column legend
 
-    // Faint guide above the list — `settings.jsx` lines 233-245. Same 5-column
-    // grid as the rows, inset 20 pt to sit over the row content (the rows pad
-    // 20 pt inside the card).
+    // Guide above the list — `settings.jsx` column legend. Same 5-column grid
+    // as the rows (18 / 1fr / 1.3fr / 130 / 28, 18 gap).
     private var columnLegend: some View {
         HStack(spacing: 18) {
             Color.clear.frame(width: 18, height: 1)
@@ -93,21 +100,15 @@ struct RepositoriesScreen: View {
                 .frame(width: 130, alignment: .leading)
             Color.clear.frame(width: 28, height: 1)
         }
-        .padding(.horizontal, 20)
     }
 
+    /// `.section-eyebrow` at 9pt / 0.20em: mono, gold at 0.72 opacity.
     private func legendLabel(_ text: String) -> some View {
         Text(text)
-            .aerieFont(AerieFont.custom(.mono, size: 9).weight(.medium))
+            .aerieFont(AerieFont.custom(.mono, size: 9))
             .tracking(1.8) // 0.20em × 9 px
-            .foregroundStyle(AerieColor.text4)
-    }
-
-    private func sectionEyebrow(_ text: String) -> some View {
-        Text(text)
-            .aerieFont(AerieFont.eyebrow())
-            .tracking(2.0)
-            .foregroundStyle(AerieColor.text4)
+            .foregroundStyle(AerieColor.amber.opacity(0.72))
+            .lineLimit(1)
     }
 
     // MARK: - List
@@ -225,87 +226,6 @@ struct RepositoriesScreen: View {
                 // Freeze the measurement mid-drag so an animating layout can't
                 // feed a changing rowHeight back into the slot maths.
                 .onChange(of: geo.size.height) { _, h in if idx == 0, draggingId == nil { rowHeight = h } }
-        }
-    }
-}
-
-// MARK: - Button styles
-//
-// `.btn.ghost.sm` and `.btn.amber` from styles.css. Ghost = transparent until
-// hover (then glass2 + text1); amber = the primary CTA — a vertical amber
-// gradient with dark ink, a top inset highlight, and an amber glow. Both use a
-// 9 pt rounded rect (not a capsule) and nudge down 0.5 pt while pressed
-// (`.btn:active { transform: translateY(0.5px) }`).
-
-private struct GhostButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { Content(configuration: configuration) }
-
-    private struct Content: View {
-        let configuration: ButtonStyleConfiguration
-        @State private var hover = false
-
-        var body: some View {
-            configuration.label
-                .aerieFont(AerieFont.small().weight(.medium))
-                .foregroundStyle(hover ? AerieColor.text1 : AerieColor.text3)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(hover ? AerieColor.glass2 : Color.clear)
-                )
-                .offset(y: configuration.isPressed ? 0.5 : 0)
-                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .onHover { hover = $0 }
-                .animation(.easeOut(duration: 0.18), value: hover)
-        }
-    }
-}
-
-private struct AmberButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { Content(configuration: configuration) }
-
-    private struct Content: View {
-        let configuration: ButtonStyleConfiguration
-        @State private var hover = false
-
-        var body: some View {
-            configuration.label
-                .aerieFont(AerieFont.custom(.sans, size: 13).weight(.semibold))
-                .foregroundStyle(AerieColor.amberInk)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [AerieColor.amberFillTop, AerieColor.amberFillBot],
-                                startPoint: .top, endPoint: .bottom
-                            )
-                        )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(AerieColor.amberCtaLine, lineWidth: 1)
-                )
-                // inset 0 1px 0 0 oklch(1 0 0 / 0.40) — bright top edge.
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [Color.white.opacity(0.40), Color.clear],
-                                startPoint: .top, endPoint: .bottom
-                            ),
-                            lineWidth: 1
-                        )
-                        .blendMode(.plusLighter)
-                )
-                .shadow(color: AerieColor.amberGlow, radius: 5, y: 2)
-                .brightness(hover ? 0.04 : 0) // filter: brightness(1.05)
-                .offset(y: configuration.isPressed ? 0.5 : 0)
-                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .onHover { hover = $0 }
-                .animation(.easeOut(duration: 0.18), value: hover)
         }
     }
 }

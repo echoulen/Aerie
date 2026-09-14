@@ -5,8 +5,8 @@ import Observation
 // Titlebar account menu — shows the active gh account in the top-right of
 // the main window and is the entry point into Settings.
 //
-// Visual contract: design `src/v2/app.jsx` `TitlebarAccount`. A pill button
-// (24 pt avatar + chevron) opens a 250 pt glass dropdown containing the
+// Visual contract: design `src/v2/app.jsx` `TitlebarAccount`. A round pill
+// button (24 pt avatar + chevron) opens a 250 pt radius-2 dropdown panel with the
 // current account header (avatar · login · primary pill · @host) and a single
 // "Settings…" item. The "Switch account" / "Sign out" rows from the earlier
 // exploration were dropped — the avatar's only job is *identity + Settings*.
@@ -94,7 +94,9 @@ struct AccountMenu: View {
                 // matching the centred brand cluster. (The native traffic lights
                 // stay pinned at 16 pt, so both sit slightly below them by design.)
                 .padding(.top, 11)
-                .padding(.trailing, 14)
+                // Sit left of the hull's top-right notch (`HullShape`), as the
+                // design's titlebar does with its 132px right padding.
+                .padding(.trailing, AerieMetric.hullNotchClearance)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
@@ -138,6 +140,8 @@ private struct AccountMenuPanel: View {
     let active: ActiveAccount
     let onSettings: () -> Void
 
+    private static let shape = RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -152,23 +156,10 @@ private struct AccountMenuPanel: View {
         .padding(6)
         .frame(width: 250)
         .background(panelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-        )
-        // Inset top highlight — `inset 0 1px 0 0 rgba(255,255,255,0.05)`.
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
-                .mask(
-                    LinearGradient(
-                        stops: [.init(color: .white, location: 0), .init(color: .clear, location: 0.08)],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
-        )
-        .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 12)
+        .clipShape(Self.shape)
+        .overlay(Self.shape.strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        // `0 16px 40px rgba(0,0,0,.5)`.
+        .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 16)
     }
 
     // Current-account header: avatar · (login + primary pill) · @host.
@@ -201,12 +192,12 @@ private struct AccountMenuPanel: View {
             .padding(.vertical, 4)
     }
 
-    // `oklch(0.20 0.012 70 / 0.96)` over a within-window blur — a near-opaque
-    // warm-charcoal that reads dark against the aurora backdrop.
+    // `menuSurface` (`oklch(0.20 0.012 70 / 0.96)`) over a within-window blur —
+    // a near-opaque warm-charcoal that reads dark against the deep-space backdrop.
     private var panelBackground: some View {
         ZStack {
             VisualEffectBlur(material: .hudWindow, blendingMode: .withinWindow)
-            Color(red: 42 / 255, green: 40 / 255, blue: 37 / 255).opacity(0.96)
+            AerieColor.menuSurface
         }
     }
 }
@@ -250,10 +241,10 @@ private struct AccountMenuRow<Icon: View>: View {
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                 .fill(hover ? AerieColor.glass3 : Color.clear)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous))
         .onHover { hover = $0 }
         .onTapGesture { action() }
     }
@@ -261,18 +252,18 @@ private struct AccountMenuRow<Icon: View>: View {
 
 // MARK: - Pieces
 
-/// Small amber "primary" pill. `.pill amber` overridden to `fontSize:9`,
-/// `padding:1px 6px` in the design — base pill font is sans 500.
+/// Small gold "primary" pill. `.pill amber` overridden to `fontSize:9`,
+/// `padding:1px 6px` in the design — MARK III pills are 600, uppercase, 0.10em.
 private struct PrimaryPill: View {
     var body: some View {
-        Text("primary")
-            .aerieFont(AerieFont.custom(.sans, size: 9).weight(.medium))
-            .tracking(0.18) // letter-spacing 0.02em × 9 px
+        Text("primary".uppercased())
+            .aerieFont(AerieFont.custom(.sans, size: 9).weight(.semibold))
+            .tracking(0.9) // letter-spacing 0.10em × 9 px
             .foregroundStyle(AerieColor.amber)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
-            .background(Capsule().fill(AerieColor.amberSoft))
-            .overlay(Capsule().strokeBorder(AerieColor.amberLine, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous).fill(AerieColor.amberSoft))
+            .overlay(RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous).strokeBorder(AerieColor.amberLine, lineWidth: 1))
     }
 }
 

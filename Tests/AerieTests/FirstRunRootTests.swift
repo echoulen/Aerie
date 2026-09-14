@@ -40,7 +40,6 @@ final class FirstRunRootTests: XCTestCase {
             let view = ZStack {
                 Backdrop()
                 NoGhBody(onRecheck: { booter.recheckNow() })
-                    .glass(.card)
                     .padding(48)
             }
             .frame(width: 800, height: 600)
@@ -62,7 +61,6 @@ final class FirstRunRootTests: XCTestCase {
             let view = ZStack {
                 Backdrop()
                 NoAuthBody(onRecheck: { booter.recheckNow() })
-                    .glass(.card)
                     .padding(48)
             }
             .frame(width: 800, height: 600)

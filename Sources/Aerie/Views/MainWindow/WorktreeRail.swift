@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Variant A · left rail — the worktree sub-section nested inside a repo card.
 /// Renders as `RepoCard`'s footer: a full-bleed divider, an "N attached
-/// worktrees" eyebrow, then an amber-railed list of `WorktreeRowView`s.
+/// worktrees" eyebrow, then a gold-railed list of `WorktreeRowView`s.
 struct WorktreeRail: View {
     let worktrees: [WorktreeRow]
     let repo: Repository
@@ -17,11 +17,12 @@ struct WorktreeRail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Full-bleed hairline (design: margin 18px -26px 0). CardContent's
-            // horizontal padding is 28, so -28 reaches the card edge.
+            // horizontal padding is `cardPaddingH` (26), so its negation reaches
+            // the card edge.
             Rectangle()
                 .fill(AerieColor.glassLine)
                 .frame(height: 1)
-                .padding(.horizontal, -28)
+                .padding(.horizontal, -AerieMetric.cardPaddingH)
                 .padding(.top, 18)
 
             // Eyebrow
@@ -31,14 +32,14 @@ struct WorktreeRail: View {
                     .foregroundStyle(AerieColor.text4)
                 Text("\(worktrees.count) attached worktree\(worktrees.count == 1 ? "" : "s")")
                     .aerieFont(AerieFont.code(10))
-                    .tracking(1.8) // 0.18em at 10px
+                    .tracking(2.0) // `.wt-eyebrow`: 0.20em at 10px
                     .textCase(.uppercase)
                     .foregroundStyle(AerieColor.text4)
             }
             .padding(.top, 16)
             .padding(.bottom, 10)
 
-            // Amber rail + row-blocks (divider between blocks, so a row's
+            // Gold rail + row-blocks (divider between blocks, so a row's
             // conflict strip stays grouped with its row).
             VStack(spacing: 0) {
                 ForEach(Array(worktrees.enumerated()), id: \.element.id) { index, wt in
@@ -57,6 +58,7 @@ struct WorktreeRail: View {
             }
             .padding(.leading, 22)
             .overlay(alignment: .leading) {
+                // `.wt-rail`: 1px gold left border.
                 Rectangle().fill(AerieColor.amberLine).frame(width: 1)
             }
             .padding(.leading, 5)
@@ -90,10 +92,10 @@ private struct WorktreeBranchChip: View {
         .padding(.horizontal, 9)
         .padding(.vertical, 3)
         .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                 .fill(AerieColor.glass2))
         .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                 .strokeBorder(
                     AerieColor.glassLine,
                     style: StrokeStyle(lineWidth: 1, dash: worktree.isDetached ? [3, 2] : [])))
@@ -112,9 +114,9 @@ private struct WorktreeStatusView: View {
     var body: some View {
         HStack(spacing: 6) {
             if worktree.isLocked {
-                Text("locked")
-                    .aerieFont(AerieFont.custom(.sans, size: 11).weight(.medium))
-                    .tracking(0.22)
+                Text("locked".uppercased())
+                    .aerieFont(AerieFont.custom(.sans, size: 10.5).weight(.semibold))
+                    .tracking(1.05)
                     .foregroundStyle(AerieColor.warn)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 3)
@@ -131,16 +133,20 @@ private struct WorktreeStatusView: View {
     @ViewBuilder
     private var dirtinessView: some View {
         if worktree.prunable {
-            Text("missing on disk")
-                .aerieFont(AerieFont.custom(.sans, size: 11).weight(.medium))
-                .tracking(0.22)
-                .foregroundStyle(AerieColor.err)
+            // `pill err` with a dashed border.
+            Text("missing on disk".uppercased())
+                .aerieFont(AerieFont.custom(.sans, size: 10.5).weight(.semibold))
+                .tracking(1.05)
+                .foregroundStyle(AerieColor.crimsonHot)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                        .fill(AerieColor.crimsonSoft))
                 .overlay(
                     RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                         .strokeBorder(
-                            AerieColor.err.opacity(0.36),
+                            AerieColor.crimsonLine,
                             style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
                 .fixedSize()
         } else if worktree.isDirty {
@@ -172,7 +178,7 @@ private struct WorktreePathView: View {
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                             .strokeBorder(AerieColor.glassLine, lineWidth: 1))
                     .fixedSize()
             }
@@ -388,10 +394,10 @@ private struct WorktreeActions: View {
 
 // MARK: - Merge button (stateless; driven by the row's phase)
 
-/// `.wt-action` with phase-driven feedback. idle → Merging… (spinner, disabled)
-/// → Up to date ✓ (ok-green, disabled) on success; → Retry merge (`is-error`,
-/// danger-tinted, clickable) on conflict. `minWidth` pins the width so the row
-/// never jumps between states.
+/// `.wt-action` with phase-driven feedback. idle → Merging… (`is-running`: arc
+/// cyan + spinner, disabled) → Up to date ✓ (`is-done`: ok-green, disabled) on
+/// success; → Retry merge (`is-error`: crimson, clickable) on conflict.
+/// `minWidth` pins the width so the row never jumps between states.
 private struct WtMergeButton: View {
     let defaultBranch: String
     let phase: MergeUIPhase
@@ -403,18 +409,16 @@ private struct WtMergeButton: View {
             HStack(spacing: 6) {
                 icon
                 Text(label)
-                    .aerieFont(AerieFont.custom(.sans, size: 12).weight(.medium))
+                    .aerieFont(AerieFont.custom(.sans, size: 11.5).weight(.medium))
+                    .tracking(0.58) // 0.05em @ 11.5px
             }
             .foregroundStyle(foreground)
             .padding(.horizontal, 11)
             .padding(.vertical, 5)
             .frame(minWidth: 172)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(fill))
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(border, lineWidth: 1))
-            .contentShape(Rectangle())
+            .background(wtBoxShape.fill(fill))
+            .overlay(wtBoxShape.strokeBorder(border, lineWidth: 1))
+            .contentShape(wtBoxShape)
         }
         .buttonStyle(WtPressStyle())
         .disabled(phase == .running || phase == .done)
@@ -427,7 +431,7 @@ private struct WtMergeButton: View {
     @ViewBuilder private var icon: some View {
         switch phase {
         case .running:
-            SpinnerView(size: 11).foregroundStyle(AerieColor.text2)
+            CardArcSpinner(size: 11)
         case .done:
             Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold))
         case .idle, .error:
@@ -453,52 +457,36 @@ private struct WtMergeButton: View {
     private var foreground: Color {
         switch phase {
         case .done:    return AerieColor.ok
-        case .error:   return AerieColor.dangerText
-        case .running: return AerieColor.text2
+        case .error:   return AerieColor.crimsonHot
+        case .running: return AerieColor.arc
         case .idle:    return hovering ? AerieColor.text1 : AerieColor.text2
         }
     }
     private var fill: Color {
         switch phase {
         case .done:    return AerieColor.ok.opacity(0.12)
-        case .error:   return AerieColor.err.opacity(hovering ? 0.22 : 0.14)
-        case .running: return AerieColor.glass2
+        case .error:   return hovering ? AerieColor.crimson.opacity(0.24) : AerieColor.crimsonSoft
+        case .running: return AerieColor.arcSoft
         case .idle:    return hovering ? AerieColor.glass3 : AerieColor.glass2
         }
     }
     private var border: Color {
         switch phase {
-        case .done:    return AerieColor.ok.opacity(0.35)
-        case .error:   return AerieColor.err.opacity(0.45)
-        case .running: return AerieColor.glassLine
+        case .done:    return AerieColor.ok.opacity(0.40)
+        case .error:   return AerieColor.crimsonLine
+        case .running: return AerieColor.arcLine
         case .idle:    return hovering ? AerieColor.glassLine2 : AerieColor.glassLine
         }
     }
 }
 
-/// Ring with a transparent quadrant that spins continuously — the design's
-/// `.spinner` (2px stroke, top/right transparent, 0.7s linear infinite). Tint
-/// it from the caller with `.foregroundStyle(_:)`.
-private struct SpinnerView: View {
-    var size: CGFloat = 11
-    @State private var spinning = false
+/// The worktree controls' geometry — plain radius-2 boxes (`.wt-action`,
+/// `.wt-del`), deliberately not the chamfered `.btn` keys.
+private let wtBoxShape = RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
 
-    var body: some View {
-        Circle()
-            .trim(from: 0, to: 0.6)
-            .stroke(style: StrokeStyle(lineWidth: 2, lineCap: .round))
-            .frame(width: size, height: size)
-            .rotationEffect(.degrees(spinning ? 360 : 0))
-            .onAppear {
-                withAnimation(.linear(duration: 0.7).repeatForever(autoreverses: false)) {
-                    spinning = true
-                }
-            }
-    }
-}
-
-/// `.wt-action` — labeled pill button (used by Discard). `hoverTone: .danger`
-/// turns it red on hover; `.neutral` lifts to glass3. Presses sink 0.5px.
+/// `.wt-action` — labeled box button (used by Discard). `hoverTone: .danger`
+/// (`.wt-action.discard`) turns it crimson on hover; `.neutral` lifts to
+/// glass3. Arc cyan with a spinner while running. Presses sink 0.5px.
 private struct WtActionButton: View {
     enum HoverTone { case neutral, danger }
     let systemImage: String
@@ -512,21 +500,20 @@ private struct WtActionButton: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 if isRunning {
-                    SpinnerView(size: 11).foregroundStyle(foreground)
+                    CardArcSpinner(size: 11)
                 } else {
                     Image(systemName: systemImage).font(.system(size: 12, weight: .medium))
                 }
-                Text(title).aerieFont(AerieFont.custom(.sans, size: 12).weight(.medium))
+                Text(title)
+                    .aerieFont(AerieFont.custom(.sans, size: 11.5).weight(.medium))
+                    .tracking(0.58) // 0.05em @ 11.5px
             }
             .foregroundStyle(foreground)
             .padding(.horizontal, 11)
             .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(fill))
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(border, lineWidth: 1))
-            .contentShape(Rectangle())
+            .background(wtBoxShape.fill(fill))
+            .overlay(wtBoxShape.strokeBorder(border, lineWidth: 1))
+            .contentShape(wtBoxShape)
         }
         .buttonStyle(WtPressStyle())
         .onHover { hovering = $0 }
@@ -534,21 +521,25 @@ private struct WtActionButton: View {
     }
 
     private var foreground: Color {
+        if isRunning { return AerieColor.arc }
         guard hovering else { return AerieColor.text2 }
-        return hoverTone == .danger ? AerieColor.err : AerieColor.text1
+        return hoverTone == .danger ? AerieColor.crimsonHot : AerieColor.text1
     }
     private var fill: Color {
+        if isRunning { return AerieColor.arcSoft }
         guard hovering else { return AerieColor.glass2 }
-        return hoverTone == .danger ? AerieColor.err.opacity(0.12) : AerieColor.glass3
+        return hoverTone == .danger ? AerieColor.crimsonSoft : AerieColor.glass3
     }
     private var border: Color {
+        if isRunning { return AerieColor.arcLine }
         guard hovering else { return AerieColor.glassLine }
-        return hoverTone == .danger ? AerieColor.err.opacity(0.4) : AerieColor.glassLine2
+        return hoverTone == .danger ? AerieColor.crimsonLine : AerieColor.glassLine2
     }
 }
 
-/// `.wt-del` — destructive icon-only button, 28×28, neutral at rest, red on
-/// hover, sinks 0.5px on press.
+/// `.wt-del` — destructive icon-only box, 28×28 radius 2, text-4 on a
+/// transparent ground at rest, crimson on hover, arc spinner while deleting,
+/// sinks 0.5px on press.
 private struct WtDeleteButton: View {
     var isRunning: Bool = false
     let action: () -> Void
@@ -558,23 +549,20 @@ private struct WtDeleteButton: View {
         Button(action: action) {
             Group {
                 if isRunning {
-                    SpinnerView(size: 13).foregroundStyle(AerieColor.text4)
+                    CardArcSpinner(size: 13)
                 } else {
                     Image(systemName: "trash")
                         .font(.system(size: 13))
-                        .foregroundStyle(hovering ? AerieColor.dangerText : AerieColor.text4)
+                        .foregroundStyle(hovering ? AerieColor.crimsonHot : AerieColor.text4)
                 }
             }
                 .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(hovering ? AerieColor.err.opacity(0.16) : Color.clear))
+                .background(wtBoxShape.fill(hovering && !isRunning ? AerieColor.crimson.opacity(0.18) : Color.clear))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(
-                            hovering ? AerieColor.err.opacity(0.45) : AerieColor.glassLine,
-                            lineWidth: 1))
-                .contentShape(Rectangle())
+                    wtBoxShape.strokeBorder(
+                        hovering && !isRunning ? AerieColor.crimsonLine : AerieColor.glassLine,
+                        lineWidth: 1))
+                .contentShape(wtBoxShape)
         }
         .buttonStyle(WtPressStyle())
         .onHover { hovering = $0 }

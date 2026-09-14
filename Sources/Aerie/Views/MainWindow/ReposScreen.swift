@@ -96,9 +96,8 @@ struct ReposScreen: View {
 
     private var loadingView: some View {
         VStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.regular)
-                .tint(AerieColor.amber)
+            // Fetching is a running process → the arc-reactor loader.
+            ArcRing(size: 30)
             Text("Loading repositories…")
                 .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text3)
@@ -125,7 +124,7 @@ struct ReposScreen: View {
                 .foregroundStyle(AerieColor.text1)
             Text(message)
                 .aerieFont(AerieFont.small())
-                .foregroundStyle(AerieColor.err)
+                .foregroundStyle(AerieColor.dangerText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 480)
         }
@@ -147,7 +146,7 @@ struct ReposScreen: View {
                 if let actionError = viewModel.actionError {
                     Text(actionError)
                         .aerieFont(AerieFont.small())
-                        .foregroundStyle(AerieColor.err)
+                        .foregroundStyle(AerieColor.dangerText)
                         .padding(.bottom, 10)
                 }
 

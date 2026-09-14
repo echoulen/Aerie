@@ -33,7 +33,8 @@ struct IssueCard: View {
             if issue.commentCount > 0 {
                 HStack(spacing: 5) {
                     Image(systemName: "bubble.left")
-                        .font(.system(size: 10, weight: .regular))
+                        .font(.system(size: 11, weight: .regular))
+                        .frame(width: 13, height: 13)
                         .foregroundStyle(AerieColor.text4)
                     Text("\(issue.commentCount)")
                         .aerieFont(AerieFont.code(12))
@@ -47,17 +48,19 @@ struct IssueCard: View {
     }
 }
 
-/// One issue label, rendered as a glass pill tinted with GitHub's own label
-/// colour so the triage list keeps the colour coding users already know from
-/// github.com. Falls back to a neutral pill when the colour can't be parsed.
+/// One issue label, rendered as a MARK III `.pill` (600 10.5pt uppercase,
+/// 0.10em) tinted with GitHub's own label colour so the triage list keeps the
+/// colour coding users already know from github.com. Falls back to a muted
+/// pill (text-3) when the colour can't be parsed.
 struct IssueLabelPill: View {
     let label: IssueLabel
 
     var body: some View {
         let tint = Color(githubHex: label.color)
         let fg = tint ?? AerieColor.text3
-        Text(label.name)
-            .aerieFont(AerieFont.custom(.sans, size: 11).weight(.medium))
+        Text(label.name.uppercased())
+            .aerieFont(AerieFont.custom(.sans, size: 10.5).weight(.semibold))
+            .tracking(1.05)
             .foregroundStyle(fg)
             .padding(.horizontal, 9)
             .padding(.vertical, 3)

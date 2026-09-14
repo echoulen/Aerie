@@ -1,60 +1,53 @@
 import SwiftUI
 
-/// Applies the Aerie glass treatment used on cards, dialogs, and the window.
-/// `backdrop: blur(40px) saturate(160%)`, `border 1px var(--glass-line)`,
-/// `inset 0 1px 0 0 var(--glass-highlight)`.
+/// Applies the Aerie MARK III plate treatment used on cards, dialogs, and the
+/// window: a chamfered holographic plate with a conforming hairline edge,
+/// a gold-lit left strut, and a faint warm sheen at the top.
+/// (Design source: `styles.css` `.card`, `.window`.)
 struct GlassModifier: ViewModifier {
     enum Variant { case window, card, dialog }
     let variant: Variant
+    @State private var hovering = false
 
     func body(content: Content) -> some View {
-        let cornerRadius: CGFloat = self.cornerRadius
+        let shape = HudPlateShape(cut: cut)
         return content
             .background(backgroundLayer)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(borderColor, lineWidth: 1)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(AerieColor.glassHighlight, lineWidth: 1)
-                    .mask(
-                        LinearGradient(
-                            stops: [.init(color: .white, location: 0), .init(color: .clear, location: 0.05)],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                    )
-            )
+            .clipShape(shape)
+            .overlay(PlateEdge(shape: shape, emphasised: variant == .dialog))
+            .overlay(alignment: .leading) {
+                if variant == .card {
+                    // `.card::after` — 2px gold strut down the left edge, brighter on hover.
+                    LinearGradient(stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: AerieColor.amberGlow, location: 0.3),
+                        .init(color: AerieColor.amberGlow, location: 0.7),
+                        .init(color: .clear, location: 1),
+                    ], startPoint: .top, endPoint: .bottom)
+                    .frame(width: 2)
+                    .padding(.vertical, 22)
+                    .opacity(hovering ? 1 : 0.55)
+                    .allowsHitTesting(false)
+                }
+            }
+            .onHover { if variant == .card { hovering = $0 } }
+            .animation(.easeOut(duration: 0.2), value: hovering)
     }
 
-    private var cornerRadius: CGFloat {
+    private var cut: CGFloat {
         switch variant {
-        case .window: return AerieMetric.radiusWindow
-        case .card:   return AerieMetric.radiusCard
-        case .dialog: return AerieMetric.radiusDialog
+        case .window: return AerieMetric.cutWindow
+        case .card:   return AerieMetric.cutCard
+        case .dialog: return AerieMetric.cutDialog
         }
     }
 
-    // Dialog needs the brighter glass-line-2 ring so it reads as a raised
-    // surface against the dimmed scrim (matches the design's accent ring).
-    // Window/card stay on the subtler glass-line.
-    private var borderColor: Color {
-        variant == .dialog ? AerieColor.glassLine2 : AerieColor.glassLine
-    }
-
-    // Per `styles.css`:
-    //   .window → glass-1 (0.035) + behindWindow frosted material
-    //   .card   → within-window blur + `cardGlassTint`: a frosted-glass panel
-    //             that blurs the now-translucent backdrop showing behind it.
-    //             (Was a flat/opaque fill; the window is translucent now, so the
-    //             card frosts what shows through instead of sitting solid.)
-    //   .dialog → dark `dialogSurface` (rgba(28,26,32,0.78)) layered over a
-    //             within-window blur. The old white-glass + `.menu` material
-    //             rendered too bright in dark mode; this matches the design's
-    //             dark dialog body + `backdrop-filter blur(48px)`.
     @ViewBuilder
     private var backgroundLayer: some View {
+        let sheen = LinearGradient(stops: [
+            .init(color: AerieColor.cardSheen.opacity(hovering ? 0.07 : 0.045), location: 0),
+            .init(color: .clear, location: 0.36),
+        ], startPoint: .top, endPoint: .bottom)
         switch variant {
         case .window:
             ZStack {
@@ -63,21 +56,51 @@ struct GlassModifier: ViewModifier {
                     .opacity(0.8)
             }
         case .card:
-            // Frosted glass: blur the desktop showing through the translucent
-            // window *behind* the card, washed with a dark tint so text stays
-            // legible. Must be `.behindWindow` (not `.withinWindow`): the desktop
-            // is composited behind the window, so a within-window blur has no
-            // crisp content to frost and reads as a flat tint.
+            // Frosted plate: blur the desktop behind the translucent window,
+            // washed with deep-space tint so text stays legible.
             ZStack {
                 VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
                 AerieColor.cardGlassTint
+                (hovering ? AerieColor.glass3 : AerieColor.glass2)
+                sheen
             }
         case .dialog:
             ZStack {
                 VisualEffectBlur(material: .hudWindow, blendingMode: .withinWindow)
                 AerieColor.dialogSurface
+                sheen
             }
         }
+    }
+}
+
+/// `.card::before` — the conforming hairline: a brighter top edge fading right,
+/// a gold-lit upper third on the left, and struts across both clipped corners.
+private struct PlateEdge: View {
+    let shape: HudPlateShape
+    var emphasised: Bool = false
+
+    var body: some View {
+        ZStack {
+            shape.strokeBorder(emphasised ? AerieColor.glassLine2 : AerieColor.glassLine, lineWidth: 1)
+            // Top edge: glass-line-2 fading out by 55%.
+            shape.strokeBorder(AerieColor.glassLine2, lineWidth: 1)
+                .mask(
+                    LinearGradient(stops: [.init(color: .white, location: 0), .init(color: .clear, location: 0.55)],
+                                   startPoint: .leading, endPoint: .trailing)
+                    .mask(LinearGradient(stops: [.init(color: .white, location: 0), .init(color: .clear, location: 0.04)],
+                                         startPoint: .top, endPoint: .bottom))
+                )
+            // Left edge: amber for the upper 34%.
+            shape.strokeBorder(AerieColor.amberLine, lineWidth: 1)
+                .mask(
+                    LinearGradient(stops: [.init(color: .white, location: 0), .init(color: .white, location: 0.34), .init(color: .clear, location: 0.34)],
+                                   startPoint: .top, endPoint: .bottom)
+                    .mask(LinearGradient(stops: [.init(color: .white, location: 0), .init(color: .clear, location: 0.02)],
+                                         startPoint: .leading, endPoint: .trailing))
+                )
+        }
+        .allowsHitTesting(false)
     }
 }
 
