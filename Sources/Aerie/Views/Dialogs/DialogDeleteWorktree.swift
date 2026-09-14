@@ -3,7 +3,7 @@ import SwiftUI
 /// Delete-worktree confirmation, presented via `.popover(isPresented:)`.
 /// Clean → `git worktree remove`; dirty → `--force` with an N-changes
 /// warning; locked → unlocked first (git otherwise refuses regardless of
-/// `--force`). Danger tone, matching `DialogWorktreeDiscard`/`DialogDiscard`.
+/// `--force`). Crimson danger tone, matching `DialogWorktreeDiscard`/`DialogDiscard`.
 struct DialogDeleteWorktree: View {
     let repo: Repository
     let worktree: WorktreeRow
@@ -76,12 +76,7 @@ struct DialogDeleteWorktree: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.black.opacity(0.18)))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(AerieColor.glassLine, lineWidth: 1))
+                    .dialogInset(fill: Color.black.opacity(0.18))
                     .padding(.top, 12)
             }
         }

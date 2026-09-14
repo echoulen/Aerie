@@ -18,6 +18,7 @@ struct FirstRunRoot: View {
             Backdrop()
             content
                 .glass(.card)
+                .overlay(HudCorners(length: 16).padding(8))
                 .padding(48)
         }
         .frame(minWidth: 800, minHeight: 600)

@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Confirmation content for squash-merging a pull request, presented via
-/// `.popover(isPresented:)` anchored to the PR card's Merge button. Amber
-/// tone + a compact PR preview (title, owner/repo, number, author, CI +
+/// `.popover(isPresented:)` anchored to the PR card's Merge button. Gold
+/// tone with the `.btn.amber` CTA — the only gold action in the dialog set — + a compact PR preview (title, owner/repo, number, author, CI +
 /// review chips) above a KV summary (method, commit subject, source branch,
 /// account).
 ///
@@ -48,9 +48,10 @@ struct DialogMerge: View {
     // state we do have, in the same inline-text style.
     private var preview: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("\(repo.githubRepo) · #\(pr.number)")
-                .aerieFont(AerieFont.code(11))
-                .foregroundStyle(AerieColor.text4)
+            Text("\(repo.githubRepo) · #\(pr.number)".uppercased())
+                .aerieFont(AerieFont.code(10.5))
+                .tracking(1.2)
+                .foregroundStyle(AerieColor.amber.opacity(0.72))
             Text(pr.title)
                 .aerieFont(AerieFont.custom(.sans, size: 14.5).weight(.light))
                 .foregroundStyle(AerieColor.text1)
@@ -66,12 +67,7 @@ struct DialogMerge: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.black.opacity(0.22))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-        )
+        .dialogInset()
     }
 
     private func mono(_ text: String) -> some View {

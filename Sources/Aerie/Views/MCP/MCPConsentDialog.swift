@@ -2,8 +2,8 @@ import SwiftUI
 
 /// First-run-after-setup popup. Asks the user to let Aerie write its entry
 /// into `~/.claude/.mcp.json` so Claude Code can auto-discover the local MCP
-/// server. Wraps `DialogShell` with the warning tone (amber ring + amber
-/// "Allow" button) and shows a JSON-diff preview of what will be added.
+/// server. Wraps `DialogShell` with the warning tone (gold plate ring + gold
+/// `.btn.amber` "Allow" CTA) and shows a JSON-diff preview of what will be added.
 ///
 /// Wiring into `AerieApp.AppRoot` (showing the dialog when bootstrap is `.ok`
 /// AND `mcp.consent_decision == "unset"`) is intentionally left for a
@@ -20,7 +20,8 @@ struct MCPConsentDialog: View {
             primaryTitle: "Allow",
             onPrimary: { Task { await onAllow() } },
             secondaryTitle: "Not now",
-            onSecondary: onDecline
+            onSecondary: onDecline,
+            primaryProminent: true
         ) {
             VStack(alignment: .leading, spacing: 16) {
                 hero
@@ -36,8 +37,14 @@ struct MCPConsentDialog: View {
     private var hero: some View {
         HStack(spacing: 24) {
             iconCircle(systemImage: "sparkle", tint: AerieColor.amber)
-            Image(systemName: "arrow.left.and.right")
-                .foregroundStyle(AerieColor.text3)
+            HStack(spacing: 6) {
+                HudRail(spacing: 6, height: 5, color: AerieColor.amberLine)
+                    .frame(width: 30)
+                Image(systemName: "arrow.left.and.right")
+                    .foregroundStyle(AerieColor.text3)
+                HudRail(spacing: 6, height: 5, color: AerieColor.amberLine)
+                    .frame(width: 30)
+            }
             iconCircle(systemImage: "antenna.radiowaves.left.and.right", tint: AerieColor.ok)
         }
         .frame(maxWidth: .infinity)
@@ -47,8 +54,9 @@ struct MCPConsentDialog: View {
         ZStack {
             Circle()
                 .fill(tint.opacity(0.12))
-                .overlay(Circle().strokeBorder(tint.opacity(0.4), lineWidth: 1))
+                .overlay(Circle().strokeBorder(tint.opacity(0.42), lineWidth: 1))
                 .frame(width: 56, height: 56)
+                .shadow(color: tint.opacity(0.35), radius: 10)
             Image(systemName: systemImage)
                 .font(.system(size: 22))
                 .foregroundStyle(tint)
@@ -57,9 +65,7 @@ struct MCPConsentDialog: View {
 
     private var description: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("If you allow this, Aerie will:")
-                .aerieFont(AerieFont.body())
-                .foregroundStyle(AerieColor.text2)
+            HudNote(text: "If you allow this, Aerie will")
             Text("• Add a local entry to ~/.claude/.mcp.json")
                 .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text2)
@@ -96,12 +102,7 @@ struct MCPConsentDialog: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AerieColor.glass1)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-        )
+        .dialogInset()
     }
 
     private var footnotes: some View {

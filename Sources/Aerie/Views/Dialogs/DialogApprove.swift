@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Confirmation dialog for submitting an approving review on a PR. Mirrors
-/// `DialogMerge`: an amber CTA tone, a compact PR preview, the account the
+/// `DialogMerge`: a gold `.btn.amber` CTA, a compact PR preview, the account the
 /// approval will be submitted as (a picker when more than one is eligible), and
 /// an optional review comment.
 ///
@@ -65,9 +65,10 @@ struct DialogApprove: View {
     // PR preview — a `repo · #N` eyebrow over the title.
     private var preview: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("\(repo.githubRepo) · #\(pr.number)")
-                .aerieFont(AerieFont.code(11))
-                .foregroundStyle(AerieColor.text4)
+            Text("\(repo.githubRepo) · #\(pr.number)".uppercased())
+                .aerieFont(AerieFont.code(10.5))
+                .tracking(1.2)
+                .foregroundStyle(AerieColor.amber.opacity(0.72))
             Text(pr.title)
                 .aerieFont(AerieFont.custom(.sans, size: 14.5).weight(.light))
                 .foregroundStyle(AerieColor.text1)
@@ -76,19 +77,15 @@ struct DialogApprove: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.black.opacity(0.22))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-        )
+        .dialogInset()
     }
 
     private var approverPicker: some View {
         HStack(spacing: 10) {
-            Text("approve as")
-                .aerieFont(AerieFont.custom(.sans, size: 12))
-                .foregroundStyle(AerieColor.text3)
+            Text("APPROVE AS")
+                .aerieFont(AerieFont.code(10))
+                .tracking(1.2)
+                .foregroundStyle(AerieColor.text4)
             Menu {
                 ForEach(context.resolution.eligible) { acc in
                     Button("\(acc.login) · \(acc.host)") { selected = acc }
@@ -115,8 +112,7 @@ struct DialogApprove: View {
             .foregroundStyle(AerieColor.text1)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.black.opacity(0.22)))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+            .dialogInset()
     }
 
     private func mono(_ text: String) -> some View {

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Confirmation dialog for signing a GitHub account out of Aerie. Danger
-/// tone (red ring); the body lists repos that currently use this account as
+/// tone (crimson plate ring); the body lists repos that currently use this account as
 /// their primary so the user understands the blast radius — they'll lose
 /// API access on those repos until they assign a different account.
 struct DialogSignOut: View {
@@ -32,9 +32,7 @@ struct DialogSignOut: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Affected repos")
-                        .aerieFont(AerieFont.eyebrow())
-                        .foregroundStyle(AerieColor.text3)
+                    HudNote(text: "Affected repos")
                     ForEach(affectedRepos) { repo in
                         Text("\(repo.githubOwner)/\(repo.githubRepo)")
                             .aerieFont(AerieFont.code(11))
@@ -43,12 +41,7 @@ struct DialogSignOut: View {
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AerieColor.glass1)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-                )
+                .dialogInset()
             }
         }
     }

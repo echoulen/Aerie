@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Confirmation dialog for discarding all UNSTAGED changes in a repo's working
-/// tree (`git restore .`). Danger tone (red ring) + a KV summary scoping exactly
+/// tree (`git restore .`). Crimson danger tone (crimson plate ring) + a KV summary scoping exactly
 /// what is dropped vs kept.
 ///
 /// Mirrors `DialogReset`'s contract: the view never calls `GitService` directly
@@ -47,7 +47,7 @@ struct DialogDiscard: View {
 
     /// What `git restore .` drops — the unstaged tracked-file edits. Our
     /// `LocalGitStatus` tracks a single dirty count (not a modified/untracked
-    /// split), so we surface that, in danger red.
+    /// split), so we surface that, in danger crimson.
     private var willDiscardValue: some View {
         let n = status.dirtyFileCount
         return Text("\(n) \(n == 1 ? "file" : "files") changed")

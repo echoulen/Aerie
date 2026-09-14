@@ -1,17 +1,187 @@
 import SwiftUI
 
-/// Tone drives the accent color used for the title ring and primary button.
+/// Tone drives the accent color used for the plate ring, icon key and primary
+/// button.
 enum DialogTone: Equatable {
-    case danger    // red ring, red primary
-    case warning   // amber ring, amber primary (used for merges)
-    case neutral   // plain glass, neutral primary
+    case danger    // crimson ring, crimson `.btn.danger` primary
+    case warning   // gold ring (used for merges / approvals / safe checkouts)
+    case neutral   // plain plate, neutral `.btn` primary
 }
 
-/// Modal dialog scaffold used by Aerie's confirmation dialogs (reset, merge,
-/// sign-out, remove-repo). Renders a scrim, a glass card with a header, the
-/// caller-provided content, an optional error banner, and a footer with
-/// secondary + primary buttons. The `tone` decides the ring color and primary
-/// button accent (danger=red, warning=amber, neutral=glass).
+// MARK: - Tone styling shared by `DialogShell` + `ActionPopoverShell`
+
+extension DialogTone {
+    /// Coloured hairline laid over the chamfered plate edge (hidden for neutral).
+    var ringColor: Color {
+        switch self {
+        case .danger:  return AerieColor.crimsonLine
+        case .warning: return AerieColor.amberLine
+        case .neutral: return AerieColor.glassLine
+        }
+    }
+
+    /// `.hud-corners` bracket colour — crimson on destructive plates, gold otherwise.
+    var cornerColor: Color {
+        self == .danger ? AerieColor.crimsonLine : AerieColor.amberLine
+    }
+
+    var iconBackground: Color {
+        switch self {
+        case .danger:  return AerieColor.crimsonSoft
+        case .warning: return AerieColor.amberSoft
+        case .neutral: return AerieColor.glass2
+        }
+    }
+
+    var iconColor: Color {
+        switch self {
+        case .danger:  return AerieColor.dangerText
+        case .warning: return AerieColor.amber
+        case .neutral: return AerieColor.text2
+        }
+    }
+
+    var iconGlow: Color {
+        switch self {
+        case .danger:  return AerieColor.crimson.opacity(0.35)
+        case .warning: return AerieColor.amberGlow.opacity(0.30)
+        case .neutral: return .clear
+        }
+    }
+
+    var defaultIcon: String {
+        switch self {
+        case .danger:  return "exclamationmark.triangle"
+        case .warning: return "arrow.triangle.merge"
+        case .neutral: return "info.circle"
+        }
+    }
+
+    /// The `HudButtonStyle` kind of the primary action. `prominent` promotes it
+    /// to the gold `.btn.amber` CTA (merge / approve / safe checkout).
+    func primaryButtonKind(prominent: Bool) -> HudButtonStyle.Kind {
+        if prominent { return .amber }
+        return self == .danger ? .danger : .standard
+    }
+}
+
+/// The primary button's ink for a given `HudButtonStyle` kind — used to tint the
+/// in-button loading spinner so it matches the label.
+private func hudInk(for kind: HudButtonStyle.Kind) -> Color {
+    switch kind {
+    case .amber:  return AerieColor.amberInk
+    case .danger: return AerieColor.crimsonHot
+    case .arc:    return AerieColor.arc
+    case .standard, .ghost: return AerieColor.text1
+    }
+}
+
+/// The dialog header's icon key: a small bevelled HUD key (TL + BR cut) tinted
+/// to the tone, with a soft emitted glow.
+struct DialogIconTile: View {
+    let tone: DialogTone
+    var icon: String? = nil
+    var iconView: AnyView? = nil
+
+    var body: some View {
+        let shape = HudKeyShape(cut: 8)
+        shape
+            .fill(tone.iconBackground)
+            .overlay(shape.strokeBorder(tone.ringColor, lineWidth: 1))
+            .frame(width: 36, height: 36)
+            .shadow(color: tone.iconGlow, radius: 8)
+            .overlay(glyph)
+    }
+
+    @ViewBuilder
+    private var glyph: some View {
+        if let iconView {
+            iconView
+        } else {
+            Image(systemName: icon ?? tone.defaultIcon)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(tone.iconColor)
+        }
+    }
+}
+
+/// Header block shared by both dialog shells: icon key beside the title +
+/// subtitle.
+struct DialogHeader: View {
+    let tone: DialogTone
+    let title: String
+    let subtitle: String?
+    var icon: String? = nil
+    var iconView: AnyView? = nil
+    var spacing: CGFloat = 4
+    var titleWeight: Font.Weight = .medium
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            DialogIconTile(tone: tone, icon: icon, iconView: iconView)
+            VStack(alignment: .leading, spacing: spacing) {
+                Text(title)
+                    .aerieFont(AerieFont.custom(.sans, size: 15.5).weight(titleWeight))
+                    .tracking(0.2)
+                    .foregroundStyle(AerieColor.text1)
+                if let subtitle {
+                    Text(subtitle)
+                        .aerieFont(AerieFont.custom(.sans, size: 13))
+                        .foregroundStyle(AerieColor.text3)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+/// Chamfered-plate decoration shared by both shells: the tone ring over the
+/// plate edge, `.hud-corners` brackets, and the plate's drop shadow.
+struct DialogPlateChrome: ViewModifier {
+    let tone: DialogTone
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                HudPlateShape(cut: AerieMetric.cutDialog)
+                    .strokeBorder(tone.ringColor, lineWidth: 1)
+                    .opacity(tone == .neutral ? 0 : 1)
+                    .allowsHitTesting(false)
+            )
+            .overlay(
+                HudCorners(length: 12, color: tone.cornerColor)
+                    .padding(7)
+            )
+    }
+}
+
+/// The recessed footer band: dark fill, a top hairline and a faint tick rail
+/// (`.hud-rail`) along its leading edge.
+struct DialogFooterBand: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(AerieColor.dialogFooter)
+            .overlay(alignment: .top) {
+                VStack(spacing: 0) {
+                    Rectangle().fill(AerieColor.glassLine).frame(height: 1)
+                    HudRail(height: 4)
+                        .frame(width: 132)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 20)
+                }
+                .allowsHitTesting(false)
+            }
+    }
+}
+
+/// Modal dialog scaffold used by Aerie's confirmation dialogs (sign-out,
+/// remove-repo, MCP consent / request). Renders a scrim, a chamfered MARK III
+/// HUD plate with a header, the caller-provided content, an optional error
+/// strip, and a footer with secondary + primary buttons. The `tone` decides
+/// the ring colour and primary button (danger = crimson, warning = gold,
+/// neutral = plain plate).
 struct DialogShell<Content: View>: View {
     let tone: DialogTone
     let title: String
@@ -22,13 +192,12 @@ struct DialogShell<Content: View>: View {
     let onSecondary: () -> Void
     /// Disable the primary button while an action is in-flight.
     var primaryDisabled: Bool = false
-    /// Drives the shared loading state. The Reset and Merge dialogs set it; Sign
-    /// out and Remove leave it off (and keep the plain `primaryDisabled` footer).
+    /// Drives the shared loading state.
     /// While true: the primary button shows a spinner + `loadingLabel` (keeping
-    /// its danger/amber colour) and disables; Cancel dims + disables; an
-    /// indeterminate progress bar sweeps along the footer's top edge; and a
-    /// spinner + `progressNote` appear at the footer's leading edge. The body is
-    /// untouched. The accent derives from `tone` (the design's `primaryVariant`).
+    /// its crimson/gold colour) and ignores clicks; Cancel dims + disables; a
+    /// `ProgressSweep` runs along the footer's top edge (crimson for danger,
+    /// gold otherwise); and a spinner + `progressNote` appear at the footer's
+    /// leading edge. The body is untouched.
     var loading: Bool = false
     /// Primary-button label while `loading` (e.g. "Resetting…" / "Merging…").
     /// Falls back to `primaryTitle` when nil.
@@ -36,49 +205,38 @@ struct DialogShell<Content: View>: View {
     /// Status text beside the footer's leading spinner while `loading`. Nil hides
     /// the leading group, leaving the buttons trailing-aligned.
     var progressNote: String? = nil
-    /// Error banner shown above the buttons; nil hides it.
+    /// Error strip shown above the buttons; nil hides it.
     var errorMessage: String? = nil
     /// SF Symbol for the header icon. Defaults to a tone-appropriate glyph.
     var icon: String? = nil
-    /// A custom header glyph that overrides `icon` when set (e.g. the git-merge
-    /// graph the merge dialog uses). Rendered inside the tone-coloured tile.
+    /// A custom header glyph that overrides `icon` when set. Rendered inside
+    /// the tone-coloured icon key.
     var iconView: AnyView? = nil
-    /// Render the primary button as the design's prominent `.btn.amber` CTA
-    /// (bright amber gradient + dark ink) instead of the flat tone fill. Used by
-    /// the merge dialog; other dialogs keep the calmer tone-tinted button.
+    /// Render the primary button as the gold `.btn.amber` CTA instead of the
+    /// tone button.
     var primaryProminent: Bool = false
     /// Vertical gap between the title and the subtitle in the header.
     var headerSpacing: CGFloat = 4
-    /// Weight of the title text. Defaults to medium (the design's 500); the
-    /// merge dialog overrides to a lighter weight.
+    /// Weight of the title text.
     var titleWeight: Font.Weight = .medium
     /// Opt-in light-dismiss: when set, a click on the scrim or the Esc key calls
-    /// this (the checkout dialog wires it to Cancel). Automatically ignored while
-    /// `loading` so an in-flight op can't be dismissed. Nil (the default) leaves
-    /// the dialog modal — clicking outside / Esc do nothing, matching the other
-    /// confirmation dialogs.
+    /// this. Automatically ignored while `loading` so an in-flight op can't be
+    /// dismissed. Nil (the default) leaves the dialog modal.
     var onBackgroundDismiss: (() -> Void)? = nil
     @ViewBuilder var content: () -> Content
-
-    // Hover state for the footer buttons (the design's `.btn` family has hover
-    // styles: ghost → glass-2 + text-1; danger → deeper err fill).
-    @State private var secondaryHover = false
-    @State private var primaryHover = false
 
     // MARK: - Loading presentation (pure, unit-testable)
 
     /// The primary button's label: while loading, the `loadingLabel` (falling
     /// back to the idle `primaryTitle` when nil); otherwise `primaryTitle`.
-    /// Static so it's testable without rendering the view.
     static func primaryLabel(
         loading: Bool, loadingLabel: String?, primaryTitle: String
     ) -> String {
         loading ? (loadingLabel ?? primaryTitle) : primaryTitle
     }
 
-    /// Accent tinting the footer progress bar + footer-leading spinner — the
-    /// design's `primaryColor` derived from the tone: danger reads red, every
-    /// other tone reads amber (mirrors the `primaryVariant` default). Static +
+    /// Accent tinting the footer sweep + footer-leading spinner: destructive
+    /// running states read crimson, every other tone reads gold. Static +
     /// testable.
     static func loadingAccent(for tone: DialogTone) -> Color {
         tone == .danger ? AerieColor.err : AerieColor.amber
@@ -90,28 +248,18 @@ struct DialogShell<Content: View>: View {
             card
         }
         .ignoresSafeArea()
-        // Lock the dialog subtree to dark. Every `AerieColor` token is an
-        // explicit white-on-dark value, so SwiftUI `Text` reads correctly
-        // regardless — but the system-rendered controls inside dialogs (the
-        // approve picker's `.borderlessButton` `Menu` label, a `TextField`'s
-        // placeholder) resolve their text against the *effective* appearance.
-        // The window-level `NSAppearance(.darkAqua)` lock (set imperatively and
-        // async in `AerieWindowChrome`) doesn't reliably reach these overlay
-        // controls, so in macOS Light mode they paint with the light
-        // `labelColor`/`placeholderTextColor` (near-black) — invisible on the
-        // dark surface. Forcing the colour scheme here in-tree is declarative
-        // and covers them.
+        // Lock the dialog subtree to dark. System-rendered controls inside
+        // dialogs (a `Menu` label, a `TextField` placeholder) resolve their
+        // text against the *effective* appearance, which the window-level
+        // dark lock doesn't reliably reach inside overlays.
         .environment(\.colorScheme, .dark)
         // Esc closes the dialog when light-dismiss is enabled and nothing is
         // in flight. No-op otherwise (keeps the other dialogs modal).
         .onExitCommand { if let onBackgroundDismiss, !loading { onBackgroundDismiss() } }
     }
 
-    // Pure dark scrim — `.ultraThinMaterial` brightens the area in dark mode
-    // (the "dialog looks too white" symptom), so we drop it and rely on the
-    // parent's natural darkness. 0.45 matches design `rgba(0,0,0,0.45)`. When
-    // light-dismiss is enabled, a click on the scrim closes the dialog (unless
-    // an op is in flight).
+    // Pure dark scrim (0.45 black). When light-dismiss is enabled, a click on
+    // the scrim closes the dialog (unless an op is in flight).
     @ViewBuilder
     private var scrim: some View {
         if let onBackgroundDismiss {
@@ -125,13 +273,15 @@ struct DialogShell<Content: View>: View {
 
     private var card: some View {
         VStack(spacing: 0) {
-            // Header + content share one padded block (no internal divider —
-            // the only separator in the design is the footer band).
             VStack(alignment: .leading, spacing: 18) {
-                header
+                DialogHeader(
+                    tone: tone, title: title, subtitle: subtitle,
+                    icon: icon, iconView: iconView,
+                    spacing: headerSpacing, titleWeight: titleWeight
+                )
                 content()
                 if let msg = errorMessage {
-                    errorBanner(msg)
+                    DialogErrorStrip(message: msg)
                 }
             }
             .padding(.horizontal, 28)
@@ -140,278 +290,107 @@ struct DialogShell<Content: View>: View {
             footer
         }
         .frame(width: 520)
-        // Dark dialog surface (replaces `.regularMaterial`, which read milky
-        // on the dimmed scrim). For danger/warning tones we layer a coloured
-        // ring on top of the default glass-line-2 border.
         .glass(.dialog)
-        .overlay(
-            RoundedRectangle(cornerRadius: AerieMetric.radiusDialog, style: .continuous)
-                .strokeBorder(ringColor, lineWidth: 1.5)
-                .opacity(tone == .neutral ? 0 : 1)
-        )
-        .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
+        .modifier(DialogPlateChrome(tone: tone))
+        .shadow(color: .black.opacity(0.55), radius: 30, y: 10)
     }
 
-    // Header — a tone-coloured icon tile beside the title + subtitle, matching
-    // the design's `Dialog` header (36pt icon, 17pt medium title).
-    private var header: some View {
-        HStack(alignment: .top, spacing: 14) {
-            iconTile
-            VStack(alignment: .leading, spacing: headerSpacing) {
-                Text(title)
-                    .aerieFont(AerieFont.custom(.sans, size: 15).weight(titleWeight))
-                    .foregroundStyle(AerieColor.text1)
-                if let subtitle {
-                    Text(subtitle)
-                        .aerieFont(AerieFont.custom(.sans, size: 13))
-                        .foregroundStyle(AerieColor.text3)
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var iconTile: some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(iconBg)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(ringColor, lineWidth: 1)
-            )
-            .frame(width: 36, height: 36)
-            .overlay(iconGlyph)
-    }
-
-    @ViewBuilder
-    private var iconGlyph: some View {
-        if let iconView {
-            iconView
-        } else {
-            Image(systemName: icon ?? defaultIcon)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(iconColor)
-        }
-    }
-
-    private var defaultIcon: String {
-        switch tone {
-        case .danger:  return "exclamationmark.triangle"
-        case .warning: return "arrow.triangle.merge"
-        case .neutral: return "info.circle"
-        }
-    }
-
-    private var iconBg: Color {
-        switch tone {
-        case .danger:  return AerieColor.err.opacity(0.18)
-        case .warning: return AerieColor.amberSoft
-        case .neutral: return AerieColor.glass2
-        }
-    }
-
-    private var iconColor: Color {
-        switch tone {
-        case .danger:  return AerieColor.dangerText
-        case .warning: return AerieColor.amber
-        case .neutral: return AerieColor.text2
-        }
-    }
-
-    // Footer — a recessed band (dark fill + top hairline) per the design, so it
-    // reads as distinct from the body now that the middle divider is gone. While
-    // `loading` it also carries a leading spinner + `progressNote` and a
-    // top-edge indeterminate progress bar pinned over the hairline.
     private var footer: some View {
         HStack(spacing: 8) {
-            // Footer-leading status (the design's space-between layout): a spinner
-            // + a calm progress note, only while loading. The `Spacer` then
-            // pushes the buttons to the trailing edge.
             if loading, let progressNote {
                 HStack(spacing: 9) {
                     DialogSpinner(stroke: loadingAccentColor)
                     Text(progressNote)
-                        .aerieFont(AerieFont.custom(.sans, size: 12.5))
+                        .aerieFont(AerieFont.code(11))
+                        .tracking(0.4)
                         .foregroundStyle(AerieColor.text3)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
             }
             Spacer(minLength: 8)
-            cancelButton
+            Button(secondaryTitle, action: onSecondary)
+                .buttonStyle(.hud(.ghost))
+                .disabled(loading)
             primaryButton
         }
         .padding(.horizontal, 20).padding(.vertical, 14)
-        .background(AerieColor.dialogFooter)
-        .overlay(
-            Rectangle()
-                .fill(AerieColor.glassLine)
-                .frame(height: 1),
-            alignment: .top
-        )
+        .modifier(DialogFooterBand())
         .overlay(alignment: .top) {
             if loading {
-                DialogProgressBar(color: loadingAccentColor)
+                ProgressSweep(tone: tone == .danger ? .danger : .amber)
             }
         }
     }
 
     private var loadingAccentColor: Color { Self.loadingAccent(for: tone) }
 
-    // Cancel — `.btn.ghost`: transparent at rest (a text button), and on hover
-    // gains a glass-2 fill + text-1 (per the design). While loading it dims and
-    // disables so the operation can't be dismissed mid-flight.
-    private var cancelButton: some View {
-        Button(action: onSecondary) {
-            Text(secondaryTitle)
-                .aerieFont(AerieFont.small())
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .foregroundStyle(secondaryHover ? AerieColor.text1 : AerieColor.text3)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(secondaryHover ? AerieColor.glass2 : Color.clear)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .disabled(loading)
-        .opacity(loading ? 0.4 : 1)
-        .onHover { secondaryHover = loading ? false : $0 }
-        .animation(.easeOut(duration: 0.18), value: secondaryHover)
-    }
-
-    // Primary — `.btn`-family rounded rect (9pt), tone fill deepens on hover.
-    // While loading it prepends a spinner (tinted to the button's own text
-    // colour) and swaps the label for `loadingLabel`, keeping the tone/amber
-    // fill; it disables (also honouring the standalone `primaryDisabled`).
+    // Primary — the tone's `HudButtonStyle`. While loading it keeps its colour
+    // (a disabled `HudButtonStyle` would dim to "blocked"), prepends a spinner
+    // in the button's own ink, and swallows clicks.
     private var primaryButton: some View {
-        let disabled = primaryDisabled || loading
-        return Button(action: onPrimary) {
+        let kind = tone.primaryButtonKind(prominent: primaryProminent)
+        return Button {
+            if !loading { onPrimary() }
+        } label: {
             HStack(spacing: 8) {
                 if loading {
-                    DialogSpinner(stroke: primaryTextColor)
+                    DialogSpinner(stroke: hudInk(for: kind))
                 }
                 Text(Self.primaryLabel(
                     loading: loading, loadingLabel: loadingLabel, primaryTitle: primaryTitle
                 ))
-                .aerieFont(AerieFont.small().weight(primaryProminent ? .semibold : .medium))
             }
-            .padding(.horizontal, 16).padding(.vertical, 8)
-            .foregroundStyle(primaryTextColor)
-            .background(primaryButtonBackground)
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(primaryStroke, lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .disabled(disabled)
-        // Loading reads as "working" (0.85), plain-disabled as "blocked" (0.5),
-        // fully enabled otherwise.
-        .opacity(loading ? 0.85 : (primaryDisabled ? 0.5 : 1))
-        .onHover { primaryHover = disabled ? false : $0 }
-        .animation(.easeOut(duration: 0.18), value: primaryHover)
+        .buttonStyle(.hud(kind))
+        .disabled(primaryDisabled)
+        .allowsHitTesting(!loading)
+        .opacity(loading ? 0.9 : 1)
     }
+}
 
-    // A contained, inset error box (rounded, err-tinted) — not a full-width
-    // band with a hard top hairline, which read as a stray red line across
-    // the dialog.
-    private func errorBanner(_ msg: String) -> some View {
+/// In-dialog error strip: a crimson-washed square plate with a hot crimson
+/// strut down its leading edge.
+struct DialogErrorStrip: View {
+    let message: String
+
+    var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 12))
                 .foregroundStyle(AerieColor.err)
-            Text(msg)
+            Text(message)
                 .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text1)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(AerieColor.err.opacity(0.12))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(AerieColor.err.opacity(0.30), lineWidth: 1)
-        )
-    }
-
-    private var ringColor: Color {
-        switch tone {
-        case .danger: return AerieColor.err.opacity(0.5)
-        case .warning: return AerieColor.amberLine
-        case .neutral: return AerieColor.glassLine
-        }
-    }
-
-    // The design's prominent `.btn.amber`: a vertical amber gradient with a
-    // bright inset top edge and a subtle hover brighten. Used when
-    // `primaryProminent` is set (the merge dialog); other tones keep the flat
-    // fill below.
-    @ViewBuilder
-    private var primaryButtonBackground: some View {
-        if primaryProminent {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [AerieColor.amberFillTop, AerieColor.amberFillBot],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [Color.white.opacity(0.40), Color.clear],
-                                startPoint: .top, endPoint: .bottom
-                            ),
-                            lineWidth: 1
-                        )
-                        .blendMode(.plusLighter)
-                )
-                .brightness(primaryHover ? 0.04 : 0)
-        } else {
-            RoundedRectangle(cornerRadius: 9, style: .continuous).fill(primaryFill)
-        }
-    }
-
-    // Fill/stroke/text match the design's `.btn` tones; the fill deepens while
-    // hovering (`.btn.danger:hover` → err/0.18, `.btn:hover` → glass-3).
-    private var primaryFill: Color {
-        switch tone {
-        case .danger:  return primaryHover ? AerieColor.dangerFillHover : AerieColor.dangerFill
-        case .warning: return primaryHover ? AerieColor.amber.opacity(0.22) : AerieColor.amberSoft
-        case .neutral: return primaryHover ? AerieColor.glass3 : AerieColor.glass2
-        }
-    }
-
-    private var primaryStroke: Color {
-        if primaryProminent { return AerieColor.amberCtaLine }
-        switch tone {
-        case .danger:  return AerieColor.dangerLine
-        case .warning: return AerieColor.amberLine
-        case .neutral: return primaryHover ? AerieColor.glassLine2 : AerieColor.glassLine
-        }
-    }
-
-    private var primaryTextColor: Color {
-        if primaryProminent { return AerieColor.amberInk }
-        switch tone {
-        case .danger:  return AerieColor.dangerText
-        case .warning: return AerieColor.amber
-        case .neutral: return AerieColor.text1
-        }
+        .crimsonStrip()
     }
 }
 
-/// Small inline loading spinner — the design's `.spinner` (`styles.css`): a 2pt
-/// ring with a transparent quadrant, rotating continuously. Matches the shared
-/// `aerie-spin` keyframe (0.7s linear, infinite), expressed as the SwiftUI
-/// `rotationEffect` + `repeatForever` used elsewhere (e.g. `RefreshButton`).
+extension View {
+    /// Crimson error plate — `crimsonSoft` wash, `crimsonLine` hairline and a
+    /// 2pt `crimsonHot` strut on the leading edge.
+    func crimsonStrip() -> some View {
+        let shape = RoundedRectangle(cornerRadius: AerieMetric.radiusCard, style: .continuous)
+        return self
+            .background(shape.fill(AerieColor.crimsonSoft))
+            .overlay(shape.strokeBorder(AerieColor.crimsonLine, lineWidth: 1))
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(AerieColor.crimsonHot)
+                    .frame(width: 2)
+                    .shadow(color: AerieColor.crimson.opacity(0.6), radius: 4)
+                    .padding(.vertical, 1)
+                    .allowsHitTesting(false)
+            }
+    }
+}
+
+/// Small inline loading spinner — the `.spinner` primitive: a thin ring with a
+/// bright quarter arc rotating continuously (0.7s linear, infinite).
 struct DialogSpinner: View {
     var stroke: Color
     var size: CGFloat = 13
@@ -419,14 +398,13 @@ struct DialogSpinner: View {
     @State private var spinning = false
 
     var body: some View {
-        // A full ring at low opacity with a brighter 3/4 arc on top reads as the
-        // design's "ring with one quadrant cut away" once it's rotating.
         ZStack {
             Circle()
-                .stroke(stroke.opacity(0.25), lineWidth: 2)
+                .stroke(stroke.opacity(0.22), lineWidth: 1.5)
             Circle()
-                .trim(from: 0, to: 0.75)
-                .stroke(stroke, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .trim(from: 0, to: 0.3)
+                .stroke(stroke, style: StrokeStyle(lineWidth: 1.5, lineCap: .butt))
+                .shadow(color: stroke.opacity(0.6), radius: 3)
         }
         .frame(width: size, height: size)
         .rotationEffect(.degrees(spinning ? 360 : 0))
@@ -435,34 +413,5 @@ struct DialogSpinner: View {
             value: spinning
         )
         .onAppear { spinning = true }
-    }
-}
-
-/// The footer's top-edge indeterminate progress bar — the design's
-/// `.progress-track > span` (`@keyframes aerie-sweep`): a short segment that
-/// sweeps left→right across a 2pt-tall clipped track. CSS runs
-/// `translateX(-100% → 400%)` of the segment's own width over 1.1s ease-in-out,
-/// infinite; reproduced here with an offset animation.
-struct DialogProgressBar: View {
-    var color: Color
-
-    @State private var sweeping = false
-
-    var body: some View {
-        GeometryReader { geo in
-            let barWidth = geo.size.width * 0.3
-            Capsule()
-                .fill(color)
-                .frame(width: barWidth, height: 2)
-                // CSS translateX is relative to the segment's own width.
-                .offset(x: sweeping ? barWidth * 4 : -barWidth)
-                .animation(
-                    .easeInOut(duration: 1.1).repeatForever(autoreverses: false),
-                    value: sweeping
-                )
-        }
-        .frame(height: 2)
-        .clipped()
-        .onAppear { sweeping = true }
     }
 }

@@ -50,9 +50,7 @@ struct ViewRequestModal: View {
 
     private func section(title: String, body: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .aerieFont(AerieFont.eyebrow())
-                .foregroundStyle(AerieColor.text3)
+            HudNote(text: title)
             ScrollView {
                 Text(body)
                     .aerieFont(AerieFont.code(11))
@@ -61,12 +59,7 @@ struct ViewRequestModal: View {
             }
             .frame(maxHeight: 180)
             .padding(10)
-            .background(AerieColor.glass1)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-            )
+            .dialogInset()
         }
     }
 }

@@ -1,9 +1,10 @@
 import SwiftUI
 import AppKit
 
-/// Shared layout for the first-run panels: title, prose, command block with
-/// Copy, optional extra content, and an action row (primary button +
-/// Quit Aerie + "checking every 5s" indicator).
+/// Shared layout for the first-run panels: gold eyebrow + title, prose, a
+/// console command block with Copy, optional extra content, and an action row
+/// (gold primary CTA + ghost Quit Aerie + the arc-cyan "checking every 5s"
+/// polling tick — the one live-energy element on the screen).
 struct FirstRunPanel<ExtraBody: View>: View {
     let title: String
     let prose: String
@@ -15,9 +16,16 @@ struct FirstRunPanel<ExtraBody: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(title)
-                .font(.system(size: 32, weight: .medium))
-                .foregroundStyle(AerieColor.text1)
+            VStack(alignment: .leading, spacing: 8) {
+                SectionEyebrow(text: "First run")
+                Text(title)
+                    .aerieFont(AerieFont.custom(.sans, size: 32).weight(.semibold))
+                    .tracking(0.3)
+                    .foregroundStyle(AerieColor.text1)
+                HudRail(color: AerieColor.amberLine)
+                    .frame(width: 180)
+                    .padding(.top, 4)
+            }
             Text(prose)
                 .aerieFont(AerieFont.body())
                 .foregroundStyle(AerieColor.text2)
@@ -38,59 +46,59 @@ struct FirstRunPanel<ExtraBody: View>: View {
                 .foregroundStyle(AerieColor.text2)
                 .padding(.horizontal, 14).padding(.vertical, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AerieColor.glass1)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-                )
-            Button {
+                .dialogInset()
+                .overlay(alignment: .leading) {
+                    // `.console` prompt strut — a gold hairline on the leading edge.
+                    Rectangle().fill(AerieColor.amberLine).frame(width: 2)
+                        .padding(.vertical, 1)
+                        .allowsHitTesting(false)
+                }
+            Button("Copy") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(command, forType: .string)
-            } label: {
-                Text("Copy")
-                    .aerieFont(AerieFont.small().weight(.medium))
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .foregroundStyle(AerieColor.text2)
-                    .background(Capsule().fill(AerieColor.glass2))
-                    .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hud(.standard))
         }
     }
 
     private var actionRow: some View {
         HStack(spacing: 12) {
-            Button(action: onPrimary) {
-                Text(primaryButtonTitle)
-                    .aerieFont(AerieFont.small().weight(.medium))
-                    .padding(.horizontal, 18).padding(.vertical, 10)
-                    .foregroundStyle(AerieColor.amber)
-                    .background(Capsule().fill(AerieColor.amberSoft))
-                    .overlay(Capsule().strokeBorder(AerieColor.amberLine, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-            Button(action: onQuit) {
-                Text("Quit Aerie")
-                    .aerieFont(AerieFont.small())
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .foregroundStyle(AerieColor.text3)
-            }
-            .buttonStyle(.plain)
+            Button(primaryButtonTitle, action: onPrimary)
+                .buttonStyle(.hud(.amber))
+            Button("Quit Aerie", action: onQuit)
+                .buttonStyle(.hud(.ghost))
             Spacer()
             checkingIndicator
         }
     }
 
+    // Live polling tick — arc cyan is reserved for exactly this kind of energy.
     private var checkingIndicator: some View {
         HStack(spacing: 8) {
-            Circle().fill(AerieColor.amber)
-                .frame(width: 6, height: 6)
-                .shadow(color: AerieColor.amberGlow, radius: 3)
-            Text("checking every 5s")
+            PollingTick()
+            Text("CHECKING EVERY 5S")
                 .aerieFont(AerieFont.eyebrow())
+                .tracking(1.8)
                 .foregroundStyle(AerieColor.text3)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("checking every 5s")
+    }
+}
+
+/// A pulsing arc-cyan dot marking a live background poll.
+private struct PollingTick: View {
+    @State private var pulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(AerieColor.arc)
+            .frame(width: 6, height: 6)
+            .shadow(color: AerieColor.arcGlow, radius: pulsing ? 6 : 3)
+            .opacity(pulsing ? 0.55 : 1)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulsing = true }
+            }
     }
 }
 

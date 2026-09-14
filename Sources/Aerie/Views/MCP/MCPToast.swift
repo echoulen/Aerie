@@ -1,6 +1,8 @@
 import SwiftUI
 
 /// Bottom-right toast notification shown when an MCP write tool completes.
+/// MARK III: a small chamfered deep-space plate with a tone-tinted hairline and
+/// leading strut (ok green / crimson / gold).
 ///
 /// The "View request" affordance is only rendered when the toast carries a
 /// `requestJSON` payload — info toasts without one just show title/subtitle.
@@ -23,9 +25,8 @@ struct MCPToast: View {
                 }
                 if item.requestJSON != nil {
                     Button("View request", action: onViewRequest)
-                        .buttonStyle(.plain)
-                        .aerieFont(AerieFont.eyebrow())
-                        .foregroundStyle(AerieColor.amber)
+                        .buttonStyle(.hud(.standard, size: .small))
+                        .padding(.top, 4)
                 }
             }
             Spacer(minLength: 0)
@@ -34,19 +35,46 @@ struct MCPToast: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(AerieColor.text3)
                     .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
         }
-        .padding(14)
+        .padding(.leading, 16)
+        .padding([.trailing, .vertical], 14)
         .frame(width: 340)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(toneStroke, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+        .background(toastSurface)
+        .clipShape(HudPlateShape(cut: 12))
+        .overlay(HudPlateShape(cut: 12).strokeBorder(toneStroke, lineWidth: 1))
+        // Tone strut down the leading edge (`.card::after`, tinted to the tone).
+        .overlay(alignment: .leading) {
+            LinearGradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: toneColor, location: 0.25),
+                .init(color: toneColor, location: 0.75),
+                .init(color: .clear, location: 1),
+            ], startPoint: .top, endPoint: .bottom)
+            .frame(width: 2)
+            .padding(.vertical, 10)
+            .shadow(color: toneColor.opacity(0.6), radius: 4)
+            .allowsHitTesting(false)
+        }
+        .shadow(color: .black.opacity(0.45), radius: 14, y: 6)
     }
+
+    // Deep-space dialog glass: in-window blur under the near-black surface.
+    private var toastSurface: some View {
+        ZStack {
+            VisualEffectBlur(material: .hudWindow, blendingMode: .withinWindow)
+            AerieColor.dialogSurface
+            LinearGradient(stops: [
+                .init(color: AerieColor.cardSheen.opacity(0.05), location: 0),
+                .init(color: .clear, location: 0.5),
+            ], startPoint: .top, endPoint: .bottom)
+        }
+    }
+
+    private var toneColor: Color { toneIconStyle.1 }
 
     private var toneIcon: some View {
         let (sym, color) = toneIconStyle
@@ -67,7 +95,7 @@ struct MCPToast: View {
     private var toneStroke: Color {
         switch item.tone {
         case .success: return AerieColor.ok.opacity(0.4)
-        case .error:   return AerieColor.err.opacity(0.4)
+        case .error:   return AerieColor.crimsonLine
         case .info:    return AerieColor.amberLine
         }
     }
