@@ -234,6 +234,16 @@ struct MainShell: View {
         ))
     }
 
+    /// Per-tab item counts for the medium / compact tab switcher. Non-ready
+    /// states count as zero, same as the page headers.
+    private var tabCounts: [MainTab: Int] {
+        var counts: [MainTab: Int] = [:]
+        if case .ready(let rows) = prsVM.state { counts[.prs] = rows.count }
+        if case .ready(let rows) = issuesVM.state { counts[.issues] = rows.count }
+        if case .ready(let rows) = reposVM.state { counts[.repos] = rows.count }
+        return counts
+    }
+
     // The active tab's screen. Extracted from `body` so the SwiftUI view-builder
     // type-checker solves a smaller expression — the full `body` with all three
     // dialog overlays otherwise exceeds the "unable to type-check in reasonable
@@ -557,13 +567,13 @@ struct MainShell: View {
                 guard case .failed(let message) = services.updates.phase else { return }
                 UpdatePresenter.present(UpdateAlertContent(outcome: .failed(message)))
                 services.updates.dismissFailure()
-            }
+            },
+            // The review screen replaces the tab lists, so it hides the
+            // switcher (it has its own back button).
+            tabBar: reviewing == nil ? MainTabBar(selection: $appVM.activeTab, counts: tabCounts) : nil
         ) {
             tabContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // Publishes `\.isCompactWidth` so the list screens and cards
-                // switch to their narrow layouts when the window shrinks.
-                .readsCompactWidth()
         }
         .task {
             // Kick off focus-driven polling (idempotent), then paint instantly

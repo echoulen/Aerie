@@ -9,6 +9,10 @@ import SwiftUI
 ///   │ <title>                                              [Open ↗]   │
 ///   │ <label pills…>  <💬 comments>                                  │
 ///   └───────────────────────────────────────────────────────────────┘
+///
+/// Below regular width it mirrors the PR row's `compact.jsx` treatment (the
+/// design has no issue-specific narrow artboard): one line at medium, three
+/// stacked lines at compact, with a single "↗" key to open it on GitHub.
 struct IssueCard: View {
     let row: IssueRow
     var onOpen: () -> Void
@@ -16,9 +20,102 @@ struct IssueCard: View {
     /// to keep snapshots deterministic; production callers omit it.
     var now: Date = Date()
 
+    @Environment(\.widthClass) private var widthClass
+
     private var issue: Issue { row.issue }
 
     var body: some View {
+        switch widthClass {
+        case .regular:
+            regularCard
+        case .medium:
+            mediumLine
+                .adaptiveRowPlate(widthClass)
+        case .compact:
+            compactLines
+                .adaptiveRowPlate(widthClass)
+        }
+    }
+
+    /// title · assigned tag · first label · repo·#N · ↗
+    private var mediumLine: some View {
+        HStack(spacing: 11) {
+            Text(issue.title)
+                .aerieFont(AerieFont.custom(.sans, size: 13.5))
+                .foregroundStyle(AerieColor.text1)
+                .lineLimit(1)
+                .layoutPriority(1)
+            Spacer(minLength: 12)
+            if issue.assignedToMe { MiniPill(text: "assigned", tone: .amber) }
+            if let label = issue.labels.first {
+                IssueLabelPill(label: label, mini: true)
+            }
+            Text("\(row.repo.name)·\(issue.number)")
+                .aerieFont(AerieFont.code(10.5))
+                .foregroundStyle(AerieColor.text4)
+                .lineLimit(1)
+            openKey
+        }
+    }
+
+    /// meta line · wrapped title · labels + comment count
+    private var compactLines: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text("\(row.repo.name) · #\(issue.number)")
+                    .aerieFont(AerieFont.code(10.5))
+                    .tracking(0.84)
+                    .foregroundStyle(AerieColor.text3)
+                    .lineLimit(1)
+                if issue.assignedToMe { MiniPill(text: "assigned", tone: .amber) }
+                Spacer(minLength: 4)
+                Text(CardRelativeTime.label(for: issue.updatedAt, now: now))
+                    .aerieFont(AerieFont.code(10.5))
+                    .foregroundStyle(AerieColor.text4)
+                    .fixedSize()
+                openKey
+            }
+            Text(issue.title)
+                .aerieFont(AerieFont.custom(.sans, size: 13.5))
+                .lineSpacing(4)
+                .foregroundStyle(AerieColor.text1)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 7)
+            if !issue.labels.isEmpty || issue.commentCount > 0 {
+                HStack(alignment: .top, spacing: 8) {
+                    FlowLayout(itemSpacing: 6, rowSpacing: 6) {
+                        ForEach(Array(issue.labels.enumerated()), id: \.offset) { _, label in
+                            IssueLabelPill(label: label, mini: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if issue.commentCount > 0 {
+                        commentCount
+                    }
+                }
+                .padding(.top, 9)
+            }
+        }
+    }
+
+    private var openKey: some View {
+        RowGlyphButton(glyph: "↗", help: "Open #\(issue.number) on GitHub", action: onOpen)
+    }
+
+    private var commentCount: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "bubble.left")
+                .font(.system(size: 10, weight: .regular))
+                .foregroundStyle(AerieColor.text4)
+            Text("\(issue.commentCount)")
+                .aerieFont(AerieFont.code(10.5))
+                .foregroundStyle(AerieColor.text3)
+        }
+        .fixedSize()
+    }
+
+    private var regularCard: some View {
         CardContent(title: issue.title, updatedAt: issue.updatedAt, now: now) {
             CardMeta(
                 name: row.repo.name,
@@ -54,16 +151,19 @@ struct IssueCard: View {
 /// pill (text-3) when the colour can't be parsed.
 struct IssueLabelPill: View {
     let label: IssueLabel
+    /// The narrow rows' dense `MiniPill` metrics (9pt, 1×6 padding).
+    var mini: Bool = false
 
     var body: some View {
         let tint = Color(githubHex: label.color)
         let fg = tint ?? AerieColor.text3
         Text(label.name.uppercased())
-            .aerieFont(AerieFont.custom(.sans, size: 10.5).weight(.semibold))
-            .tracking(1.05)
+            .aerieFont(AerieFont.custom(.sans, size: mini ? 9 : 10.5).weight(.semibold))
+            .tracking(mini ? 0.9 : 1.05)
+            .lineLimit(1)
             .foregroundStyle(fg)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 3)
+            .padding(.horizontal, mini ? 6 : 9)
+            .padding(.vertical, mini ? 1 : 3)
             .background(
                 RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                     .fill((tint ?? AerieColor.glass2).opacity(tint == nil ? 1 : 0.12))

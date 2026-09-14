@@ -10,12 +10,15 @@ import SwiftUI
 /// Keyboard shortcuts (⌘1 / ⌘2 / ⌘3) live on the segment buttons.
 struct SegmentedToggle: View {
     @Binding var selection: MainTab
+    /// When set, the medium-width variant (`compact.jsx` `MediumPRList`): each
+    /// segment shows its two-letter code plus the tab's count ("PR 13").
+    var counts: [MainTab: Int]? = nil
 
     var body: some View {
         HStack(spacing: 2) {
-            segmentButton(tab: .prs, label: "Pull Requests")
-            segmentButton(tab: .issues, label: "Issues")
-            segmentButton(tab: .repos, label: "Repositories")
+            ForEach(MainTab.allCases, id: \.self) { tab in
+                segmentButton(tab: tab, label: label(for: tab))
+            }
         }
         .padding(3)
         .background(Color.black.opacity(0.40))
@@ -26,13 +29,9 @@ struct SegmentedToggle: View {
         )
     }
 
-    /// ⌘1 → PRs, ⌘2 → Issues, ⌘3 → Repos.
-    private func shortcut(for tab: MainTab) -> KeyEquivalent {
-        switch tab {
-        case .prs:    return "1"
-        case .issues: return "2"
-        case .repos:  return "3"
-        }
+    private func label(for tab: MainTab) -> String {
+        guard let counts else { return tab.title }
+        return "\(tab.shortCode) \(counts[tab] ?? 0)"
     }
 
     @ViewBuilder
@@ -64,6 +63,6 @@ struct SegmentedToggle: View {
         .buttonStyle(.plain)
         // The shortcut is active whenever this button's host view is in the
         // responder chain (i.e. the main window is key).
-        .keyboardShortcut(shortcut(for: tab), modifiers: .command)
+        .keyboardShortcut(tab.shortcut, modifiers: .command)
     }
 }

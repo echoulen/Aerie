@@ -12,9 +12,14 @@ struct HullModifier: ViewModifier {
     /// lights live in that corner, so the real window keeps it small enough
     /// not to slice through them.
     var topLeftCut: CGFloat = 14
+    /// `.window.compact` — smaller notch and bottom bevels so a narrow window
+    /// keeps its shape.
+    var compact: Bool = false
 
     func body(content: Content) -> some View {
-        let hull = HullShape(topLeftCut: topLeftCut)
+        let hull = compact
+            ? HullShape(topLeftCut: topLeftCut, notchInset: 74, notchDepth: 12, bottomRightCut: 18, bottomLeftCut: 16)
+            : HullShape(topLeftCut: topLeftCut)
         // Every hull layer ignores the safe area. The window roots pull their
         // titlebar up under the native title bar with `.ignoresSafeArea`, but a
         // plain `clipShape` still measures from *below* that inset — it sliced
@@ -23,7 +28,7 @@ struct HullModifier: ViewModifier {
         content
             .mask { hull.fill().ignoresSafeArea() }
             .overlay {
-                HullFurniture(topLeftCut: topLeftCut)
+                HullFurniture(topLeftCut: topLeftCut, bottomRightCut: compact ? 18 : 26)
                     .mask { hull.fill() }
                     .ignoresSafeArea()
             }
@@ -52,6 +57,7 @@ struct HullModifier: ViewModifier {
 
 private struct HullFurniture: View {
     let topLeftCut: CGFloat
+    let bottomRightCut: CGFloat
 
     var body: some View {
         GeometryReader { geo in
@@ -70,7 +76,7 @@ private struct HullFurniture: View {
 
                 // Bottom-right bevel strut, parallel to the clipped corner.
                 Path { p in
-                    let inset: CGFloat = 26 + 12
+                    let inset: CGFloat = bottomRightCut + 12
                     p.move(to: CGPoint(x: w - inset, y: h))
                     p.addLine(to: CGPoint(x: w, y: h - inset))
                 }
@@ -109,7 +115,7 @@ private struct TickRail: View {
 
 extension View {
     /// Clip to the MARK III hull and draw its emitted edge + furniture.
-    func aerieHull(topLeftCut: CGFloat = 14) -> some View {
-        modifier(HullModifier(topLeftCut: topLeftCut))
+    func aerieHull(topLeftCut: CGFloat = 14, compact: Bool = false) -> some View {
+        modifier(HullModifier(topLeftCut: topLeftCut, compact: compact))
     }
 }

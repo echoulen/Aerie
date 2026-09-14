@@ -2,9 +2,13 @@ import SwiftUI
 
 /// The main window's outer shell: deep-space `Backdrop` + custom `Titlebar`
 /// (centred brand only) + a caller-provided content slot, all inside the
-/// MARK III chamfered hull (`.aerieHull()`). The view switcher
-/// (`SegmentedToggle`) lives in each screen's page header, right-aligned,
-/// per the v2 design — not in the titlebar.
+/// MARK III chamfered hull (`.aerieHull()`). At regular width the view
+/// switcher (`SegmentedToggle`) lives in each screen's page header; narrower
+/// windows move it into the chrome (`compact.jsx`): the titlebar centre at
+/// medium width, a tab strip under the titlebar at compact width.
+///
+/// The frame measures the window and publishes ``WidthClass`` to everything
+/// inside it, including its own titlebar, hull and account menu.
 ///
 /// Design note: the v2 spec lists an "AmbientGlow" overlay alongside the
 /// backdrop. We rely on `Backdrop`'s own nebula washes (warm / violet / cyan)
@@ -29,13 +33,22 @@ struct AppFrame<Content: View>: View {
     var onInstallUpdate: () -> Void = {}
     /// Shows the message behind a failed update.
     var onShowUpdateFailure: () -> Void = {}
+    /// The tab switcher for medium / compact widths. Nil hides it — e.g. while
+    /// the review screen replaces the tab lists.
+    var tabBar: MainTabBar? = nil
     @ViewBuilder var content: () -> Content
+
+    @State private var widthClass: WidthClass = .regular
+    @State private var widthBucket = 0
 
     var body: some View {
         ZStack {
             Backdrop()
             VStack(spacing: 0) {
-                Titlebar(title: "Aerie")
+                titlebar
+                if widthClass == .compact, let tabBar {
+                    CompactTabStrip(bar: tabBar)
+                }
                 content()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -74,8 +87,31 @@ struct AppFrame<Content: View>: View {
                 AccountMenu(viewModel: accountMenu, onOpenSettings: onOpenSettings)
             }
         }
-        .aerieHull()
+        .aerieHull(compact: widthClass == .compact)
         .frame(minWidth: AerieMetric.mainWindowW, minHeight: AerieMetric.mainWindowH)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            widthClass = WidthClass.forWidth(width)
+            widthBucket = Int((width / 8).rounded())
+        }
+        .widthClass(widthClass, bucket: widthBucket)
         .aerieWindowChrome()
+    }
+
+    @ViewBuilder
+    private var titlebar: some View {
+        switch widthClass {
+        case .regular:
+            Titlebar(title: "Aerie")
+        case .medium:
+            if let tabBar {
+                Titlebar {
+                    SegmentedToggle(selection: tabBar.selection, counts: tabBar.counts)
+                }
+            } else {
+                Titlebar(title: "Aerie")
+            }
+        case .compact:
+            Titlebar(title: "Aerie", markOnly: true)
+        }
     }
 }

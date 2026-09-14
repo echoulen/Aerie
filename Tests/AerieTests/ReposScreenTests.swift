@@ -73,7 +73,7 @@ final class ReposScreenTests: XCTestCase {
         return r
     }
 
-    func test_reposScreenSnapshot_threeRows() async throws {
+    private func seededViewModel() async throws -> ReposViewModel {
         let db = try makeDB()
         let acct = try insertAccount(db)
 
@@ -128,17 +128,39 @@ final class ReposScreenTests: XCTestCase {
         // Sanity-check the VM landed in .ready before snapshotting.
         guard case .ready(let rows) = vm.state else {
             XCTFail("Expected .ready, got \(vm.state)")
-            return
+            return vm
         }
         XCTAssertEqual(rows.count, 3)
+        return vm
+    }
 
+    private func assertScreenSnapshot(
+        width: CGFloat, height: CGFloat, widthClass: WidthClass,
+        testName: String = #function
+    ) async throws {
+        let vm = try await seededViewModel()
         let view = ZStack {
             Backdrop()
             ReposScreen(viewModel: vm, tabSelection: .constant(.repos))
         }
-        .frame(width: 1240, height: 760)
+        .environment(\.widthClass, widthClass)
+        .frame(width: width, height: height)
 
         let host = NSHostingView(rootView: view)
-        assertSnapshot(of: host, as: .image(size: CGSize(width: 1240, height: 760)))
+        assertSnapshot(of: host, as: .image(size: CGSize(width: width, height: height)), testName: testName)
+    }
+
+    func test_reposScreenSnapshot_threeRows() async throws {
+        try await assertScreenSnapshot(width: 1240, height: 760, widthClass: .regular)
+    }
+
+    /// `compact.jsx` `MediumPRList` tier: one-line rows under a slim subheader.
+    func test_reposScreenSnapshot_medium() async throws {
+        try await assertScreenSnapshot(width: 880, height: 700, widthClass: .medium)
+    }
+
+    /// `compact.jsx` compact tier: stacked rows with a ⋯ menu.
+    func test_reposScreenSnapshot_compact() async throws {
+        try await assertScreenSnapshot(width: 560, height: 860, widthClass: .compact)
     }
 }

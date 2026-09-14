@@ -46,13 +46,25 @@ struct PRReviewScreen: View {
     private var repo: Repository { vm.row.repo }
     private var aiPhase: AIReviewPhase { store.phase(for: vm.row) }
 
+    @Environment(\.widthClass) private var widthClass
+
+    /// Page gutter: 28pt, or 18pt in the compact layout (`CompactReview`).
+    private var gutter: CGFloat { widthClass == .compact ? 18 : 28 }
+
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if widthClass == .compact {
+                compactHeader
+            } else {
+                header
+            }
             HudRail()
             aiReviewBanner
             approveFailureBanner
             content
+            if widthClass == .compact {
+                compactActionBar
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task { await vm.load() }
@@ -69,16 +81,16 @@ struct PRReviewScreen: View {
             EmptyView()
         case .running(let lines):
             AIReviewConsole(lines: lines)
-                .padding(.horizontal, 28).padding(.top, 16)
+                .padding(.horizontal, gutter).padding(.top, widthClass == .compact ? 12 : 16)
         case .done(let review, let actedAs):
             AIReviewCard(review: review, actedAs: actedAs)
-                .padding(.horizontal, 28).padding(.top, 16)
+                .padding(.horizontal, gutter).padding(.top, widthClass == .compact ? 12 : 16)
         case .failed(let message):
             AIReviewFailureCard(
                 title: "AI Review failed",
                 message: message,
                 onRetry: canStartAIReview ? { store.start(row: vm.row) } : nil)
-                .padding(.horizontal, 28).padding(.top, 16)
+                .padding(.horizontal, gutter).padding(.top, widthClass == .compact ? 12 : 16)
         }
     }
 
@@ -91,7 +103,7 @@ struct PRReviewScreen: View {
                 title: "Approve failed",
                 message: message,
                 onRetry: { actionStore.retry(.approve, row: vm.row) })
-                .padding(.horizontal, 28).padding(.top, 16)
+                .padding(.horizontal, gutter).padding(.top, widthClass == .compact ? 12 : 16)
         }
     }
 
@@ -115,26 +127,107 @@ struct PRReviewScreen: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             HStack(alignment: .top, spacing: 10) {
-                AIReviewButton(
-                    phase: aiPhase,
-                    isDraft: pr.isDraftPR,
-                    resolution: vm.resolution,
-                    selectedApproverId: store.selectedApproverId(for: vm.row),
-                    onSelectApprover: { store.selectApprover($0, for: vm.row) },
-                    onStart: { store.start(row: vm.row) }
-                )
-                ApproveButton(
-                    row: vm.row,
-                    resolution: vm.resolution,
-                    actionStore: actionStore,
-                    onApproveConfirmed: onApproveConfirmed
-                )
+                aiReviewButton()
+                approveButton()
             }
             .fixedSize()
         }
         .padding(.horizontal, 28)
         .padding(.top, 22)
         .padding(.bottom, 20)
+    }
+
+    private func aiReviewButton(fills: Bool = false) -> some View {
+        AIReviewButton(
+            phase: aiPhase,
+            isDraft: pr.isDraftPR,
+            resolution: vm.resolution,
+            selectedApproverId: store.selectedApproverId(for: vm.row),
+            onSelectApprover: { store.selectApprover($0, for: vm.row) },
+            onStart: { store.start(row: vm.row) },
+            fills: fills
+        )
+    }
+
+    private func approveButton(fills: Bool = false) -> some View {
+        ApproveButton(
+            row: vm.row,
+            resolution: vm.resolution,
+            actionStore: actionStore,
+            onApproveConfirmed: onApproveConfirmed,
+            fills: fills
+        )
+    }
+
+    // MARK: Compact layout (`compact.jsx` `CompactReview`)
+
+    /// Back key · repo · #N · CI tag, then the wrapped title and the diff size.
+    private var compactHeader: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                backButton
+                Text("\(repo.name) · #\(pr.number)")
+                    .aerieFont(AerieFont.code(10.5))
+                    .foregroundStyle(AerieColor.text3)
+                    .lineLimit(1)
+                if pr.isDraftPR { MiniPill(text: "draft", tone: .muted) }
+                Spacer(minLength: 8)
+                compactCITag
+            }
+            Text(pr.title)
+                .aerieFont(AerieFont.custom(.sans, size: 16).weight(.semibold))
+                .lineSpacing(4)                          // lh 1.35
+                .foregroundStyle(AerieColor.text1)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 10)
+            if let add = pr.additions, let del = pr.deletions, let files = pr.changedFiles {
+                HStack(spacing: 10) {
+                    HStack(spacing: 5) {
+                        Text("+\(add)").foregroundStyle(AerieColor.ok)
+                        Text("−\(del)").foregroundStyle(AerieColor.crimsonHot)
+                    }
+                    Text("\(files) \(files == 1 ? "file" : "files")")
+                        .foregroundStyle(AerieColor.text3)
+                }
+                .aerieFont(AerieFont.code(11))
+                .padding(.top, 9)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+    }
+
+    /// `pill ok` with a 5pt dot and just "CI", toned by the check state.
+    private var compactCITag: some View {
+        let tone: StatusPill.Tone = {
+            switch pr.ciState {
+            case .success: return .ok
+            case .failure: return .err
+            case .pending: return .warn
+            case .none:    return .muted
+            }
+        }()
+        return HStack(spacing: 5) {
+            StatusDot(tone: tone).scaleEffect(5.0 / 7.0)
+            MiniPill(text: "CI", tone: tone)
+        }
+        .fixedSize()
+    }
+
+    /// The primary actions move to a bar pinned under the diff.
+    private var compactActionBar: some View {
+        HStack(spacing: 9) {
+            aiReviewButton(fills: true)
+            approveButton(fills: true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.black.opacity(0.42))
+        .overlay(alignment: .top) {
+            Rectangle().fill(AerieColor.glassLine).frame(height: 1)
+        }
     }
 
     /// `RvBack` — a 32×32 `.btn.ghost.sm` key with a glass hairline inset.
@@ -149,8 +242,10 @@ struct PRReviewScreen: View {
         .help("Back to pull requests")
     }
 
+    // Wraps (and the branch note truncates) so a long branch name can't push
+    // the header — and with it the whole screen — wider than the window.
     private var statusRow: some View {
-        HStack(spacing: 10) {
+        FlowLayout(itemSpacing: 10, rowSpacing: 8) {
             if pr.isDraftPR {
                 StatusPill(text: "Draft", tone: .muted)
             }
@@ -165,8 +260,9 @@ struct PRReviewScreen: View {
                 .aerieFont(AerieFont.code(11.5))
                 .fixedSize()
             }
-            HudNote(text: "head \(pr.sourceBranch)")
+            HudNote(text: "head \(pr.sourceBranch)", truncates: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 2)
     }
 
@@ -192,14 +288,14 @@ struct PRReviewScreen: View {
             centered { errorView(message) }
         case .ready(let files):
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: widthClass == .compact ? 10 : 12) {
                     ForEach(files) { file in
                         DiffFileSection(file: file, highlighter: highlighter)
                     }
                 }
-                .padding(.horizontal, 28)
-                .padding(.top, 18)
-                .padding(.bottom, 24)
+                .padding(.horizontal, gutter)
+                .padding(.top, widthClass == .compact ? 12 : 18)
+                .padding(.bottom, widthClass == .compact ? 16 : 24)
             }
         }
     }
@@ -259,6 +355,8 @@ private struct ApproveButton: View {
     let resolution: ApproverResolution
     let actionStore: PRActionStore
     var onApproveConfirmed: (PRRow, GitHubAccount, String?) async -> String? = { _, _, _ in nil }
+    /// Stretch to the available width (the compact bottom bar).
+    var fills: Bool = false
 
     @State private var showConfirm = false
     @State private var justApproved = false
@@ -286,6 +384,7 @@ private struct ApproveButton: View {
                     }
                     Text(isApproving ? "APPROVING…" : "APPROVE")
                 }
+                .frame(maxWidth: fills ? .infinity : nil)
                 // `.btn.amber` with `padding: 9px 20px` (style supplies 8×15).
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
@@ -326,6 +425,7 @@ private struct ApproveButton: View {
                 .aerieFont(AerieFont.custom(.sans, size: 12.5).weight(weight))
                 .tracking(1.0) // 0.08em @ 12.5px
         }
+        .frame(maxWidth: fills ? .infinity : nil)
         .foregroundStyle(fg)
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
@@ -353,6 +453,8 @@ private struct AIReviewButton: View {
     let selectedApproverId: UUID?
     let onSelectApprover: (UUID) -> Void
     let onStart: () -> Void
+    /// Stretch to the available width (the compact bottom bar).
+    var fills: Bool = false
 
     private static let shape = HudKeyShape(cut: 9)
 
@@ -374,6 +476,7 @@ private struct AIReviewButton: View {
         HStack(spacing: 0) {
             Button(action: onStart) {
                 primaryLabel
+                    .frame(maxWidth: fills ? .infinity : nil)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 9)
                     .contentShape(Rectangle())

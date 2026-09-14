@@ -18,14 +18,21 @@ struct GlassModifier: ViewModifier {
             .overlay(alignment: .leading) {
                 if variant == .card {
                     // `.card::after` — 2px gold strut down the left edge, brighter on hover.
-                    LinearGradient(stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: AerieColor.amberGlow, location: 0.3),
-                        .init(color: AerieColor.amberGlow, location: 0.7),
-                        .init(color: .clear, location: 1),
-                    ], startPoint: .top, endPoint: .bottom)
+                    // Inset 22pt top and bottom, but never more than a quarter of
+                    // the plate — a one-line row would otherwise shrink the
+                    // strut to a stray dot.
+                    GeometryReader { geo in
+                        let inset = min(22, geo.size.height * 0.25)
+                        LinearGradient(stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: AerieColor.amberGlow, location: 0.3),
+                            .init(color: AerieColor.amberGlow, location: 0.7),
+                            .init(color: .clear, location: 1),
+                        ], startPoint: .top, endPoint: .bottom)
+                        .frame(width: 2, height: max(0, geo.size.height - inset * 2))
+                        .offset(y: inset)
+                    }
                     .frame(width: 2)
-                    .padding(.vertical, 22)
                     .opacity(hovering ? 1 : 0.55)
                     .allowsHitTesting(false)
                 }

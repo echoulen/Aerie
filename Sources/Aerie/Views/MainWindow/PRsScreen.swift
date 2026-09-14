@@ -60,10 +60,8 @@ struct PRsScreen: View {
     /// and previews.
     var onDismissAIReview: (PRRow) -> Void = { _ in }
 
-    @Environment(\.isCompactWidth) private var isCompact
-    private var pagePadding: CGFloat {
-        isCompact ? AerieMetric.pagePaddingCompact : AerieMetric.pagePadding
-    }
+    @Environment(\.widthClass) private var widthClass
+    private var layout: ListLayout { ListLayout(widthClass: widthClass) }
 
     var body: some View {
         switch viewModel.state {
@@ -87,10 +85,10 @@ struct PRsScreen: View {
     @ViewBuilder
     private func nonReadyLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            header(open: 0, ready: 0)
-                .padding(.horizontal, pagePadding)
-                .padding(.top, 12)
-                .padding(.bottom, 18)
+            header(open: 0, ready: 0, mine: 0)
+                .padding(.horizontal, layout.gutter)
+                .padding(.top, layout.top)
+                .padding(.bottom, layout.headerGap)
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -141,11 +139,12 @@ struct PRsScreen: View {
         let readyCount = rows.filter {
             $0.pr.state == .open && $0.pr.ciState == .success && $0.pr.reviewState == .approved
         }.count
+        let mineCount = rows.filter { $0.pr.isMine }.count
 
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                header(open: openCount, ready: readyCount)
-                    .padding(.bottom, 18)
+                header(open: openCount, ready: readyCount, mine: mineCount)
+                    .padding(.bottom, layout.headerGap)
 
                 ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
                     PRCard(
@@ -162,23 +161,29 @@ struct PRsScreen: View {
                         onUpdateBranch: { await onUpdateBranch(row) },
                         now: now
                     )
-                    .padding(.bottom, AerieMetric.cardGap)
+                    .padding(.bottom, layout.rowGap(regular: AerieMetric.cardGap))
                 }
             }
-            .padding(.horizontal, pagePadding)
-            .padding(.vertical, 12)
+            .padding(.horizontal, layout.gutter)
+            .padding(.top, layout.top)
+            .padding(.bottom, layout.bottom)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func header(open: Int, ready: Int) -> some View {
-        PageHeader(
-            eyebrow: "VIEW · ⌘1",
-            title: "Open pull requests",
-            count: "\(open) open · \(ready) ready to merge",
-            tabSelection: tabSelection,
-            onRefresh: onRefresh
-        )
+    @ViewBuilder
+    private func header(open: Int, ready: Int, mine: Int) -> some View {
+        if widthClass == .regular {
+            PageHeader(
+                eyebrow: "VIEW · ⌘1",
+                title: "Open pull requests",
+                count: "\(open) open · \(ready) ready to merge",
+                tabSelection: tabSelection,
+                onRefresh: onRefresh
+            )
+        } else {
+            ListSubheader(summary: "\(open) open · \(mine) yours", onRefresh: onRefresh)
+        }
     }
 
     // MARK: - Actions

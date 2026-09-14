@@ -20,10 +20,8 @@ struct IssuesScreen: View {
     /// The real refresh to run when the header's Refresh button is tapped.
     var onRefresh: () async -> Void = {}
 
-    @Environment(\.isCompactWidth) private var isCompact
-    private var pagePadding: CGFloat {
-        isCompact ? AerieMetric.pagePaddingCompact : AerieMetric.pagePadding
-    }
+    @Environment(\.widthClass) private var widthClass
+    private var layout: ListLayout { ListLayout(widthClass: widthClass) }
 
     var body: some View {
         switch viewModel.state {
@@ -44,9 +42,9 @@ struct IssuesScreen: View {
     private func nonReadyLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             header(open: 0, mine: 0)
-                .padding(.horizontal, pagePadding)
-                .padding(.top, 12)
-                .padding(.bottom, 18)
+                .padding(.horizontal, layout.gutter)
+                .padding(.top, layout.top)
+                .padding(.bottom, layout.headerGap)
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -99,7 +97,7 @@ struct IssuesScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header(open: openCount, mine: mineCount)
-                    .padding(.bottom, 18)
+                    .padding(.bottom, layout.headerGap)
 
                 ForEach(rows) { row in
                     IssueCard(
@@ -109,23 +107,29 @@ struct IssuesScreen: View {
                     )
                     // More air between issue rows than the default card gap —
                     // the rows read as too tight otherwise.
-                    .padding(.bottom, 24)
+                    .padding(.bottom, layout.rowGap(regular: 24))
                 }
             }
-            .padding(.horizontal, pagePadding)
-            .padding(.vertical, 12)
+            .padding(.horizontal, layout.gutter)
+            .padding(.top, layout.top)
+            .padding(.bottom, layout.bottom)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
+    @ViewBuilder
     private func header(open: Int, mine: Int) -> some View {
-        PageHeader(
-            eyebrow: "VIEW · ⌘2",
-            title: "Open issues",
-            count: "\(open) open · \(mine) assigned to you",
-            tabSelection: tabSelection,
-            onRefresh: onRefresh
-        )
+        if widthClass == .regular {
+            PageHeader(
+                eyebrow: "VIEW · ⌘2",
+                title: "Open issues",
+                count: "\(open) open · \(mine) assigned to you",
+                tabSelection: tabSelection,
+                onRefresh: onRefresh
+            )
+        } else {
+            ListSubheader(summary: "\(open) open · \(mine) assigned to you", onRefresh: onRefresh)
+        }
     }
 
     // MARK: - Actions

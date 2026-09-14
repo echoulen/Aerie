@@ -65,6 +65,7 @@ struct AccountMenu: View {
     var onOpenSettings: () -> Void = {}
 
     @State private var open = false
+    @Environment(\.widthClass) private var widthClass
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -96,7 +97,9 @@ struct AccountMenu: View {
                 .padding(.top, 11)
                 // Sit left of the hull's top-right notch (`HullShape`), as the
                 // design's titlebar does with its 132px right padding.
-                .padding(.trailing, AerieMetric.hullNotchClearance)
+                .padding(.trailing, widthClass == .compact
+                         ? AerieMetric.hullNotchClearanceCompact
+                         : AerieMetric.hullNotchClearance)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)

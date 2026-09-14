@@ -17,6 +17,11 @@ import AppKit
 /// - Actions: a ghost "Open ↗" and a crimson `.btn.danger` "Reset to
 ///   origin/<b>", with Create PR / Discard below when relevant.
 /// - Footer: failure / publish / merged-branch strips, then the worktree rail.
+///
+/// Below regular width the card follows `compact.jsx` `CompactRepoRow`: name
+/// and a `⋯` menu holding every action, then the branch chip with its tags and
+/// ahead/behind counts (one line at medium, two at compact). The worktree rail
+/// collapses to an "N worktrees" tag; the status strips still show below.
 struct RepoCard: View {
     let row: RepoRow
     var onOpen: () -> Void
@@ -147,30 +152,28 @@ struct RepoCard: View {
 
     // MARK: - Body
 
-    @Environment(\.isCompactWidth) private var isCompact
+    @Environment(\.widthClass) private var widthClass
 
     var body: some View {
+        switch widthClass {
+        case .regular:
+            regularCard
+        case .medium, .compact:
+            adaptiveRow
+        }
+    }
+
+    private var regularCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if isCompact {
-                // Narrow window: identity, status and actions stack so the
-                // text keeps the full card width.
-                VStack(alignment: .leading, spacing: 12) {
-                    identityColumn
-                    statusLine
-                    actionCluster
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                // Design grid `1.4fr 1fr auto`, column gap 28.
-                HStack(alignment: .center, spacing: 28) {
-                    identityColumn
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .layoutPriority(1)
-                    statusLine
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    actionCluster
-                        .fixedSize()
-                }
+            // Design grid `1.4fr 1fr auto`, column gap 28.
+            HStack(alignment: .center, spacing: 28) {
+                identityColumn
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+                statusLine
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                actionCluster
+                    .fixedSize()
             }
 
             footer
@@ -254,37 +257,20 @@ struct RepoCard: View {
         }
     }
 
-    private var showsFooter: Bool {
-        !row.worktrees.isEmpty || !createFooterIsEmpty || resetFailure != nil
+    private var showsStatusStrips: Bool {
+        !createFooterIsEmpty || resetFailure != nil
             || discardFailure != nil || (row.mergedBranch != nil && !isResetting)
+    }
+
+    private var showsFooter: Bool {
+        !row.worktrees.isEmpty || showsStatusStrips
     }
 
     @ViewBuilder
     private var footer: some View {
         if showsFooter {
             VStack(alignment: .leading, spacing: 8) {
-                if let resetFailure {
-                    // `resetFailure` already reads "Reset failed: …" (the
-                    // `onHardResetConfirmed` closure's error string) — pass
-                    // it through as-is, don't add a second prefix.
-                    ActionErrorStrip(
-                        message: resetFailure,
-                        onRetry: { repoActionStore.retry(.hardReset, target: .repo(row.repo)) },
-                        onDismiss: { repoActionStore.dismiss(.hardReset, target: .repo(row.repo)) })
-                }
-                if let discardFailure {
-                    // Already reads "Discard failed: …" — pass through as-is.
-                    ActionErrorStrip(
-                        message: discardFailure,
-                        onRetry: { repoActionStore.retry(.discardUnstaged, target: .repo(row.repo)) },
-                        onDismiss: { repoActionStore.dismiss(.discardUnstaged, target: .repo(row.repo)) })
-                }
-                if let merged = row.mergedBranch, !isResetting {
-                    mergedHintStrip(merged)
-                }
-                if !createFooterIsEmpty {
-                    createStatusFooter
-                }
+                statusStrips
                 if !row.worktrees.isEmpty {
                     WorktreeRail(
                         worktrees: row.worktrees,
@@ -300,35 +286,193 @@ struct RepoCard: View {
         }
     }
 
-    // The trailing action cluster. Wide: the uniform Open ↗ / Reset row stays
-    // on top so those line up across cards; the conditional second row holds
-    // the gold Create PR button and the quieter dirty-only Discard. Compact:
-    // the same buttons wrap as a flow instead of forcing fixed rows wider than
-    // the card. Destructive actions are disabled while claude is running git —
-    // a hard reset mid-publish would corrupt the flow.
+    /// Failure / merged-hint / publish strips — shown at every width.
     @ViewBuilder
+    private var statusStrips: some View {
+        if let resetFailure {
+            // `resetFailure` already reads "Reset failed: …" (the
+            // `onHardResetConfirmed` closure's error string) — pass
+            // it through as-is, don't add a second prefix.
+            ActionErrorStrip(
+                message: resetFailure,
+                onRetry: { repoActionStore.retry(.hardReset, target: .repo(row.repo)) },
+                onDismiss: { repoActionStore.dismiss(.hardReset, target: .repo(row.repo)) })
+        }
+        if let discardFailure {
+            // Already reads "Discard failed: …" — pass through as-is.
+            ActionErrorStrip(
+                message: discardFailure,
+                onRetry: { repoActionStore.retry(.discardUnstaged, target: .repo(row.repo)) },
+                onDismiss: { repoActionStore.dismiss(.discardUnstaged, target: .repo(row.repo)) })
+        }
+        if let merged = row.mergedBranch, !isResetting {
+            mergedHintStrip(merged)
+        }
+        if !createFooterIsEmpty {
+            createStatusFooter
+        }
+    }
+
+    // MARK: - Medium / compact row
+
+    private var adaptiveRow: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if widthClass == .medium {
+                HStack(spacing: 11) {
+                    StatusDot(tone: adaptiveDotTone)
+                    nameLabel
+                    branchLine
+                    runningSpinner
+                    overflowMenu
+                }
+            } else {
+                HStack(spacing: 9) {
+                    StatusDot(tone: adaptiveDotTone)
+                    nameLabel
+                    Spacer(minLength: 8)
+                    runningSpinner
+                    overflowMenu
+                }
+                branchLine
+                    .padding(.top, 9)
+            }
+            if showsStatusStrips {
+                VStack(alignment: .leading, spacing: 8) {
+                    statusStrips
+                }
+                .padding(.top, 10)
+            }
+        }
+        .adaptiveRowPlate(widthClass)
+        .popover(isPresented: $showResetConfirm) { resetDialog }
+        .background(Color.clear.popover(isPresented: $showDiscardConfirm) { discardDialog })
+    }
+
+    /// `CompactRepoRow` dot: crimson when the tree is dirty, green otherwise.
+    private var adaptiveDotTone: StatusPill.Tone {
+        row.status?.isDirty == true ? .err : .ok
+    }
+
+    private var nameLabel: some View {
+        Text(repoTitle)
+            .aerieFont(AerieFont.custom(.sans, size: 14).weight(.semibold))
+            .foregroundStyle(AerieColor.text1)
+            .lineLimit(1)
+            .layoutPriority(1)
+    }
+
+    /// Branch chip · tags · (spacer) · ↓behind ↑ahead · N worktrees.
+    private var branchLine: some View {
+        HStack(spacing: 8) {
+            Text(branchName)
+                .aerieFont(AerieFont.code(11))
+                .foregroundStyle(AerieColor.text1)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).fill(AerieColor.glass2))
+                .overlay(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+            if let merged = row.mergedBranch {
+                MiniPill(text: isResetting ? "resetting" : "merged · #\(merged.prNumber)",
+                         tone: isResetting ? .arc : .amber)
+            } else if !isOnDefault {
+                MiniPill(text: "off default", tone: .amber)
+            }
+            if row.repo.apiSyncDisabled { MiniPill(text: "sync paused", tone: .muted) }
+            if row.status?.isDirty == true { MiniPill(text: "dirty", tone: .err) }
+            Spacer(minLength: 8)
+            AheadBehindCounts(ahead: row.status?.aheadOfDefault ?? 0,
+                              behind: row.status?.behindOfDefault ?? 0)
+            if !row.worktrees.isEmpty {
+                MiniPill(text: "\(row.worktrees.count) worktree\(row.worktrees.count == 1 ? "" : "s")",
+                         tone: .muted)
+                    .help("Widen the window to manage worktrees")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var runningSpinner: some View {
+        if isResetting || isDiscarding || isCreating {
+            CardArcSpinner(size: 11)
+        }
+    }
+
+    /// Every action the regular card shows inline, plus Remove (its corner ×).
+    private var overflowMenu: some View {
+        RowOverflowMenu(help: "Actions for \(repoTitle)") {
+            Button("Open in Finder", action: onOpen)
+            if Self.shouldShowCreatePR(row) || isCreating {
+                Button(isCreating ? "Creating Pull Request…" : "Create Pull Request", action: onCreatePR)
+                    .disabled(isCreating)
+            }
+            Divider()
+            if Self.shouldShowDiscard(row.status) {
+                Button(isDiscarding ? "Discarding…" : "Discard All Unstaged…") { showDiscardConfirm = true }
+                    .disabled(isCreating || isDiscarding)
+            }
+            Button(isResetting ? "Resetting…" : Self.resetTitle(row) + "…") { showResetConfirm = true }
+                .disabled(row.status == nil || isCreating || isResetting)
+            Divider()
+            Button(Self.apiSyncToggleHelp(row), action: onToggleApiSync)
+            Divider()
+            Button("Remove from Aerie", action: onRemove)
+        }
+    }
+
+    @ViewBuilder
+    private var resetDialog: some View {
+        if let status = row.status {
+            DialogReset(
+                repo: row.repo, status: status,
+                onConfirm: {
+                    showResetConfirm = false
+                    repoActionStore.start(.hardReset, target: .repo(row.repo)) {
+                        await onHardResetConfirmed(row)
+                    }
+                },
+                onCancel: { showResetConfirm = false },
+                mergedBranch: row.mergedBranch
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var discardDialog: some View {
+        if let status = row.status {
+            DialogDiscard(
+                repo: row.repo, status: status,
+                onConfirm: {
+                    showDiscardConfirm = false
+                    repoActionStore.start(.discardUnstaged, target: .repo(row.repo)) {
+                        await onDiscardConfirmed(row)
+                    }
+                },
+                onCancel: { showDiscardConfirm = false }
+            )
+        }
+    }
+
+    // The trailing action cluster: the uniform Open ↗ / Reset row stays on top
+    // so those line up across cards; the conditional second row holds the gold
+    // Create PR button and the quieter dirty-only Discard. Destructive actions
+    // are disabled while claude is running git — a hard reset mid-publish would
+    // corrupt the flow.
     private var actionCluster: some View {
-        if isCompact {
-            FlowLayout(itemSpacing: 8, rowSpacing: 8) {
+        VStack(alignment: .trailing, spacing: 8) {
+            HStack(spacing: 8) {
                 actionButtons
             }
-        } else {
-            VStack(alignment: .trailing, spacing: 8) {
+            if Self.shouldShowCreatePR(row) || isCreating || Self.shouldShowDiscard(row.status) {
                 HStack(spacing: 8) {
-                    actionButtons
-                }
-                if Self.shouldShowCreatePR(row) || isCreating || Self.shouldShowDiscard(row.status) {
-                    HStack(spacing: 8) {
-                        secondaryActionButtons
-                    }
+                    secondaryActionButtons
                 }
             }
         }
     }
 
-    /// Pause/resume toggle + Open ↗ + Reset — the always-present trio. In
-    /// compact mode the flow layout receives these and the secondary buttons
-    /// as one flat run.
+    /// Pause/resume toggle + Open ↗ + Reset — the always-present trio.
     @ViewBuilder
     private var actionButtons: some View {
         ApiSyncToggleButton(
@@ -348,24 +492,7 @@ struct RepoCard: View {
         // reset stays enabled so its arc key isn't dimmed — the action's
         // `!isResetting` guard already ignores taps.
         .disabled(isCreating && !isResetting)
-        .popover(isPresented: $showResetConfirm) {
-            if let status = row.status {
-                DialogReset(
-                    repo: row.repo, status: status,
-                    onConfirm: {
-                        showResetConfirm = false
-                        repoActionStore.start(.hardReset, target: .repo(row.repo)) {
-                            await onHardResetConfirmed(row)
-                        }
-                    },
-                    onCancel: { showResetConfirm = false },
-                    mergedBranch: row.mergedBranch
-                )
-            }
-        }
-        if isCompact {
-            secondaryActionButtons
-        }
+        .popover(isPresented: $showResetConfirm) { resetDialog }
     }
 
     /// Idle: `resetTitle`. Running: the merged-branch cleanup keeps its label
@@ -385,20 +512,7 @@ struct RepoCard: View {
                 .disabled(isCreating || isDiscarding)
                 // Only the publish block dims; a running discard shows arc cyan.
                 .opacity((isCreating && !isDiscarding) ? 0.45 : 1)
-                .popover(isPresented: $showDiscardConfirm) {
-                    if let status = row.status {
-                        DialogDiscard(
-                            repo: row.repo, status: status,
-                            onConfirm: {
-                                showDiscardConfirm = false
-                                repoActionStore.start(.discardUnstaged, target: .repo(row.repo)) {
-                                    await onDiscardConfirmed(row)
-                                }
-                            },
-                            onCancel: { showDiscardConfirm = false }
-                        )
-                    }
-                }
+                .popover(isPresented: $showDiscardConfirm) { discardDialog }
         }
     }
 
