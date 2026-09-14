@@ -9,17 +9,29 @@ import SwiftUI
 ///
 /// The title text is the only per-window difference: the main window shows
 /// "Aerie", the Settings window "Aerie · Settings".
-struct Titlebar: View {
+///
+/// Narrower main windows swap the centre (`compact.jsx`): `center` replaces the
+/// brand cluster (the medium tier puts the tab switcher there), and
+/// `markOnly` drops the wordmark, leaving just the orb (compact tier).
+struct Titlebar<Center: View>: View {
     var title: String = "Aerie"
+    var markOnly: Bool = false
+    @ViewBuilder var center: () -> Center
 
     var body: some View {
         ZStack {
-            HStack(spacing: 10) {
-                BrandMark(size: 14)
-                Text(title.uppercased())
-                    .aerieFont(AerieFont.custom(.sans, size: 11).weight(.semibold))
-                    .tracking(3.3)                   // 0.30em @ 11pt
-                    .foregroundStyle(AerieColor.text2)
+            if Center.self != EmptyView.self {
+                center()
+            } else {
+                HStack(spacing: 10) {
+                    BrandMark(size: markOnly ? 11 : 14)
+                    if !markOnly {
+                        Text(title.uppercased())
+                            .aerieFont(AerieFont.custom(.sans, size: 11).weight(.semibold))
+                            .tracking(3.3)                   // 0.30em @ 11pt
+                            .foregroundStyle(AerieColor.text2)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -29,6 +41,12 @@ struct Titlebar: View {
                            startPoint: .top, endPoint: .bottom)
         )
         .overlay(alignment: .bottom) { TitlebarHairline() }
+    }
+}
+
+extension Titlebar where Center == EmptyView {
+    init(title: String = "Aerie", markOnly: Bool = false) {
+        self.init(title: title, markOnly: markOnly, center: { EmptyView() })
     }
 }
 

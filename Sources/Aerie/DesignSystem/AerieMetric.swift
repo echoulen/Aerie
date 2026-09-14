@@ -17,6 +17,8 @@ enum AerieMetric {
     /// Trailing space titlebar controls keep so they clear the hull's
     /// top-right notched step (`HullShape.notchInset` + a little air).
     static let hullNotchClearance: CGFloat = 140
+    /// The same clearance for the compact hull's smaller notch.
+    static let hullNotchClearanceCompact: CGFloat = 84
 
     // Spacing
     static let pagePadding: CGFloat = 44
@@ -35,11 +37,15 @@ enum AerieMetric {
     /// 26 pt; the native traffic lights are pinned by the system at 16 pt, so by
     /// design the brand sits a touch below them in exchange for the padding.
     static let titlebarHeight: CGFloat = 52
-    static let mainWindowW: CGFloat = 420
+    /// Minimum main-window width. The compact layout is designed down to this
+    /// (`compact.jsx`: "clamp the window at 480pt so the compact layout never
+    /// has to degrade further").
+    static let mainWindowW: CGFloat = 480
     static let mainWindowH: CGFloat = 880
-    /// Below this content width the main-window lists switch to the compact
-    /// layout (actions under the card content, tighter gutters). See
-    /// `\.isCompactWidth` in AdaptiveLayout.swift.
+    /// Adaptive-width breakpoints (`compact.jsx` BreakpointSpec), measured on the
+    /// main window's width. See ``WidthClass`` in AdaptiveLayout.swift:
+    ///   ≥ 1040 regular · 640…1039 medium · < 640 compact.
+    static let regularWidthBreakpoint: CGFloat = 1040
     static let compactWidthBreakpoint: CGFloat = 640
     static let settingsWindowW: CGFloat = 1040
     static let settingsWindowH: CGFloat = 760

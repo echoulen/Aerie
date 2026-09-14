@@ -60,10 +60,14 @@ struct PRsScreen: View {
     /// and previews.
     var onDismissAIReview: (PRRow) -> Void = { _ in }
 
-    @Environment(\.isCompactWidth) private var isCompact
-    private var pagePadding: CGFloat {
-        isCompact ? AerieMetric.pagePaddingCompact : AerieMetric.pagePadding
-    }
+    @Environment(\.widthClass) private var widthClass
+    private var layout: ListLayout { ListLayout(widthClass: widthClass) }
+
+    /// The medium subheader's ALL / MINE filter. Only applied while that
+    /// segment is on screen, so widening the window never hides rows behind a
+    /// control that's gone.
+    @State private var showsMineOnly = false
+    private var filtersMine: Bool { widthClass == .medium && showsMineOnly }
 
     var body: some View {
         switch viewModel.state {
@@ -87,10 +91,10 @@ struct PRsScreen: View {
     @ViewBuilder
     private func nonReadyLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            header(open: 0, ready: 0)
-                .padding(.horizontal, pagePadding)
-                .padding(.top, 12)
-                .padding(.bottom, 18)
+            header(open: 0, ready: 0, mine: 0, needReview: 0)
+                .padding(.horizontal, layout.gutter)
+                .padding(.top, layout.top)
+                .padding(.bottom, layout.headerGap)
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -141,13 +145,16 @@ struct PRsScreen: View {
         let readyCount = rows.filter {
             $0.pr.state == .open && $0.pr.ciState == .success && $0.pr.reviewState == .approved
         }.count
+        let mineCount = rows.filter { $0.pr.isMine }.count
+        let needReviewCount = rows.filter { !$0.pr.isMine && $0.pr.reviewState == .reviewRequired }.count
+        let visibleRows = filtersMine ? rows.filter { $0.pr.isMine } : rows
 
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                header(open: openCount, ready: readyCount)
-                    .padding(.bottom, 18)
+                header(open: openCount, ready: readyCount, mine: mineCount, needReview: needReviewCount)
+                    .padding(.bottom, layout.headerGap)
 
-                ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                ForEach(Array(visibleRows.enumerated()), id: \.element.id) { idx, row in
                     PRCard(
                         row: row,
                         prActionStore: prActionStore,
@@ -162,28 +169,84 @@ struct PRsScreen: View {
                         onUpdateBranch: { await onUpdateBranch(row) },
                         now: now
                     )
-                    .padding(.bottom, AerieMetric.cardGap)
+                    .padding(.bottom, layout.rowGap(regular: AerieMetric.cardGap))
                 }
             }
-            .padding(.horizontal, pagePadding)
-            .padding(.vertical, 12)
+            .padding(.horizontal, layout.gutter)
+            .padding(.top, layout.top)
+            .padding(.bottom, layout.bottom)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func header(open: Int, ready: Int) -> some View {
-        PageHeader(
-            eyebrow: "VIEW · ⌘1",
-            title: "Open pull requests",
-            count: "\(open) open · \(ready) ready to merge",
-            tabSelection: tabSelection,
-            onRefresh: onRefresh
-        )
+    @ViewBuilder
+    private func header(open: Int, ready: Int, mine: Int, needReview: Int) -> some View {
+        switch widthClass {
+        case .regular:
+            PageHeader(
+                eyebrow: "VIEW · ⌘1",
+                title: "Open pull requests",
+                count: "\(open) open · \(ready) ready to merge",
+                tabSelection: tabSelection,
+                onRefresh: onRefresh
+            )
+        case .medium:
+            // `MediumPRList`: summary · ALL/MINE filter · refresh, over a
+            // full-bleed tick rail.
+            VStack(spacing: 10) {
+                ListSubheader(summary: "\(open) open · \(mine) yours · \(needReview) need review",
+                              onRefresh: onRefresh) {
+                    PRFilterSegment(mineOnly: $showsMineOnly)
+                }
+                HudRail()
+                    .padding(.horizontal, -layout.gutter)
+            }
+        case .compact:
+            ListSubheader(summary: "\(open) open · \(mine) yours", onRefresh: onRefresh)
+        }
     }
 
     // MARK: - Actions
 
     private func handleOpen(_ row: PRRow) {
         NSWorkspace.shared.open(row.pr.htmlUrl)
+    }
+}
+
+/// The medium subheader's small ALL / MINE segmented filter (`.segmented` at
+/// 2pt padding with 4×11, 10.5pt keys).
+private struct PRFilterSegment: View {
+    @Binding var mineOnly: Bool
+
+    var body: some View {
+        HStack(spacing: 2) {
+            key("All", selected: !mineOnly) { mineOnly = false }
+            key("Mine", selected: mineOnly) { mineOnly = true }
+        }
+        .padding(2)
+        .background(Color.black.opacity(0.40))
+        .clipShape(RoundedRectangle(cornerRadius: AerieMetric.radiusPill))
+        .overlay(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        .fixedSize()
+    }
+
+    private func key(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title.uppercased())
+                .aerieFont(AerieFont.custom(.sans, size: 10.5).weight(.semibold))
+                .tracking(0.84)
+                .foregroundStyle(selected ? AerieColor.amber : AerieColor.text3)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: AerieMetric.radiusPill)
+                        .fill(selected ? AerieColor.glass3 : .clear))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AerieMetric.radiusPill)
+                        .strokeBorder(selected ? AerieColor.amberLine : .clear, lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.2), value: selected)
     }
 }

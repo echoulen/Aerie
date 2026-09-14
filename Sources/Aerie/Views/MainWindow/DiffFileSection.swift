@@ -7,9 +7,16 @@ import SwiftUI
 ///
 /// The plate is drawn here rather than via `.glass(.card)`: that modifier adds
 /// a behind-window blur per instance, which is too heavy for a long diff list.
+///
+/// In the compact layout (`compact.jsx` `CompactReview`) the path wraps onto its
+/// own line above the status and counts, and the lines drop to a single gutter
+/// with wrapped code.
 struct DiffFileSection: View {
     let file: PRFileChange
     let highlighter: CodeHighlighter
+
+    @Environment(\.widthClass) private var widthClass
+    private var compact: Bool { widthClass == .compact }
 
     @State private var expanded: Bool
 
@@ -60,21 +67,24 @@ struct DiffFileSection: View {
             expanded.toggle()
         } label: {
             // `.diff-head`: 10×14 padding, warm top wash, glass hairline below.
-            HStack(spacing: 10) {
-                Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(AerieColor.text3)
-                    .frame(width: 12)
-                Text(file.filename)
-                    .aerieFont(AerieFont.code(12))
-                    .foregroundStyle(AerieColor.text1)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                StatusPill(text: file.status.label, tone: statusTone)
-                Spacer(minLength: 8)
-                diffCounts
+            Group {
+                if compact {
+                    compactHeaderContent
+                } else {
+                    HStack(spacing: 10) {
+                        chevron
+                        Text(file.filename)
+                            .aerieFont(AerieFont.code(12))
+                            .foregroundStyle(AerieColor.text1)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        StatusPill(text: file.status.label, tone: statusTone)
+                        Spacer(minLength: 8)
+                        diffCounts
+                    }
+                }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, compact ? 13 : 14)
             .padding(.vertical, 10)
             .background(
                 LinearGradient(colors: [AerieColor.cardSheen.opacity(0.05), .clear],
@@ -87,15 +97,41 @@ struct DiffFileSection: View {
         .buttonStyle(.plain)
     }
 
+    private var chevron: some View {
+        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(AerieColor.text3)
+            .frame(width: 12)
+    }
+
+    /// Wrapped path, then a status tag and the +/− counts.
+    private var compactHeaderContent: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                chevron
+                Text(file.filename)
+                    .aerieFont(AerieFont.code(10.5))
+                    .foregroundStyle(AerieColor.text1)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: 9) {
+                MiniPill(text: file.status.label, tone: statusTone)
+                Spacer(minLength: 8)
+                diffCounts
+            }
+        }
+    }
+
     private var diffCounts: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: compact ? 9 : 10) {
             Text("+\(file.additions)")
-                .aerieFont(AerieFont.code(11.5))
                 .foregroundStyle(AerieColor.ok)
             Text("−\(file.deletions)")
-                .aerieFont(AerieFont.code(11.5))
                 .foregroundStyle(AerieColor.crimsonHot)
         }
+        .aerieFont(AerieFont.code(compact ? 10.5 : 11.5))
         .fixedSize()
     }
 
@@ -124,7 +160,8 @@ struct DiffFileSection: View {
                 ForEach(hunks) { hunk in
                     hunkHeader(hunk.header)
                     ForEach(hunk.lines) { line in
-                        DiffLineRow(line: line, language: language, highlighter: highlighter)
+                        DiffLineRow(line: line, language: language, highlighter: highlighter,
+                                    singleGutter: compact)
                     }
                 }
             }
@@ -135,11 +172,11 @@ struct DiffFileSection: View {
     /// with gold hairlines above and below.
     private func hunkHeader(_ text: String) -> some View {
         Text(text)
-            .aerieFont(AerieFont.code(11))
+            .aerieFont(AerieFont.code(compact ? 10 : 11))
             .foregroundStyle(AerieColor.amber.opacity(0.85))
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 5)
+            .padding(.horizontal, compact ? 13 : 14)
+            .padding(.vertical, compact ? 4 : 5)
             .background(AerieColor.diffHunkBg)
             .overlay(alignment: .top) { Rectangle().fill(AerieColor.amberLine).frame(height: 1) }
             .overlay(alignment: .bottom) { Rectangle().fill(AerieColor.amberLine).frame(height: 1) }

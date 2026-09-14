@@ -51,7 +51,7 @@ final class IssuesScreenTests: XCTestCase {
         return r
     }
 
-    func test_issuesScreenSnapshot_threeRows() async throws {
+    private func seededViewModel() async throws -> IssuesViewModel {
         let db = try makeDB()
         let acct = try insertAccount(db)
         let aerie = try await insertRepo(db, accountId: acct, name: "aerie", repo: "aerie")
@@ -97,18 +97,40 @@ final class IssuesScreenTests: XCTestCase {
 
         guard case .ready(let rows) = vm.state else {
             XCTFail("Expected .ready, got \(vm.state)")
-            return
+            return vm
         }
         XCTAssertEqual(rows.count, 3)
+        return vm
+    }
 
+    private func assertScreenSnapshot(
+        width: CGFloat, height: CGFloat, widthClass: WidthClass,
+        testName: String = #function
+    ) async throws {
+        let vm = try await seededViewModel()
         let fixedNow = Date(timeIntervalSince1970: 1_700_010_000)
         let view = ZStack {
             Backdrop()
             IssuesScreen(viewModel: vm, now: fixedNow, tabSelection: .constant(.issues))
         }
-        .frame(width: 1240, height: 760)
+        .environment(\.widthClass, widthClass)
+        .frame(width: width, height: height)
 
         let host = NSHostingView(rootView: view)
-        assertSnapshot(of: host, as: .image(size: CGSize(width: 1240, height: 760)))
+        assertSnapshot(of: host, as: .image(size: CGSize(width: width, height: height)), testName: testName)
+    }
+
+    func test_issuesScreenSnapshot_threeRows() async throws {
+        try await assertScreenSnapshot(width: 1240, height: 760, widthClass: .regular)
+    }
+
+    /// `compact.jsx` `MediumPRList` tier: one-line rows under a slim subheader.
+    func test_issuesScreenSnapshot_medium() async throws {
+        try await assertScreenSnapshot(width: 880, height: 700, widthClass: .medium)
+    }
+
+    /// `compact.jsx` compact tier: stacked rows with a ⋯ menu.
+    func test_issuesScreenSnapshot_compact() async throws {
+        try await assertScreenSnapshot(width: 560, height: 860, widthClass: .compact)
     }
 }

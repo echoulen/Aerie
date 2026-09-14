@@ -1,14 +1,32 @@
 import SwiftUI
 
-// MARK: - Compact-width environment
+// MARK: - Width classes
 
-/// Whether the window is narrower than ``AerieMetric/compactWidthBreakpoint``.
-/// `MainShell` measures the tab content area once and publishes the flag here,
-/// so every list screen / card reads the same signal instead of each view
-/// wrapping itself in a `GeometryReader`. Defaults to `false` — snapshot tests
-/// and previews that don't inject it render the wide layout.
-private struct IsCompactWidthKey: EnvironmentKey {
-    static let defaultValue = false
+/// The main window's adaptive layout tier (`compact.jsx` BreakpointSpec):
+///   - `regular` (≥ 1040): full cards, inline actions, page header with tabs.
+///   - `medium` (640…1039): one-line rows, tabs move into the titlebar as short
+///     codes, row actions collapse to a glyph button + overflow menu.
+///   - `compact` (< 640): stacked three-line rows, a tab strip under the
+///     titlebar, the review screen's actions in a bottom bar.
+enum WidthClass: Int, Comparable {
+    case compact, medium, regular
+
+    static func forWidth(_ width: CGFloat) -> WidthClass {
+        if width >= AerieMetric.regularWidthBreakpoint { return .regular }
+        if width >= AerieMetric.compactWidthBreakpoint { return .medium }
+        return .compact
+    }
+
+    static func < (lhs: WidthClass, rhs: WidthClass) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
+/// `AppFrame` measures the window once and publishes the tier here, so the
+/// titlebar, list screens, cards and review screen all read the same signal
+/// instead of each wrapping itself in a `GeometryReader`. Defaults to
+/// `.regular` — snapshot tests and previews that don't inject it render the
+/// wide layout.
+private struct WidthClassKey: EnvironmentKey {
+    static let defaultValue = WidthClass.regular
 }
 
 /// The measured content width, bucketed to the nearest 8pt. `PageHeader`
@@ -22,9 +40,13 @@ private struct ContentWidthBucketKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    var widthClass: WidthClass {
+        get { self[WidthClassKey.self] }
+        set { self[WidthClassKey.self] = newValue }
+    }
+    /// Shorthand for `widthClass == .compact`.
     var isCompactWidth: Bool {
-        get { self[IsCompactWidthKey.self] }
-        set { self[IsCompactWidthKey.self] = newValue }
+        widthClass == .compact
     }
     var contentWidthBucket: Int {
         get { self[ContentWidthBucketKey.self] }
@@ -33,28 +55,11 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// Measures this view's width and publishes `\.isCompactWidth` +
-    /// `\.contentWidthBucket` to its subtree. Apply once at the shell level,
-    /// above the list screens.
-    func readsCompactWidth() -> some View {
-        modifier(CompactWidthReader())
-    }
-}
-
-private struct CompactWidthReader: ViewModifier {
-    @State private var isCompact = false
-    @State private var widthBucket = 0
-
-    func body(content: Content) -> some View {
-        content
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.width
-            } action: { width in
-                isCompact = width < AerieMetric.compactWidthBreakpoint
-                widthBucket = Int((width / 8).rounded())
-            }
-            .environment(\.isCompactWidth, isCompact)
-            .environment(\.contentWidthBucket, widthBucket)
+    /// Publishes a measured width tier to this subtree. The measuring view
+    /// (`AppFrame`) owns the state so its own chrome can read the tier too.
+    func widthClass(_ widthClass: WidthClass, bucket: Int) -> some View {
+        environment(\.widthClass, widthClass)
+            .environment(\.contentWidthBucket, bucket)
     }
 }
 
@@ -81,7 +86,14 @@ struct FlowLayout: Layout {
         var rows: [Row] = []
         var current = Row()
         for (index, subview) in subviews.enumerated() {
-            let size = subview.sizeThatFits(.unspecified)
+            // An item wider than the row is clamped to it (and proposed that
+            // width) so truncating content shrinks instead of overflowing.
+            let ideal = subview.sizeThatFits(.unspecified)
+            var size = ideal
+            if ideal.width > maxWidth {
+                size = subview.sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
+                size.width = min(size.width, maxWidth)
+            }
             let widthIfAppended = current.items.isEmpty
                 ? size.width
                 : current.width + itemSpacing + size.width

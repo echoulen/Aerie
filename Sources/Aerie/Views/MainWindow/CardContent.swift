@@ -60,29 +60,19 @@ struct CardContent<Meta: View, Chips: View, Actions: View, Footer: View>: View {
     @ViewBuilder var actions: () -> Actions
     @ViewBuilder var footer: () -> Footer
 
-    @Environment(\.isCompactWidth) private var isCompact
-
     private var updatedAgo: String? {
         guard let updatedAt else { return nil }
         return CardRelativeTime.label(for: updatedAt, now: now)
     }
 
     var body: some View {
+        // Regular width only — below it each card renders its own
+        // medium / compact row (see `PRCard`, `IssueCard`, `RepoCard`).
         VStack(spacing: 0) {
-            if isCompact {
-                // Narrow window: the actions slot moves under the content
-                // column so the text column keeps the full card width.
-                VStack(alignment: .leading, spacing: 12) {
-                    contentColumn
-                    actions()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                HStack(alignment: .center, spacing: 28) {
-                    contentColumn
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    actions()
-                }
+            HStack(alignment: .center, spacing: 28) {
+                contentColumn
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                actions()
             }
 
             footer()

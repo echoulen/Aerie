@@ -49,10 +49,8 @@ struct ReposScreen: View {
     /// the other repo actions — the screen stays state-free).
     var onToggleApiSync: (RepoRow) -> Void = { _ in }
 
-    @Environment(\.isCompactWidth) private var isCompact
-    private var pagePadding: CGFloat {
-        isCompact ? AerieMetric.pagePaddingCompact : AerieMetric.pagePadding
-    }
+    @Environment(\.widthClass) private var widthClass
+    private var layout: ListLayout { ListLayout(widthClass: widthClass) }
 
     // Drag-reorder state, mirroring Settings' RepositoriesScreen but with
     // per-card measured heights (cards are content-driven in height, so the
@@ -86,9 +84,9 @@ struct ReposScreen: View {
     private func nonReadyLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             header(total: 0, withDirty: 0)
-                .padding(.horizontal, pagePadding)
-                .padding(.top, 12)
-                .padding(.bottom, 18)
+                .padding(.horizontal, layout.gutter)
+                .padding(.top, layout.top)
+                .padding(.bottom, layout.headerGap)
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -141,7 +139,7 @@ struct ReposScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header(total: total, withDirty: withDirty)
-                    .padding(.bottom, 18)
+                    .padding(.bottom, layout.headerGap)
 
                 if let actionError = viewModel.actionError {
                     Text(actionError)
@@ -166,7 +164,7 @@ struct ReposScreen: View {
                         onToggleApiSync: { onToggleApiSync(row) },
                         onRemove: { Task { await viewModel.remove(id: row.repo.id) } }
                     )
-                    .padding(.bottom, AerieMetric.cardGap)
+                    .padding(.bottom, layout.rowGap(regular: AerieMetric.cardGap))
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
                         if draggingId == nil { cardHeights[row.id] = h }
                     }
@@ -181,21 +179,33 @@ struct ReposScreen: View {
                     .gesture(reorderGesture(row: row, rows: rows))
                 }
             }
-            .padding(.horizontal, pagePadding)
-            .padding(.vertical, 12)
+            .padding(.horizontal, layout.gutter)
+            .padding(.top, layout.top)
+            .padding(.bottom, layout.bottom)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
+    @ViewBuilder
     private func header(total: Int, withDirty: Int) -> some View {
-        PageHeader(
-            eyebrow: "VIEW · ⌘3",
-            title: "Local repositories",
-            count: "\(total) tracked · \(withDirty) with changes",
-            tabSelection: tabSelection,
-            onRefresh: onRefresh,
-            trailing: AnyView(AddRepoButton(action: onAddRepo))
-        )
+        if widthClass == .regular {
+            PageHeader(
+                eyebrow: "VIEW · ⌘3",
+                title: "Local repositories",
+                count: "\(total) tracked · \(withDirty) with changes",
+                tabSelection: tabSelection,
+                onRefresh: onRefresh,
+                trailing: AnyView(AddRepoButton(action: onAddRepo))
+            )
+        } else {
+            // `CompactRepoList`: "9 repositories" + a small "+ Add" key.
+            ListSubheader(summary: "\(total) repositories", onRefresh: onRefresh) {
+                Button("+ Add", action: onAddRepo)
+                    .buttonStyle(.hud(.standard, size: .small))
+                    .fixedSize()
+                    .help("Add repository")
+            }
+        }
     }
 
     // MARK: - Actions

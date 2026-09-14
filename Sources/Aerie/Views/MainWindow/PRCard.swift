@@ -13,6 +13,11 @@ import AppKit
 ///
 /// The whole local-branch picture collapses into one calm sentence pill, and
 /// `Merge` only lights hot gold when CI passes *and* the PR is approved.
+///
+/// Below regular width the row follows `compact.jsx` instead: one line at
+/// medium (`MediumPRList`), three stacked lines at compact (`CompactPRRow`).
+/// Both drop the inline action column for a review key / row tap plus a `⋯`
+/// menu holding every action, and keep the failure strips underneath.
 struct PRCard: View {
     let row: PRRow
     /// Background store for Merge/Approve/Force-checkout. Defaulted so
@@ -111,7 +116,18 @@ struct PRCard: View {
         (local?.behind ?? 0) > 0 || pr.isBehindBase
     }
 
+    @Environment(\.widthClass) private var widthClass
+
     var body: some View {
+        switch widthClass {
+        case .regular:
+            regularCard
+        case .medium, .compact:
+            adaptiveRow
+        }
+    }
+
+    private var regularCard: some View {
         CardContent(title: row.pr.title, updatedAt: row.pr.updatedAt, now: now) {
             CardMeta(
                 name: row.repo.name,
@@ -148,29 +164,289 @@ struct PRCard: View {
         } actions: {
             actionColumn
         } footer: {
-            VStack(alignment: .leading, spacing: 8) {
-                // Both failure strings are already fully-formed ("Merge
-                // failed: …" / "Checkout failed: …") — pass them through as-is.
-                if let mergeFailure {
-                    ActionErrorStrip(
-                        message: mergeFailure,
-                        onRetry: { prActionStore.retry(.merge, row: row) },
-                        onDismiss: { prActionStore.dismiss(.merge, row: row) })
-                }
-                if let checkoutFailure {
-                    ActionErrorStrip(
-                        message: checkoutFailure,
-                        onRetry: { prActionStore.retry(.checkout, row: row) },
-                        onDismiss: { prActionStore.dismiss(.checkout, row: row) })
-                }
-                if let aiReviewFailure {
-                    ActionErrorStrip(
-                        message: aiReviewFailure,
-                        onRetry: onStartAIReview,
-                        onDismiss: onDismissAIReview)
-                }
+            failureStrips
+        }
+    }
+
+    private var hasFailures: Bool {
+        mergeFailure != nil || checkoutFailure != nil || aiReviewFailure != nil
+    }
+
+    private var failureStrips: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Both failure strings are already fully-formed ("Merge
+            // failed: …" / "Checkout failed: …") — pass them through as-is.
+            if let mergeFailure {
+                ActionErrorStrip(
+                    message: mergeFailure,
+                    onRetry: { prActionStore.retry(.merge, row: row) },
+                    onDismiss: { prActionStore.dismiss(.merge, row: row) })
+            }
+            if let checkoutFailure {
+                ActionErrorStrip(
+                    message: checkoutFailure,
+                    onRetry: { prActionStore.retry(.checkout, row: row) },
+                    onDismiss: { prActionStore.dismiss(.checkout, row: row) })
+            }
+            if let aiReviewFailure {
+                ActionErrorStrip(
+                    message: aiReviewFailure,
+                    onRetry: onStartAIReview,
+                    onDismiss: onDismissAIReview)
             }
         }
+    }
+
+    // MARK: - Medium / compact row
+
+    private var adaptiveRow: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if widthClass == .medium {
+                mediumLine
+            } else {
+                compactLines
+            }
+            if hasFailures {
+                failureStrips
+                    .padding(.top, 10)
+            }
+        }
+        .adaptiveRowPlate(widthClass)
+        // Compact: tapping the row opens the review — its only inline
+        // affordance besides the ⋯ menu. Medium has a real Review key.
+        .contentShape(Rectangle())
+        .onTapGesture { if widthClass == .compact { onReview() } }
+        .popover(isPresented: $showMergeConfirm) { mergeDialog }
+        .background(Color.clear.popover(isPresented: $showCheckoutConfirm) { checkoutDialog })
+    }
+
+    /// `MediumPRRow` — two lines that keep the regular card's telemetry:
+    ///   1. CI dot · repo · #N · YOURS/DRAFT · title (truncates) · updated
+    ///   2. branch chip · CI + review pills · +/− · LOCAL/DIRTY · ↓↑ ·
+    ///      [Update] [Checkout | Open ↗] [Review] ⋯
+    /// The ⋯ menu keeps Merge, AI Review and Copy Link reachable — the actions
+    /// the row has no key for.
+    private var mediumLine: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 11) {
+                StatusDot(tone: ciTone)
+                (Text(row.repo.name) + Text(" · ").foregroundColor(AerieColor.text4) + Text("#\(row.pr.number)"))
+                    .aerieFont(AerieFont.code(11))
+                    .tracking(0.66)                        // 0.06em @ 11pt
+                    .foregroundStyle(AerieColor.text3)
+                    .lineLimit(1)
+                    .fixedSize()
+                if row.pr.isMine { MiniPill(text: "yours", tone: .amber) }
+                if row.pr.isDraftPR { MiniPill(text: "draft") }
+                Text(row.pr.title)
+                    .aerieFont(AerieFont.custom(.sans, size: 14))
+                    .foregroundStyle(AerieColor.text1)
+                    .lineLimit(1)
+                Spacer(minLength: 10)
+                Text(CardRelativeTime.label(for: row.pr.updatedAt, now: now))
+                    .aerieFont(AerieFont.code(10.5))
+                    .foregroundStyle(AerieColor.text4)
+                    .fixedSize()
+            }
+            HStack(spacing: 9) {
+                Text(row.pr.sourceBranch)
+                    .aerieFont(AerieFont.code(11))
+                    .foregroundStyle(AerieColor.text1)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).fill(AerieColor.glass2))
+                    .overlay(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+                    // Hugs its text, but is the first thing to give up width
+                    // (truncating in the middle) when the line gets tight.
+                    .layoutPriority(-1)
+                MiniPill(text: ciShortLabel, tone: ciTone)
+                if let review = reviewShortLabel { MiniPill(text: review) }
+                if let add = row.pr.additions, let del = row.pr.deletions {
+                    HStack(spacing: 4) {
+                        Text("+\(add)").foregroundStyle(AerieColor.ok)
+                        Text("−\(del)").foregroundStyle(AerieColor.crimsonHot)
+                    }
+                    .aerieFont(AerieFont.code(10.5))
+                    .fixedSize()
+                }
+                localTags
+                AheadBehindCounts(ahead: row.localState?.ahead ?? 0, behind: row.localState?.behind ?? 0)
+                Spacer(minLength: 10)
+                HStack(spacing: 7) {
+                    runningSpinner
+                    if Self.shouldShowUpdateBranch(row.pr, row.localState) {
+                        UpdateBranchButton(behind: row.localState?.behind, onUpdate: onUpdateBranch, label: "Update")
+                    }
+                    if row.localState?.isCurrentBranch == true {
+                        Button("Open ↗", action: onOpen)
+                            .buttonStyle(.hud(.ghost, size: .small))
+                    } else {
+                        mediumCheckoutKey
+                    }
+                    Button("Review", action: onReview)
+                        .buttonStyle(.hud(.amber, size: .small))
+                        .help("Review the diff for \(row.repo.name) #\(row.pr.number)")
+                    overflowMenu
+                }
+                .fixedSize()
+            }
+        }
+    }
+
+    /// `.btn.sm` Checkout — crimson label when the checkout would discard work,
+    /// arc cyan while it runs. The confirmation popover hangs off the row.
+    private var mediumCheckoutKey: some View {
+        let destructive = CheckoutPlan.make(for: row.localState).destructive
+        return Button {
+            guard !isCheckingOut else { return }
+            showCheckoutConfirm = true
+        } label: {
+            Text(isCheckingOut ? "Checking out…" : "Checkout")
+                .foregroundStyle(isCheckingOut ? AerieColor.arc : (destructive ? AerieColor.dangerText : AerieColor.text1))
+        }
+        .buttonStyle(.hud(isCheckingOut ? .arc : .standard, size: .small))
+        .help("Force checkout \(row.repo.name) to origin/\(row.pr.sourceBranch)")
+    }
+
+    /// "CI PASS" / "CI FAIL" / "CI ···".
+    private var ciShortLabel: String {
+        switch row.pr.ciState {
+        case .success: return "CI pass"
+        case .failure: return "CI fail"
+        case .pending: return "CI ···"
+        case .none:    return "No CI"
+        }
+    }
+
+    private var reviewShortLabel: String? {
+        switch row.pr.reviewState {
+        case .approved:         return "approved"
+        case .changesRequested: return "changes requested"
+        case .reviewRequired:   return "review requested"
+        }
+    }
+
+    /// `CompactPRRow`: meta line · wrapped title · branch + local state.
+    private var compactLines: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                StatusDot(tone: ciTone)
+                Text("\(row.repo.name) · #\(row.pr.number)")
+                    .aerieFont(AerieFont.code(10.5))
+                    .tracking(0.84)                       // 0.08em @ 10.5pt
+                    .foregroundStyle(AerieColor.text3)
+                    .lineLimit(1)
+                if row.pr.isMine { MiniPill(text: "yours", tone: .amber) }
+                if row.pr.isDraftPR { MiniPill(text: "draft", tone: .muted) }
+                Spacer(minLength: 4)
+                Text(CardRelativeTime.label(for: row.pr.updatedAt, now: now))
+                    .aerieFont(AerieFont.code(10.5))
+                    .foregroundStyle(AerieColor.text4)
+                    .fixedSize()
+                runningSpinner
+                overflowMenu
+            }
+            Text(row.pr.title)
+                .aerieFont(AerieFont.custom(.sans, size: 13.5))
+                .lineSpacing(4)                            // lh 1.45
+                .foregroundStyle(AerieColor.text1)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 7)
+            HStack(spacing: 8) {
+                Text(row.pr.sourceBranch)
+                    .aerieFont(AerieFont.code(10.5))
+                    .foregroundStyle(AerieColor.text3)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                localTags
+                AheadBehindCounts(ahead: row.localState?.ahead ?? 0, behind: row.localState?.behind ?? 0)
+            }
+            .padding(.top, 9)
+        }
+    }
+
+    private var ciTone: StatusPill.Tone {
+        switch row.pr.ciState {
+        case .success: return .ok
+        case .failure: return .err
+        case .pending: return .warn
+        case .none:    return .muted
+        }
+    }
+
+    /// LOCAL when the PR's branch is the checkout, DIRTY when that tree has
+    /// changes, CONFLICTS when GitHub can't merge it.
+    @ViewBuilder
+    private var localTags: some View {
+        if row.pr.hasMergeConflicts { MiniPill(text: "conflicts", tone: .err) }
+        if let local = row.localState, local.isCurrentBranch {
+            MiniPill(text: "local", tone: .amber)
+            if local.dirty == true { MiniPill(text: "dirty", tone: .err) }
+        }
+    }
+
+    @ViewBuilder
+    private var runningSpinner: some View {
+        if isMerging || isCheckingOut || isAIReviewing {
+            CardArcSpinner(size: 11)
+        }
+    }
+
+    /// Every action the regular card shows inline.
+    private var overflowMenu: some View {
+        RowOverflowMenu(help: "Actions for \(row.repo.name) #\(row.pr.number)") {
+            Button("Review Diff", action: onReview)
+            Button(aiReviewMenuLabel, action: onStartAIReview)
+                .disabled(row.pr.isDraftPR || isAIReviewing)
+            Divider()
+            Button(isMerging ? "Merging…" : "Merge…") { showMergeConfirm = true }
+                .disabled(!mergeable || isMerging)
+            Button(isCheckingOut ? "Checking Out…" : "Checkout…") { showCheckoutConfirm = true }
+                .disabled(isCheckingOut)
+            if Self.shouldShowUpdateBranch(row.pr, row.localState) {
+                Button("Update Branch") { Task { await onUpdateBranch() } }
+            }
+            Divider()
+            Button("Open on GitHub", action: onOpen)
+            Button("Copy Link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(row.pr.htmlUrl.absoluteString, forType: .string)
+            }
+        }
+    }
+
+    private var aiReviewMenuLabel: String {
+        switch aiReviewPhase {
+        case .running: return "AI Review Running…"
+        case .failed:  return "Retry AI Review"
+        default:       return "AI Review"
+        }
+    }
+
+    private var mergeDialog: some View {
+        DialogMerge(
+            pr: row.pr, repo: row.repo, account: mergeAccount(row),
+            onConfirm: {
+                showMergeConfirm = false
+                prActionStore.start(.merge, row: row) { await onMergeConfirmed(row) }
+            },
+            onCancel: { showMergeConfirm = false }
+        )
+    }
+
+    private var checkoutDialog: some View {
+        DialogCheckout(
+            repo: row.repo, pr: row.pr, local: row.localState,
+            onConfirm: {
+                showCheckoutConfirm = false
+                prActionStore.start(.checkout, row: row) { await onCheckoutConfirmed(row) }
+            },
+            onCancel: { showCheckoutConfirm = false }
+        )
     }
 
     // MARK: - Actions column
@@ -189,40 +465,18 @@ struct PRCard: View {
 
     private static let actionColumnWidth: CGFloat = 132
 
-    @Environment(\.isCompactWidth) private var isCompact
-
-    @ViewBuilder
     private var actionColumn: some View {
-        if isCompact {
-            // Narrow window: CardContent puts this slot under the content, so
-            // spread the four actions across two full-width rows instead of
-            // the fixed 132pt column.
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    openButton
-                    CopyLinkButton(url: row.pr.htmlUrl)
-                    reviewButton
-                }
-                HStack(spacing: 8) {
-                    aiReviewButton
-                    mergeButton
-                    checkoutButton
-                }
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                openButton
+                CopyLinkButton(url: row.pr.htmlUrl)
             }
-            .frame(maxWidth: .infinity)
-        } else {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    openButton
-                    CopyLinkButton(url: row.pr.htmlUrl)
-                }
-                reviewButton
-                aiReviewButton
-                mergeButton
-                checkoutButton
-            }
-            .frame(width: Self.actionColumnWidth)
+            reviewButton
+            aiReviewButton
+            mergeButton
+            checkoutButton
         }
+        .frame(width: Self.actionColumnWidth)
     }
 
     // MARK III `.btn.sm` key (glass chrome, gold rim on hover) that drills into
@@ -328,16 +582,7 @@ struct PRCard: View {
         .help(plan.current
             ? "Local repo is already on origin/\(row.pr.sourceBranch)"
             : "Force checkout \(row.repo.name) to origin/\(row.pr.sourceBranch)")
-        .popover(isPresented: $showCheckoutConfirm) {
-            DialogCheckout(
-                repo: row.repo, pr: row.pr, local: row.localState,
-                onConfirm: {
-                    showCheckoutConfirm = false
-                    prActionStore.start(.checkout, row: row) { await onCheckoutConfirmed(row) }
-                },
-                onCancel: { showCheckoutConfirm = false }
-            )
-        }
+        .popover(isPresented: $showCheckoutConfirm) { checkoutDialog }
     }
 
     // MARK: - Local state → one sentence pill
@@ -383,16 +628,7 @@ struct PRCard: View {
         // Not-mergeable is disabled (and dimmed by the style); a running merge
         // stays enabled so the arc key isn't dimmed — the guard ignores taps.
         .disabled(!mergeable && !isMerging)
-        .popover(isPresented: $showMergeConfirm) {
-            DialogMerge(
-                pr: row.pr, repo: row.repo, account: mergeAccount(row),
-                onConfirm: {
-                    showMergeConfirm = false
-                    prActionStore.start(.merge, row: row) { await onMergeConfirmed(row) }
-                },
-                onCancel: { showMergeConfirm = false }
-            )
-        }
+        .popover(isPresented: $showMergeConfirm) { mergeDialog }
     }
 }
 
@@ -419,6 +655,8 @@ struct UpdateBranchButton: View {
     /// Runs the branch update. Awaited so the button can spin until the caller's
     /// re-sync settles and (on success) the branch is no longer behind.
     var onUpdate: () async -> Void = {}
+    /// The medium row's shorter "Update" label.
+    var label: String = "Update branch"
 
     @State private var busy = false
     @State private var hovering = false
@@ -448,7 +686,7 @@ struct UpdateBranchButton: View {
                             : .default,
                         value: busy
                     )
-                Text("Update branch")
+                Text(label)
                     .aerieFont(AerieFont.custom(.sans, size: 11).weight(.semibold))
                     .tracking(0.66) // 0.06em @ 11px
             }

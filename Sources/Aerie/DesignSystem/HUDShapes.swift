@@ -115,6 +115,10 @@ struct HudCorners: View {
 /// `.hud-note` — a mono telemetry label led by a fading hairline tick.
 struct HudNote: View {
     let text: String
+    /// Let the label shrink and truncate (middle) instead of always taking its
+    /// full width — for notes carrying user data such as a branch name, which
+    /// would otherwise push a narrow layout wider than the window.
+    var truncates: Bool = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -125,8 +129,9 @@ struct HudNote: View {
                 .tracking(1.8)
                 .foregroundStyle(AerieColor.text3)
                 .lineLimit(1)
+                .truncationMode(.middle)
         }
-        .fixedSize()
+        .fixedSize(horizontal: !truncates, vertical: true)
     }
 }
 

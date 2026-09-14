@@ -10,12 +10,15 @@ import SwiftUI
 /// Keyboard shortcuts (⌘1 / ⌘2 / ⌘3) live on the segment buttons.
 struct SegmentedToggle: View {
     @Binding var selection: MainTab
+    /// When set, the medium-width variant (`compact.jsx` `MediumPRList`): each
+    /// segment shows its two-letter code plus the tab's count ("PR 13").
+    var counts: [MainTab: Int]? = nil
 
     var body: some View {
         HStack(spacing: 2) {
-            segmentButton(tab: .prs, label: "Pull Requests")
-            segmentButton(tab: .issues, label: "Issues")
-            segmentButton(tab: .repos, label: "Repositories")
+            ForEach(MainTab.allCases, id: \.self) { tab in
+                segmentButton(tab: tab)
+            }
         }
         .padding(3)
         .background(Color.black.opacity(0.40))
@@ -26,22 +29,22 @@ struct SegmentedToggle: View {
         )
     }
 
-    /// ⌘1 → PRs, ⌘2 → Issues, ⌘3 → Repos.
-    private func shortcut(for tab: MainTab) -> KeyEquivalent {
-        switch tab {
-        case .prs:    return "1"
-        case .issues: return "2"
-        case .repos:  return "3"
-        }
-    }
 
     @ViewBuilder
-    private func segmentButton(tab: MainTab, label: String) -> some View {
+    private func segmentButton(tab: MainTab) -> some View {
         let isSelected = selection == tab
         Button(action: { selection = tab }) {
-            Text(label.uppercased())
-                .aerieFont(AerieFont.small().weight(.semibold))
-                .tracking(0.96)                          // 0.08em @ 12pt
+            HStack(spacing: 6) {
+                Text((counts == nil ? tab.title : tab.shortCode).uppercased())
+                    .aerieFont(AerieFont.small().weight(.semibold))
+                    .tracking(0.96)                      // 0.08em @ 12pt
+                if let counts {
+                    // Mono count after the code (`MediumPRList` titlebar).
+                    Text("\(counts[tab] ?? 0)")
+                        .aerieFont(AerieFont.code(10))
+                        .opacity(isSelected ? 0.85 : 0.7)
+                }
+            }
                 .lineLimit(1)
                 .foregroundStyle(isSelected ? AerieColor.amber : AerieColor.text3)
                 .padding(.horizontal, 16)
@@ -64,6 +67,6 @@ struct SegmentedToggle: View {
         .buttonStyle(.plain)
         // The shortcut is active whenever this button's host view is in the
         // responder chain (i.e. the main window is key).
-        .keyboardShortcut(shortcut(for: tab), modifiers: .command)
+        .keyboardShortcut(tab.shortcut, modifiers: .command)
     }
 }
