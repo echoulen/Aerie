@@ -212,33 +212,119 @@ struct PRCard: View {
             }
         }
         .adaptiveRowPlate(widthClass)
-        // Tapping the row opens the review — the compact row's only inline
-        // affordance besides the ⋯ menu.
+        // Compact: tapping the row opens the review — its only inline
+        // affordance besides the ⋯ menu. Medium has a real Review key.
         .contentShape(Rectangle())
-        .onTapGesture(perform: onReview)
+        .onTapGesture { if widthClass == .compact { onReview() } }
         .popover(isPresented: $showMergeConfirm) { mergeDialog }
         .background(Color.clear.popover(isPresented: $showCheckoutConfirm) { checkoutDialog })
     }
 
-    /// `MediumPRList` row: CI dot · title · local tags · repo·#N · → · ⋯.
-    /// The repo label truncates before the title does.
+    /// `MediumPRRow` — two lines that keep the regular card's telemetry:
+    ///   1. CI dot · repo · #N · YOURS/DRAFT · title (truncates) · updated
+    ///   2. branch chip · CI + review pills · +/− · LOCAL/DIRTY · ↓↑ ·
+    ///      [Update] [Checkout | Open ↗] [Review] ⋯
+    /// The ⋯ menu keeps Merge, AI Review and Copy Link reachable — the actions
+    /// the row has no key for.
     private var mediumLine: some View {
-        HStack(spacing: 11) {
-            StatusDot(tone: ciTone)
-            Text(row.pr.title)
-                .aerieFont(AerieFont.custom(.sans, size: 13.5))
-                .foregroundStyle(AerieColor.text1)
-                .lineLimit(1)
-                .layoutPriority(1)
-            Spacer(minLength: 12)
-            localTags
-            Text("\(row.repo.name)·\(row.pr.number)")
-                .aerieFont(AerieFont.code(10.5))
-                .foregroundStyle(AerieColor.text4)
-                .lineLimit(1)
-            runningSpinner
-            RowGlyphButton(glyph: "→", help: "Review the diff for \(row.repo.name) #\(row.pr.number)", action: onReview)
-            overflowMenu
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 11) {
+                StatusDot(tone: ciTone)
+                (Text(row.repo.name) + Text(" · ").foregroundColor(AerieColor.text4) + Text("#\(row.pr.number)"))
+                    .aerieFont(AerieFont.code(11))
+                    .tracking(0.66)                        // 0.06em @ 11pt
+                    .foregroundStyle(AerieColor.text3)
+                    .lineLimit(1)
+                    .fixedSize()
+                if row.pr.isMine { MiniPill(text: "yours", tone: .amber) }
+                if row.pr.isDraftPR { MiniPill(text: "draft") }
+                Text(row.pr.title)
+                    .aerieFont(AerieFont.custom(.sans, size: 14))
+                    .foregroundStyle(AerieColor.text1)
+                    .lineLimit(1)
+                Spacer(minLength: 10)
+                Text(CardRelativeTime.label(for: row.pr.updatedAt, now: now))
+                    .aerieFont(AerieFont.code(10.5))
+                    .foregroundStyle(AerieColor.text4)
+                    .fixedSize()
+            }
+            HStack(spacing: 9) {
+                Text(row.pr.sourceBranch)
+                    .aerieFont(AerieFont.code(11))
+                    .foregroundStyle(AerieColor.text1)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).fill(AerieColor.glass2))
+                    .overlay(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+                    // Hugs its text, but is the first thing to give up width
+                    // (truncating in the middle) when the line gets tight.
+                    .layoutPriority(-1)
+                MiniPill(text: ciShortLabel, tone: ciTone)
+                if let review = reviewShortLabel { MiniPill(text: review) }
+                if let add = row.pr.additions, let del = row.pr.deletions {
+                    HStack(spacing: 4) {
+                        Text("+\(add)").foregroundStyle(AerieColor.ok)
+                        Text("−\(del)").foregroundStyle(AerieColor.crimsonHot)
+                    }
+                    .aerieFont(AerieFont.code(10.5))
+                    .fixedSize()
+                }
+                localTags
+                AheadBehindCounts(ahead: row.localState?.ahead ?? 0, behind: row.localState?.behind ?? 0)
+                Spacer(minLength: 10)
+                HStack(spacing: 7) {
+                    runningSpinner
+                    if Self.shouldShowUpdateBranch(row.pr, row.localState) {
+                        UpdateBranchButton(behind: row.localState?.behind, onUpdate: onUpdateBranch, label: "Update")
+                    }
+                    if row.localState?.isCurrentBranch == true {
+                        Button("Open ↗", action: onOpen)
+                            .buttonStyle(.hud(.ghost, size: .small))
+                    } else {
+                        mediumCheckoutKey
+                    }
+                    Button("Review", action: onReview)
+                        .buttonStyle(.hud(.amber, size: .small))
+                        .help("Review the diff for \(row.repo.name) #\(row.pr.number)")
+                    overflowMenu
+                }
+                .fixedSize()
+            }
+        }
+    }
+
+    /// `.btn.sm` Checkout — crimson label when the checkout would discard work,
+    /// arc cyan while it runs. The confirmation popover hangs off the row.
+    private var mediumCheckoutKey: some View {
+        let destructive = CheckoutPlan.make(for: row.localState).destructive
+        return Button {
+            guard !isCheckingOut else { return }
+            showCheckoutConfirm = true
+        } label: {
+            Text(isCheckingOut ? "Checking out…" : "Checkout")
+                .foregroundStyle(isCheckingOut ? AerieColor.arc : (destructive ? AerieColor.dangerText : AerieColor.text1))
+        }
+        .buttonStyle(.hud(isCheckingOut ? .arc : .standard, size: .small))
+        .help("Force checkout \(row.repo.name) to origin/\(row.pr.sourceBranch)")
+    }
+
+    /// "CI PASS" / "CI FAIL" / "CI ···".
+    private var ciShortLabel: String {
+        switch row.pr.ciState {
+        case .success: return "CI pass"
+        case .failure: return "CI fail"
+        case .pending: return "CI ···"
+        case .none:    return "No CI"
+        }
+    }
+
+    private var reviewShortLabel: String? {
+        switch row.pr.reviewState {
+        case .approved:         return "approved"
+        case .changesRequested: return "changes requested"
+        case .reviewRequired:   return "review requested"
         }
     }
 
@@ -569,6 +655,8 @@ struct UpdateBranchButton: View {
     /// Runs the branch update. Awaited so the button can spin until the caller's
     /// re-sync settles and (on success) the branch is no longer behind.
     var onUpdate: () async -> Void = {}
+    /// The medium row's shorter "Update" label.
+    var label: String = "Update branch"
 
     @State private var busy = false
     @State private var hovering = false
@@ -598,7 +686,7 @@ struct UpdateBranchButton: View {
                             : .default,
                         value: busy
                     )
-                Text("Update branch")
+                Text(label)
                     .aerieFont(AerieFont.custom(.sans, size: 11).weight(.semibold))
                     .tracking(0.66) // 0.06em @ 11px
             }

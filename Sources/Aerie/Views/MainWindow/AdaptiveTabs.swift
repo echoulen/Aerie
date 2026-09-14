@@ -100,7 +100,7 @@ struct ListLayout {
     var top: CGFloat {
         switch widthClass {
         case .regular: return 12
-        case .medium:  return 16
+        case .medium:  return 12
         case .compact: return 0
         }
     }
@@ -112,7 +112,13 @@ struct ListLayout {
         }
     }
     /// Space between the header / subheader and the first row.
-    var headerGap: CGFloat { widthClass == .regular ? 18 : 10 }
+    var headerGap: CGFloat {
+        switch widthClass {
+        case .regular: return 18
+        case .medium:  return 14
+        case .compact: return 10
+        }
+    }
     /// Space between rows. Regular falls back to each list's own card gap.
     func rowGap(regular: CGFloat) -> CGFloat { widthClass == .regular ? regular : 9 }
 }

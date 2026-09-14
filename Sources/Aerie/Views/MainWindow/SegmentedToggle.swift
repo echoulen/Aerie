@@ -17,7 +17,7 @@ struct SegmentedToggle: View {
     var body: some View {
         HStack(spacing: 2) {
             ForEach(MainTab.allCases, id: \.self) { tab in
-                segmentButton(tab: tab, label: label(for: tab))
+                segmentButton(tab: tab)
             }
         }
         .padding(3)
@@ -29,18 +29,22 @@ struct SegmentedToggle: View {
         )
     }
 
-    private func label(for tab: MainTab) -> String {
-        guard let counts else { return tab.title }
-        return "\(tab.shortCode) \(counts[tab] ?? 0)"
-    }
 
     @ViewBuilder
-    private func segmentButton(tab: MainTab, label: String) -> some View {
+    private func segmentButton(tab: MainTab) -> some View {
         let isSelected = selection == tab
         Button(action: { selection = tab }) {
-            Text(label.uppercased())
-                .aerieFont(AerieFont.small().weight(.semibold))
-                .tracking(0.96)                          // 0.08em @ 12pt
+            HStack(spacing: 6) {
+                Text((counts == nil ? tab.title : tab.shortCode).uppercased())
+                    .aerieFont(AerieFont.small().weight(.semibold))
+                    .tracking(0.96)                      // 0.08em @ 12pt
+                if let counts {
+                    // Mono count after the code (`MediumPRList` titlebar).
+                    Text("\(counts[tab] ?? 0)")
+                        .aerieFont(AerieFont.code(10))
+                        .opacity(isSelected ? 0.85 : 0.7)
+                }
+            }
                 .lineLimit(1)
                 .foregroundStyle(isSelected ? AerieColor.amber : AerieColor.text3)
                 .padding(.horizontal, 16)

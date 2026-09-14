@@ -4,14 +4,14 @@ import SwiftUI
 // Repo rows (`compact.jsx` `CompactPRRow`, `CompactRepoRow`, `MediumPRList`).
 
 /// The row plate for medium / compact rows: the same `.card` glass, with the
-/// tighter 13×16 (medium) / 13×15 (compact) padding.
+/// tighter 14×17 (medium) / 13×15 (compact) padding.
 struct AdaptiveRowPlate: ViewModifier {
     let widthClass: WidthClass
 
     func body(content: Content) -> some View {
         content
-            .padding(.vertical, 13)
-            .padding(.horizontal, widthClass == .compact ? 15 : 16)
+            .padding(.vertical, widthClass == .compact ? 13 : 14)
+            .padding(.horizontal, widthClass == .compact ? 15 : 17)
             .glass(.card)
     }
 }
