@@ -15,6 +15,10 @@ import SwiftUI
 ///   │  ┌ card: focus toggles (switch right-aligned) ┐      │
 ///   └──────────────────────────────────────────────────────┘
 ///
+/// MARK III: shared `SettingsPageHeader`, mono section labels on a gold bus
+/// line (RATE LIMIT carries the arc-cyan live pulse — it's fed by polling),
+/// chamfered card plates and HUD switches.
+///
 /// Setter bindings dispatch into `Task { await viewModel.set... }` so
 /// SwiftUI's synchronous binding contract is preserved while the
 /// underlying persistence + cadence-apply step runs async.
@@ -29,7 +33,8 @@ struct AdvancedScreen: View {
                 sectionEyebrow("POLLING CADENCE").padding(.top, 28)
                 pollingCard.padding(.top, 10)
 
-                sectionEyebrow("RATE LIMIT").padding(.top, 28)
+                SettingsSectionLabel(text: "RATE LIMIT", live: !viewModel.rateLimits.isEmpty)
+                    .padding(.top, 28)
                 rateLimitCard.padding(.top, 10)
 
                 sectionEyebrow("BEHAVIOR").padding(.top, 28)
@@ -43,18 +48,12 @@ struct AdvancedScreen: View {
     // MARK: - Page header
 
     private var pageHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionEyebrow("ADVANCED")
-            HStack(alignment: .firstTextBaseline) {
-                Text("Polling & rate limits")
-                    .aerieFont(AerieFont.sectionTitle())
-                    .foregroundStyle(AerieColor.text1)
-                Text("how often Aerie refreshes")
-                    .aerieFont(AerieFont.code(13))
-                    .foregroundStyle(AerieColor.text3)
-                Spacer(minLength: 16)
-                resetButton
-            }
+        SettingsPageHeader(
+            eyebrow: "Advanced",
+            title: "Polling & rate limits",
+            subtitle: "how often Aerie refreshes"
+        ) {
+            resetButton
         }
     }
 
@@ -96,8 +95,17 @@ struct AdvancedScreen: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Capsule().fill(AerieColor.warn.opacity(0.1)))
-        .overlay(Capsule().strokeBorder(AerieColor.warn.opacity(0.3), lineWidth: 1))
+        .background(
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                .fill(AerieColor.warn.opacity(0.1))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                .strokeBorder(AerieColor.warn.opacity(0.4), lineWidth: 1)
+        )
+        .overlay(alignment: .leading) {
+            Rectangle().fill(AerieColor.warn).frame(width: 2)
+        }
     }
 
     // MARK: - Rate limit
@@ -117,9 +125,14 @@ struct AdvancedScreen: View {
                                 .frame(height: 1)
                         }
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("\(item.account.login) @ \(item.account.host)")
-                                .aerieFont(AerieFont.body().weight(.medium))
-                                .foregroundStyle(AerieColor.text1)
+                            HStack(spacing: 10) {
+                                Text(item.account.login)
+                                    .aerieFont(AerieFont.body().weight(.semibold))
+                                    .foregroundStyle(AerieColor.text1)
+                                Text("@ \(item.account.host)")
+                                    .aerieFont(AerieFont.code(11.5))
+                                    .foregroundStyle(AerieColor.text3)
+                            }
                             if let snap = item.snapshot {
                                 RateMeter(remaining: snap.remaining, limit: snap.limit)
                             } else {
@@ -178,10 +191,9 @@ struct AdvancedScreen: View {
                         .foregroundStyle(AerieColor.text3)
                 }
                 Spacer(minLength: 16)
-                Toggle("", isOn: on)
+                Toggle(title, isOn: on)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AerieColor.amber)
+                    .toggleStyle(.hud)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
@@ -199,22 +211,13 @@ struct AdvancedScreen: View {
         Button("Reset to defaults") {
             Task { await viewModel.resetToDefaults() }
         }
-        .buttonStyle(.plain)
-        .aerieFont(AerieFont.small())
-        .foregroundStyle(AerieColor.text3)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Capsule().fill(AerieColor.glass1))
-        .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        .buttonStyle(.hud(.standard, size: .small))
     }
 
     // MARK: - Building blocks
 
     private func sectionEyebrow(_ text: String) -> some View {
-        Text(text)
-            .aerieFont(AerieFont.eyebrow())
-            .tracking(2.0)
-            .foregroundStyle(AerieColor.text4)
+        SettingsSectionLabel(text: text)
     }
 
     @ViewBuilder

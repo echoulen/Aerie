@@ -51,11 +51,13 @@ struct RepoSettingsRow: View {
 
     // `⠿` braille grip, text-4 — `settings.jsx` line 268. Drag it to reorder;
     // the gesture lives only on the grip (taller hit area than the glyph) so the
-    // rest of the row stays clickable. Brightens on hover / while dragging.
+    // rest of the row stays clickable. Brightens on hover, lights gold while dragging.
     private var grip: some View {
         Text("⠿")
             .font(.system(size: 14))
-            .foregroundStyle(isDragging || gripHover ? AerieColor.text2 : AerieColor.text4)
+            // Gold while grabbed (MARK III: gold = selected), text-2 on hover.
+            .foregroundStyle(isDragging ? AerieColor.amber : (gripHover ? AerieColor.text2 : AerieColor.text4))
+            .shadow(color: isDragging ? AerieColor.amberGlow.opacity(0.6) : .clear, radius: 4)
             .frame(width: 18, height: 32, alignment: .center)
             .contentShape(Rectangle())
             .onHover { gripHover = $0 }
@@ -79,7 +81,8 @@ struct RepoSettingsRow: View {
     private var nameAndPath: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(repo.name)
-                .aerieFont(AerieFont.custom(.sans, size: 14.5).weight(.medium))
+                .aerieFont(AerieFont.custom(.sans, size: 14.5).weight(.semibold))
+                .tracking(0.2)
                 .foregroundStyle(AerieColor.text1)
                 .lineLimit(1)
             Text(collapsedPath(repo.localPath.path))
@@ -100,7 +103,7 @@ struct RepoSettingsRow: View {
             HStack(spacing: 8) {
                 BranchGlyph()
                     .frame(width: 11, height: 11)
-                    .foregroundStyle(AerieColor.text4)
+                    .foregroundStyle(AerieColor.amber.opacity(0.7))
                 Text(repo.defaultBranch)
                     .aerieFont(AerieFont.code(11.5))
                     .foregroundStyle(AerieColor.text3)
@@ -123,6 +126,7 @@ struct RepoSettingsRow: View {
             } else {
                 Circle()
                     .fill(AerieColor.glass3)
+                    .overlay(Circle().strokeBorder(AerieColor.glassLine2, lineWidth: 1))
                     .frame(width: 18, height: 18)
                 accountMenu(label: "(none)", color: AerieColor.text4)
             }
@@ -166,8 +170,9 @@ struct RepoSettingsRow: View {
     }
 }
 
-/// Plain `×` (no chip) per `settings.jsx` line 300 — text-4 at rest,
-/// brightening to text-2 on hover.
+/// Plain `×` (no chip) per `settings.jsx` line 300 — text-4 at rest, turning
+/// crimson on hover because removing a repo is destructive (MARK III: crimson
+/// is reserved for destructive actions).
 private struct RemoveButton: View {
     let action: () -> Void
     @State private var hover = false
@@ -176,7 +181,9 @@ private struct RemoveButton: View {
         Button(action: action) {
             Image(systemName: "xmark")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(hover ? AerieColor.text2 : AerieColor.text4)
+                .foregroundStyle(hover ? AerieColor.crimsonHot : AerieColor.text4)
+                .shadow(color: hover ? AerieColor.crimson.opacity(0.5) : .clear, radius: 4)
+                .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

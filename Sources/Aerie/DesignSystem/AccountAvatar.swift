@@ -9,6 +9,11 @@ import SwiftUI
 /// `advanced.jsx` ACTIVE GH ACCOUNT card both render the same shape — a
 /// radial gradient circle with an inset white highlight and 1–2 mono
 /// initials in a near-black warm tone (`oklch(0.15 0.02 70)`).
+///
+/// MARK III: avatars stay true circles; the initials switch to the telemetry
+/// mono (IBM Plex Mono) and the palette leads with hot gold, with crimson in
+/// place of the old coral. A faint gold hairline rim ties the circle into the
+/// gold-on-space plates it sits on.
 struct AccountAvatar: View {
     let login: String
     var size: CGFloat = 42
@@ -31,6 +36,9 @@ struct AccountAvatar: View {
             } else {
                 fallbackCircle
             }
+            // Gold hairline rim.
+            Circle()
+                .strokeBorder(AerieColor.amberLine.opacity(0.55), lineWidth: 1)
             // Inset highlight on the top edge — matches the spec's
             // `boxShadow:'inset 0 1px 0 0 rgba(255,255,255,0.35)'`. Kept over
             // the photo too so both states share the design's glass finish.
@@ -67,8 +75,10 @@ struct AccountAvatar: View {
                     )
                 )
             Text(Self.initials(for: login))
-                .font(.system(size: size * 0.30, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color(red: 0.16, green: 0.13, blue: 0.10))
+                // Resolved at scale 1: the initials must track the avatar's
+                // fixed point size, not the interface font zoom.
+                .font(AerieFont.custom(.mono, size: size * 0.30).weight(.semibold).resolve(scale: 1))
+                .foregroundStyle(AerieColor.amberInk)
         }
     }
 
@@ -84,15 +94,15 @@ struct AccountAvatar: View {
         let shade: Color
     }
 
-    /// Five-tone palette covering the design's amber / blue / violet + two
-    /// additions (green, coral) so dashboards with 4+ accounts still read
+    /// Five-tone palette covering the design's gold / blue / violet + two
+    /// additions (green, crimson) so dashboards with 4+ accounts still read
     /// distinctly.
     private static let palette: [Tone] = [
-        Tone(highlight: Color(hex: 0xF1C98F), shade: Color(hex: 0xB58748)), // amber
+        Tone(highlight: Color(hex: 0xFFDE6A), shade: Color(hex: 0xC4862A)), // hot gold
         Tone(highlight: Color(hex: 0x8FBDEC), shade: Color(hex: 0x4C6FA7)), // blue
         Tone(highlight: Color(hex: 0xC18FE0), shade: Color(hex: 0x7B47A3)), // violet
         Tone(highlight: Color(hex: 0x8FE0B8), shade: Color(hex: 0x437D5B)), // green
-        Tone(highlight: Color(hex: 0xE89998), shade: Color(hex: 0xA84F4D)), // coral
+        Tone(highlight: Color(hex: 0xFF8A7A), shade: Color(hex: 0xB23A36)), // crimson
     ]
 
     static func tone(for login: String) -> Tone {

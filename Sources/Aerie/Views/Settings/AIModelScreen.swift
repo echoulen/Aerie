@@ -3,7 +3,8 @@ import SwiftUI
 /// Settings → AI Model: the Claude model used by both AI Review and Create
 /// Pull Request. Layout follows the Pull Requests screen's house style:
 /// eyebrow, page title + code-style subtitle, a section eyebrow, then one
-/// glass card holding the model picker.
+/// glass card holding the model picker. MARK III: shared `SettingsPageHeader`
+/// and mono section label; the native menu picker sits in a recessed well.
 struct AIModelScreen: View {
     @Bindable var viewModel: AIModelViewModel
 
@@ -20,18 +21,11 @@ struct AIModelScreen: View {
     }
 
     private var pageHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionEyebrow("AI MODEL")
-            HStack(alignment: .firstTextBaseline) {
-                Text("Model")
-                    .aerieFont(AerieFont.sectionTitle())
-                    .foregroundStyle(AerieColor.text1)
-                Text("used by AI Review and Create Pull Request")
-                    .aerieFont(AerieFont.code(13))
-                    .foregroundStyle(AerieColor.text3)
-                Spacer(minLength: 16)
-            }
-        }
+        SettingsPageHeader(
+            eyebrow: "AI Model",
+            title: "Model",
+            subtitle: "used by AI Review and Create Pull Request"
+        )
     }
 
     private var modelCard: some View {
@@ -50,6 +44,11 @@ struct AIModelScreen: View {
             }
             .pickerStyle(.menu)
             .labelsHidden()
+            .tint(AerieColor.amber)
+            .frame(maxWidth: 320, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .hudWell()
         }
         .padding(AerieMetric.cardPaddingV)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -57,9 +56,6 @@ struct AIModelScreen: View {
     }
 
     private func sectionEyebrow(_ t: String) -> some View {
-        Text(t)
-            .aerieFont(AerieFont.eyebrow())
-            .tracking(2.0)
-            .foregroundStyle(AerieColor.text4)
+        SettingsSectionLabel(text: t)
     }
 }

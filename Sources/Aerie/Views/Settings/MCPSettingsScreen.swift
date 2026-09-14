@@ -8,13 +8,23 @@ import SwiftUI
 ///   3. Recent activity (last 6 MCP calls, click → ViewRequestModal)
 ///
 /// Design ref: docs/superpowers/design/v2/mcp.jsx · `MCPSettingsBody`.
+///
+/// MARK III: a `SettingsPageHeader`, each card hung off a mono section label,
+/// bevelled HUD keys, and a HUD switch. Arc cyan is used only for the live
+/// "running" status (reactor ring, section-label pulse); a stopped server
+/// reads muted, a failed call reads crimson, a successful one green.
 struct MCPSettingsScreen: View {
     @Bindable var viewModel: MCPSettingsViewModel
     var onViewActivity: (MCPActivityRecord) -> Void = { _ in }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 28) {
+                SettingsPageHeader(
+                    eyebrow: "MCP",
+                    title: "Local MCP server",
+                    subtitle: "Claude Code ↔ Aerie"
+                )
                 serverStatusCard
                 integrationCard
                 activityCard
@@ -27,7 +37,7 @@ struct MCPSettingsScreen: View {
     // MARK: - Server status
 
     private var serverStatusCard: some View {
-        sectionCard(title: "Local MCP server") {
+        sectionCard(title: "Server", live: viewModel.status.running) {
             VStack(alignment: .leading, spacing: 16) {
                 statusHeader
                 kvRow(
@@ -52,17 +62,20 @@ struct MCPSettingsScreen: View {
 
     private var statusHeader: some View {
         HStack(spacing: 10) {
-            Circle()
-                .fill(viewModel.status.running ? AerieColor.ok : AerieColor.text4)
-                .frame(width: 8, height: 8)
+            if viewModel.status.running {
+                // Running = live energy → arc cyan.
+                ArcRing(size: 20)
+            } else {
+                Circle()
+                    .fill(AerieColor.text4)
+                    .frame(width: 8, height: 8)
+            }
             Text(viewModel.status.running ? "Server running" : "Server stopped")
-                .aerieFont(AerieFont.body())
+                .aerieFont(AerieFont.body().weight(.medium))
                 .foregroundStyle(AerieColor.text1)
             Spacer()
             if let uptime = viewModel.uptimeLabel {
-                Text("uptime \(uptime) · pid \(viewModel.status.pid)")
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text3)
+                HudNote(text: "uptime \(uptime) · pid \(viewModel.status.pid)")
             }
         }
     }
@@ -73,13 +86,7 @@ struct MCPSettingsScreen: View {
             Button("Rotate token now") {
                 Task { await viewModel.rotateNow() }
             }
-            .buttonStyle(.plain)
-            .aerieFont(AerieFont.small())
-            .foregroundStyle(AerieColor.amber)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(AerieColor.amberSoft))
-            .overlay(Capsule().strokeBorder(AerieColor.amberLine, lineWidth: 1))
+            .buttonStyle(.hud(.standard, size: .small))
         }
     }
 
@@ -98,13 +105,12 @@ struct MCPSettingsScreen: View {
                             .foregroundStyle(AerieColor.text3)
                     }
                     Spacer()
-                    Toggle("", isOn: Binding(
+                    Toggle("Auto-register in ~/.claude/.mcp.json", isOn: Binding(
                         get: { viewModel.autoRegisterOn },
                         set: { v in Task { await viewModel.setAutoRegister(v) } }
                     ))
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AerieColor.amber)
+                    .toggleStyle(.hud)
                 }
                 kvRow(
                     label: "discovery file",
@@ -145,11 +151,12 @@ struct MCPSettingsScreen: View {
             HStack(spacing: 12) {
                 Image(systemName: record.ok ? "checkmark.circle.fill" : "xmark.octagon.fill")
                     .font(.system(size: 14))
-                    .foregroundStyle(record.ok ? AerieColor.ok : AerieColor.err)
+                    .foregroundStyle(record.ok ? AerieColor.ok : AerieColor.crimsonHot)
+                    .shadow(color: (record.ok ? AerieColor.ok : AerieColor.crimson).opacity(0.5), radius: 4)
                     .frame(width: 20)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(record.tool)
-                        .aerieFont(AerieFont.code(12))
+                        .aerieFont(AerieFont.code(12).weight(.medium))
                         .foregroundStyle(AerieColor.text1)
                     if let target = record.target {
                         Text(target)
@@ -158,9 +165,10 @@ struct MCPSettingsScreen: View {
                     }
                 }
                 Spacer()
-                Text(relativeTime(record.at))
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
+                Text(relativeTime(record.at).uppercased())
+                    .aerieFont(AerieFont.code(10.5))
+                    .tracking(1.0)
+                    .foregroundStyle(AerieColor.text3)
             }
             .padding(.vertical, 10)
             .contentShape(Rectangle())
@@ -190,9 +198,10 @@ struct MCPSettingsScreen: View {
         leadingTrailingButtons: [(String, () -> Void)] = []
     ) -> some View {
         HStack(spacing: 14) {
-            Text(label)
+            Text(label.uppercased())
                 .aerieFont(AerieFont.eyebrow())
-                .foregroundStyle(AerieColor.text4)
+                .tracking(1.6)
+                .foregroundStyle(AerieColor.text3)
                 .frame(width: 110, alignment: .leading)
             Text(value)
                 .aerieFont(AerieFont.code(12))
@@ -200,6 +209,9 @@ struct MCPSettingsScreen: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .hudWell()
             ForEach(Array(leadingTrailingButtons.enumerated()), id: \.offset) { _, pair in
                 ghostButton(pair.0, action: pair.1)
             }
@@ -211,24 +223,17 @@ struct MCPSettingsScreen: View {
 
     private func ghostButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(title, action: action)
-            .buttonStyle(.plain)
-            .aerieFont(AerieFont.small())
-            .foregroundStyle(AerieColor.text2)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(Capsule().fill(AerieColor.glass1))
-            .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
+            .buttonStyle(.hud(.standard, size: .small))
     }
 
     @ViewBuilder
     private func sectionCard<Body: View>(
         title: String,
+        live: Bool = false,
         @ViewBuilder content: () -> Body
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .aerieFont(AerieFont.sectionTitle())
-                .foregroundStyle(AerieColor.text1)
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsSectionLabel(text: title, live: live)
             content()
                 .padding(AerieMetric.cardPaddingV)
                 .frame(maxWidth: .infinity, alignment: .leading)

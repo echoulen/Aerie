@@ -15,7 +15,8 @@ import SwiftUI
 /// stable. Production callers omit it.
 ///
 /// The trailing actions (`Make primary` on non-primary rows, `Sign out…` on
-/// all rows) are the design's `.btn.ghost.sm` buttons. They fire the injected
+/// all rows) are MARK III bevelled keys — `.btn.ghost.sm` and the crimson
+/// `.btn.danger.sm` respectively. They fire the injected
 /// callbacks; the integration layer (`SettingsWindow`) decides what they do
 /// (`gh auth switch` / a sign-out confirmation → `gh auth logout`).
 struct AccountCard: View {
@@ -36,6 +37,7 @@ struct AccountCard: View {
                 if !row.scopes.isEmpty {
                     Text(row.scopes.joined(separator: " "))
                         .aerieFont(AerieFont.code(10))
+                        .tracking(0.4)
                         .foregroundStyle(AerieColor.text3)
                 }
             }
@@ -55,10 +57,11 @@ struct AccountCard: View {
     private var identityRow: some View {
         HStack(spacing: 10) {
             Text(row.account.login)
-                .aerieFont(AerieFont.body().weight(.semibold))
+                .aerieFont(AerieFont.custom(.sans, size: 15).weight(.semibold))
+                .tracking(0.2)
                 .foregroundStyle(AerieColor.text1)
             Text("@ \(row.account.host)")
-                .aerieFont(AerieFont.body())
+                .aerieFont(AerieFont.code(12))
                 .foregroundStyle(AerieColor.text3)
             if row.isPrimary { primaryPill }
         }
@@ -79,31 +82,32 @@ struct AccountCard: View {
     }
 
     private var primaryPill: some View {
-        Text("primary")
-            .aerieFont(AerieFont.eyebrow())
-            .foregroundStyle(AerieColor.amber)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(AerieColor.amberSoft))
-            .overlay(Capsule().strokeBorder(AerieColor.amberLine, lineWidth: 1))
+        StatusPill(text: "primary", tone: .amber)
     }
 
     private var signedInDot: some View {
         HStack(spacing: 6) {
-            Circle().fill(AerieColor.ok).frame(width: 6, height: 6)
+            Circle()
+                .fill(AerieColor.ok)
+                .frame(width: 6, height: 6)
+                .shadow(color: AerieColor.ok.opacity(0.7), radius: 4)
             Text("signed in")
                 .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text2)
         }
     }
 
-    // Trailing action buttons — `settings.jsx` lines 191-195.
+    // Trailing action buttons — `settings.jsx` lines 191-195. "Make primary"
+    // is a ghost key; "Sign out…" is destructive, so it takes the crimson
+    // `.btn.danger` treatment.
     private var actions: some View {
         HStack(spacing: 8) {
             if !row.isPrimary {
-                GhostSmallButton(title: "Make primary", action: onMakePrimary)
+                Button("Make primary", action: onMakePrimary)
+                    .buttonStyle(.hud(.ghost, size: .small))
             }
-            GhostSmallButton(title: "Sign out…", action: onSignOut)
+            Button("Sign out…", action: onSignOut)
+                .buttonStyle(.hud(.danger, size: .small))
         }
     }
 
@@ -111,32 +115,5 @@ struct AccountCard: View {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .abbreviated
         return f.localizedString(for: d, relativeTo: now)
-    }
-}
-
-/// The design's `.btn.ghost.sm`: transparent at rest (text-3), filling with
-/// `glass-2` + text-1 on hover. `sm` = 12 pt / 5×10 pad, 9 pt corner radius.
-private struct GhostSmallButton: View {
-    let title: String
-    let action: () -> Void
-
-    @State private var hover = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .aerieFont(AerieFont.small().weight(.medium))
-                .foregroundStyle(hover ? AerieColor.text1 : AerieColor.text3)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(hover ? AerieColor.glass2 : Color.clear)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
-        .animation(.easeOut(duration: 0.12), value: hover)
     }
 }

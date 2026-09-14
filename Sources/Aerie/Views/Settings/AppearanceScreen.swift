@@ -23,12 +23,16 @@ import SwiftUI
 /// scale: `AerieApp` publishes it as `\.interfaceFontScale`, and every text
 /// uses `.aerieFont(_:)`, so fonts grow/shrink crisply (no rasterised blur,
 /// unlike a root `scaleEffect`). The PREVIEW card mirrors the selected size.
+///
+/// MARK III: squared gold-gradient track with diamond stops (the active stop
+/// is a large glowing gold diamond), bevelled `.kbd` keycaps, a big glowing
+/// mono zoom readout, and a chamfered preview plate.
 struct AppearanceScreen: View {
     @Bindable var viewModel: AppearanceViewModel
 
-    // Amber gradient stops (design uses oklch(0.78 0.14 75) → oklch(0.88 0.14 78)).
-    private let amberDeep = Color(red: 0.88, green: 0.62, blue: 0.18)
-    private let amberBright = Color(red: 1.0, green: 0.80, blue: 0.40)
+    // Gold gradient stops — the MARK III hot-gold ramp.
+    private let amberDeep = AerieColor.amber2
+    private let amberBright = AerieColor.amberFillTop
     // Preview avatar radial (oklch(0.88 0.14 78) → oklch(0.50 0.13 60)).
     private let avatarBrown = Color(red: 0.52, green: 0.34, blue: 0.12)
 
@@ -59,18 +63,12 @@ struct AppearanceScreen: View {
     // MARK: - Page header
 
     private var pageHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionEyebrow("APPEARANCE")
-            HStack(alignment: .firstTextBaseline) {
-                Text("Display size")
-                    .aerieFont(AerieFont.sectionTitle())
-                    .foregroundStyle(AerieColor.text1)
-                Text("zoom the whole interface")
-                    .aerieFont(AerieFont.code(13))
-                    .foregroundStyle(AerieColor.text3)
-                Spacer(minLength: 16)
-                resetButton
-            }
+        SettingsPageHeader(
+            eyebrow: "Appearance",
+            title: "Display size",
+            subtitle: "zoom the whole interface"
+        ) {
+            resetButton
         }
     }
 
@@ -78,13 +76,7 @@ struct AppearanceScreen: View {
         Button("Reset to 100%") {
             Task { await viewModel.reset() }
         }
-        .buttonStyle(.plain)
-        .aerieFont(AerieFont.small())
-        .foregroundStyle(AerieColor.text3)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Capsule().fill(AerieColor.glass1))
-        .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
+        .buttonStyle(.hud(.standard, size: .small))
     }
 
     // MARK: - Interface zoom card
@@ -104,9 +96,10 @@ struct AppearanceScreen: View {
                 }
                 Spacer(minLength: 16)
                 Text("\(viewModel.zoomPct)%")
-                    .aerieFont(AerieFont.custom(.mono, size: 30).weight(.medium))
+                    .aerieFont(AerieFont.custom(.mono, size: 30).weight(.medium).monospacedDigit())
                     .tracking(-0.3)
-                    .foregroundStyle(AerieColor.text1)
+                    .foregroundStyle(AerieColor.amber)
+                    .shadow(color: AerieColor.amberGlow.opacity(0.5), radius: 12)
             }
 
             zoomStepper
@@ -125,6 +118,7 @@ struct AppearanceScreen: View {
         .padding(.horizontal, 26)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glass(.card)
+        .overlay(HudCorners().padding(5))
     }
 
     // MARK: - Stepper
@@ -152,9 +146,9 @@ struct AppearanceScreen: View {
                         Text("\(stop.pct)%")
                             .aerieFont(AerieFont.code(11).weight(isActive ? .semibold : .regular))
                             .foregroundStyle(isActive ? AerieColor.amber : AerieColor.text4)
-                        Text(stop.label)
-                            .aerieFont(AerieFont.custom(.sans, size: 10))
-                            .tracking(0.2)
+                        Text(stop.label.uppercased())
+                            .aerieFont(AerieFont.custom(.sans, size: 9.5).weight(.medium))
+                            .tracking(0.9)
                             .foregroundStyle(isActive ? AerieColor.text2 : AerieColor.text4)
                     }
                     .frame(maxWidth: .infinity)
@@ -172,19 +166,22 @@ struct AppearanceScreen: View {
 
             ZStack(alignment: .leading) {
                 // Track background
-                Capsule()
-                    .fill(Color.black.opacity(0.32))
-                    .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
+                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                    .fill(Color.black.opacity(0.40))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                            .strokeBorder(AerieColor.glassLine, lineWidth: 1)
+                    )
                     .frame(height: 6)
 
                 // Fill
-                Capsule()
+                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                     .fill(LinearGradient(
                         colors: [amberDeep, amberBright],
                         startPoint: .leading, endPoint: .trailing
                     ))
                     .frame(width: max(0, w * fillFraction), height: 6)
-                    .shadow(color: AerieColor.amber.opacity(0.4), radius: 5)
+                    .shadow(color: AerieColor.amberGlow.opacity(0.55), radius: 6)
 
                 // Ticks
                 ForEach(0..<n, id: \.self) { i in
@@ -216,18 +213,23 @@ struct AppearanceScreen: View {
     private func tick(_ i: Int) -> some View {
         let isActive = i == active
         let passed = i <= active
-        let size: CGFloat = isActive ? 16 : 9
-        Circle()
-            .fill(isActive ? Color.white : (passed ? AerieColor.amber : Color.white.opacity(0.18)))
-            .frame(width: size, height: size)
+        // MARK III stops are diamonds (a square turned 45°), not dots.
+        let size: CGFloat = isActive ? 12 : 7
+        Rectangle()
+            .fill(isActive
+                  ? AnyShapeStyle(LinearGradient(colors: [AerieColor.amberFillTop, AerieColor.amberFillBot],
+                                                 startPoint: .top, endPoint: .bottom))
+                  : AnyShapeStyle(passed ? AerieColor.amber : AerieColor.glass3))
             .overlay(
-                Circle().strokeBorder(
-                    isActive ? Color.black.opacity(0.10) : AerieColor.glassLine,
+                Rectangle().strokeBorder(
+                    isActive ? AerieColor.amberCtaLine : (passed ? AerieColor.amberLine : AerieColor.glassLine2),
                     lineWidth: 1
                 )
             )
-            .shadow(color: isActive ? Color.black.opacity(0.6) : .clear,
-                    radius: isActive ? 2 : 0, x: 0, y: 1)
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(45))
+            .shadow(color: isActive ? AerieColor.amberGlow : .clear,
+                    radius: isActive ? 7 : 0)
     }
 
     // MARK: - Shortcut hint
@@ -236,26 +238,14 @@ struct AppearanceScreen: View {
         HStack(spacing: 8) {
             HStack(spacing: 4) {
                 ForEach(Array(keys.enumerated()), id: \.offset) { _, k in
-                    Text(k)
-                        .aerieFont(AerieFont.custom(.mono, size: 12))
-                        .foregroundStyle(AerieColor.text2)
-                        .frame(minWidth: 20)
-                        .frame(height: 20)
-                        .padding(.horizontal, 5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(Color.black.opacity(0.30))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-                        )
+                    HudKeyCap(key: k, size: 12)
                 }
             }
             Text(label)
                 .aerieFont(AerieFont.custom(.sans, size: 12.5))
                 .foregroundStyle(AerieColor.text3)
         }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Preview
@@ -301,13 +291,20 @@ struct AppearanceScreen: View {
         .padding(.vertical, 16 * k)
         .padding(.horizontal, 18 * k)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            HudPlateShape(cut: 12 * k)
                 .fill(Color.black.opacity(0.22))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            HudPlateShape(cut: 12 * k)
                 .strokeBorder(AerieColor.glassLine, lineWidth: 1)
         )
+        .overlay(alignment: .leading) {
+            // `.card::after` gold strut, scaled with the preview.
+            LinearGradient(colors: [.clear, AerieColor.amberGlow, .clear], startPoint: .top, endPoint: .bottom)
+                .frame(width: 2)
+                .padding(.vertical, 10 * k)
+                .opacity(0.6)
+        }
     }
 
     private func ciPill(k: CGFloat) -> some View {
@@ -316,14 +313,22 @@ struct AppearanceScreen: View {
                 .fill(AerieColor.ok)
                 .frame(width: 7 * k, height: 7 * k)
                 .shadow(color: AerieColor.ok.opacity(0.6), radius: 4 * k)
-            Text("CI passing")
-                .font(.custom(AerieFont.sans, size: 11 * k).weight(.medium))
+            // Mirrors `StatusPill` (600 10.5px uppercase, 0.10em), scaled by k.
+            Text("CI PASSING")
+                .font(.custom(AerieFont.sans, size: 10.5 * k).weight(.semibold))
+                .tracking(1.05 * k)
                 .foregroundStyle(AerieColor.ok)
         }
         .padding(.vertical, 3 * k)
         .padding(.horizontal, 9 * k)
-        .background(Capsule().fill(AerieColor.ok.opacity(0.10)))
-        .overlay(Capsule().strokeBorder(AerieColor.ok.opacity(0.32), lineWidth: 1))
+        .background(
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                .fill(AerieColor.ok.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                .strokeBorder(AerieColor.ok.opacity(0.40), lineWidth: 1)
+        )
         .fixedSize()
     }
 
@@ -349,9 +354,6 @@ struct AppearanceScreen: View {
     // MARK: - Building blocks
 
     private func sectionEyebrow(_ text: String) -> some View {
-        Text(text)
-            .aerieFont(AerieFont.eyebrow())
-            .tracking(2.0)
-            .foregroundStyle(AerieColor.text4)
+        SettingsSectionLabel(text: text)
     }
 }

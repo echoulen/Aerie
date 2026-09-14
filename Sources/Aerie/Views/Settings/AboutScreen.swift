@@ -5,6 +5,10 @@ import AppKit
 /// a link to the GitHub repository. Versions are sourced from the bundled
 /// `Info.plist`; the build SHA is read from a custom `GitCommitSHA` key that
 /// is set by the release pipeline.
+///
+/// MARK III: the icon sits inside gold `.hud-corners` brackets, the wordmark
+/// carries the `.section-title` gold glow, version/build read as mono
+/// telemetry, and the repo link is a bevelled HUD key.
 struct AboutScreen: View {
     /// Production callers omit these; tests inject deterministic values.
     var version: String = AboutScreen.defaultVersion
@@ -15,33 +19,40 @@ struct AboutScreen: View {
         VStack(spacing: 18) {
             Spacer()
             appIcon
-                .padding(.bottom, 8)
-            Text("Aerie")
-                .aerieFont(AerieFont.display())
-                .foregroundStyle(AerieColor.text1)
-            VStack(spacing: 4) {
-                Text("version \(version)")
-                    .aerieFont(AerieFont.small())
-                    .foregroundStyle(AerieColor.text2)
+                .padding(18)
+                .overlay(HudCorners(length: 16))
+                .padding(.bottom, 4)
+            VStack(spacing: 6) {
+                SectionEyebrow(text: "About")
+                Text("Aerie")
+                    .aerieFont(AerieFont.display())
+                    .tracking(1.5)
+                    .foregroundStyle(AerieColor.text1)
+                    .shadow(color: AerieColor.amber.opacity(0.30), radius: 16)
+            }
+            VStack(spacing: 6) {
+                Text("version \(version)".uppercased())
+                    .aerieFont(AerieFont.code(11.5).weight(.medium))
+                    .tracking(1.4)
+                    .foregroundStyle(AerieColor.amber)
                 Text(buildSHA)
                     .aerieFont(AerieFont.code(11))
+                    .tracking(0.6)
                     .foregroundStyle(AerieColor.text3)
+                HudRail()
+                    .frame(width: 160)
+                    .padding(.top, 4)
             }
             Button {
                 NSWorkspace.shared.open(githubURL)
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.up.right.square")
+                        .foregroundStyle(AerieColor.amber)
                     Text("github.com/echoulen/Aerie")
                 }
-                .aerieFont(AerieFont.small().weight(.medium))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .foregroundStyle(AerieColor.amber)
-                .background(Capsule().fill(AerieColor.amberSoft))
-                .overlay(Capsule().strokeBorder(AerieColor.amberLine, lineWidth: 1))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hud(.standard))
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -6,6 +6,10 @@ import SwiftUI
 /// code-style subtitle, a section eyebrow, then one glass card holding the
 /// monospaced template editor. Edits persist via the VM's debounced save;
 /// "Reset to default" restores the built-in template.
+///
+/// MARK III: shared `SettingsPageHeader`, a custom/default `StatusPill`
+/// (gold when customised), the editor in a recessed mono well, and the reset
+/// action as a bevelled HUD key (dimmed by the style while disabled).
 struct PRPublishScreen: View {
     @Bindable var viewModel: PRPublishViewModel
 
@@ -22,18 +26,12 @@ struct PRPublishScreen: View {
     }
 
     private var pageHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionEyebrow("PULL REQUESTS")
-            HStack(alignment: .firstTextBaseline) {
-                Text("PR publish template")
-                    .aerieFont(AerieFont.sectionTitle())
-                    .foregroundStyle(AerieColor.text1)
-                Text("what claude is told when you press Create Pull Request")
-                    .aerieFont(AerieFont.code(13))
-                    .foregroundStyle(AerieColor.text3)
-                Spacer(minLength: 16)
-                resetButton
-            }
+        SettingsPageHeader(
+            eyebrow: "Pull Requests",
+            title: "PR publish template",
+            subtitle: "what claude is told when you press Create Pull Request"
+        ) {
+            resetButton
         }
     }
 
@@ -44,28 +42,23 @@ struct PRPublishScreen: View {
                     .aerieFont(AerieFont.code(11))
                     .foregroundStyle(AerieColor.text3)
                 Spacer(minLength: 8)
-                Text(viewModel.isCustom ? "custom" : "default")
-                    .aerieFont(AerieFont.custom(.sans, size: 10))
-                    .foregroundStyle(viewModel.isCustom ? AerieColor.amber : AerieColor.text4)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 1)
-                    .background(Capsule(style: .continuous)
-                        .fill(viewModel.isCustom ? AerieColor.amberSoft : AerieColor.glass2))
-                    .overlay(Capsule(style: .continuous)
-                        .strokeBorder(viewModel.isCustom ? AerieColor.amberLine : AerieColor.glassLine, lineWidth: 1))
+                StatusPill(
+                    text: viewModel.isCustom ? "custom" : "default",
+                    tone: viewModel.isCustom ? .amber : .muted
+                )
             }
 
             TextEditor(text: Binding(
                 get: { viewModel.template },
                 set: { viewModel.setTemplate($0) }
             ))
-            .font(.system(size: 12, design: .monospaced))
+            .aerieFont(AerieFont.code(12))
             .foregroundStyle(AerieColor.text1)
+            .tint(AerieColor.amber)
             .scrollContentBackground(.hidden)
             .frame(minHeight: 360)
             .padding(10)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(AerieColor.glass2))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
+            .hudWell()
         }
         .padding(AerieMetric.cardPaddingV)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -73,27 +66,14 @@ struct PRPublishScreen: View {
     }
 
     private var resetButton: some View {
-        Button {
+        Button("Reset to default") {
             Task { await viewModel.resetToDefault() }
-        } label: {
-            Text("Reset to default")
-                .aerieFont(AerieFont.custom(.sans, size: 12).weight(.medium))
-                .foregroundStyle(AerieColor.text2)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(AerieColor.glass2))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(AerieColor.glassLine, lineWidth: 1))
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hud(.standard, size: .small))
         .disabled(!viewModel.isCustom)
-        .opacity(viewModel.isCustom ? 1 : 0.5)
     }
 
     private func sectionEyebrow(_ t: String) -> some View {
-        Text(t)
-            .aerieFont(AerieFont.eyebrow())
-            .tracking(2.0)
-            .foregroundStyle(AerieColor.text4)
+        SettingsSectionLabel(text: t)
     }
 }
