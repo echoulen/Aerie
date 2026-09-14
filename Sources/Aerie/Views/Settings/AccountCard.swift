@@ -3,20 +3,18 @@ import SwiftUI
 /// A single GitHub account row, rendered as a glass card in
 /// `AccountsScreen`.
 ///
-/// Visual contract: `docs/superpowers/design/v2/settings.jsx` lines 149-196.
-/// Layout:
-///   ┌──────────────────────────────────────────────────────────────┐
-///   │ <avatar> <login> @ <host> [primary?]                         │
-///   │          • signed in   N repos   · last call <relative>      │
-///   │          <scopes (mono)>                                     │
-///   └──────────────────────────────────────────────────────────────┘
+/// Visual contract: `src/v2/settings.jsx` `AccountCard`. Padding 18/20, a
+/// three-column grid (avatar / identity / actions) with an 18pt column gap:
+///   ┌──────────────────────────────────────────────────────────────────┐
+///   │ <avatar> <login> @ <host> [PRIMARY?]          [Make primary] [Sign out…] │
+///   │          ● signed in  N repos  last call <rel>  scopes: a · b    │
+///   └──────────────────────────────────────────────────────────────────┘
 ///
 /// `now` is injected so snapshot tests can keep the relative-time string
 /// stable. Production callers omit it.
 ///
 /// The trailing actions (`Make primary` on non-primary rows, `Sign out…` on
-/// all rows) are MARK III bevelled keys — `.btn.ghost.sm` and the crimson
-/// `.btn.danger.sm` respectively. They fire the injected
+/// all rows) are both the design's `.btn ghost sm` keys. They fire the injected
 /// callbacks; the integration layer (`SettingsWindow`) decides what they do
 /// (`gh auth switch` / a sign-out confirmation → `gh auth logout`).
 struct AccountCard: View {
@@ -29,36 +27,26 @@ struct AccountCard: View {
     var onSignOut: () -> Void = {}
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            avatar
+        HStack(alignment: .center, spacing: 18) {
+            AccountAvatar(login: row.account.login, size: 42, isPrimary: row.isPrimary)
             VStack(alignment: .leading, spacing: 6) {
                 identityRow
-                statusRow
-                if !row.scopes.isEmpty {
-                    Text(row.scopes.joined(separator: " "))
-                        .aerieFont(AerieFont.code(10))
-                        .tracking(0.4)
-                        .foregroundStyle(AerieColor.text3)
-                }
+                metaRow
             }
-            Spacer(minLength: 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
             actions
         }
-        .padding(AerieMetric.cardPaddingV)
+        .padding(.vertical, 18)
+        .padding(.horizontal, 20)
         .glass(.card)
     }
 
     // MARK: - Pieces
 
-    private var avatar: some View {
-        AccountAvatar(login: row.account.login, size: 44)
-    }
-
     private var identityRow: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(row.account.login)
-                .aerieFont(AerieFont.custom(.sans, size: 15).weight(.semibold))
-                .tracking(0.2)
+                .aerieFont(AerieFont.custom(.sans, size: 16).weight(.medium))
                 .foregroundStyle(AerieColor.text1)
             Text("@ \(row.account.host)")
                 .aerieFont(AerieFont.code(12))
@@ -67,39 +55,50 @@ struct AccountCard: View {
         }
     }
 
-    private var statusRow: some View {
+    private var metaRow: some View {
         HStack(spacing: 14) {
-            signedInDot
+            HStack(spacing: 6) {
+                SettingsDot(tone: .ok)
+                Text("signed in")
+            }
             Text("\(row.repoCount) repo\(row.repoCount == 1 ? "" : "s")")
-                .aerieFont(AerieFont.small())
-                .foregroundStyle(AerieColor.text2)
             if let last = row.lastUsed {
-                Text("· last call \(relativeTime(last))")
-                    .aerieFont(AerieFont.small())
-                    .foregroundStyle(AerieColor.text3)
+                Text("last call \(relativeTime(last))")
+            }
+            if !row.scopes.isEmpty {
+                Text("scopes: \(row.scopes.joined(separator: " · "))")
+                    .aerieFont(AerieFont.code(11))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(-1)
             }
         }
+        .aerieFont(AerieFont.small())
+        .foregroundStyle(AerieColor.text3)
+        .lineLimit(1)
     }
 
+    /// `.pill amber` at the design's compact `1px 7px` / 10pt override.
     private var primaryPill: some View {
-        StatusPill(text: "primary", tone: .amber)
+        Text("PRIMARY")
+            .aerieFont(AerieFont.custom(.sans, size: 10).weight(.semibold))
+            .tracking(1.0)
+            .foregroundStyle(AerieColor.amber)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                    .fill(AerieColor.amberSoft)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                    .strokeBorder(AerieColor.amberLine, lineWidth: 1)
+            )
+            .shadow(color: AerieColor.amberGlow.opacity(0.35), radius: 4)
+            .fixedSize()
     }
 
-    private var signedInDot: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(AerieColor.ok)
-                .frame(width: 6, height: 6)
-                .shadow(color: AerieColor.ok.opacity(0.7), radius: 4)
-            Text("signed in")
-                .aerieFont(AerieFont.small())
-                .foregroundStyle(AerieColor.text2)
-        }
-    }
-
-    // Trailing action buttons — `settings.jsx` lines 191-195. "Make primary"
-    // is a ghost key; "Sign out…" is destructive, so it takes the crimson
-    // `.btn.danger` treatment.
+    // Trailing action buttons — both `.btn ghost sm` per `settings.jsx`.
     private var actions: some View {
         HStack(spacing: 8) {
             if !row.isPrimary {
@@ -107,8 +106,9 @@ struct AccountCard: View {
                     .buttonStyle(.hud(.ghost, size: .small))
             }
             Button("Sign out…", action: onSignOut)
-                .buttonStyle(.hud(.danger, size: .small))
+                .buttonStyle(.hud(.ghost, size: .small))
         }
+        .fixedSize()
     }
 
     private func relativeTime(_ d: Date) -> String {

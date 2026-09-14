@@ -84,7 +84,7 @@ struct AccountsScreen: View {
                         .padding(.top, 18)
                 }
             }
-            .padding(AerieMetric.pagePadding)
+            .settingsPagePadding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -115,23 +115,22 @@ struct AccountsScreen: View {
                 isRescanning = false
             }
         } label: {
-            HStack(spacing: 8) {
+            // Design: `.btn ghost sm` "↻ Rescan ⌘R".
+            HStack(spacing: 7) {
                 ZStack {
-                    Image(systemName: "arrow.clockwise")
+                    Text("↻")
                         .opacity(isRescanning ? 0 : 1)
-                    // A rescan is a running process, so its loader is the
-                    // arc-cyan reactor ring (the one sanctioned use of arc here).
-                    if isRescanning {
-                        ArcRing(size: 18)
-                            .scaleEffect(0.7)
-                    }
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.55)
+                        .opacity(isRescanning ? 1 : 0)
                 }
-                .frame(width: 13, height: 13)
+                .frame(width: 12, height: 12)
                 Text(isRescanning ? "Rescanning…" : "Rescan")
-                HudKeyCap(key: "⌘R", size: 10)
+                Text("⌘R")
             }
         }
-        .buttonStyle(.hud(.standard, size: .small))
+        .buttonStyle(.hud(.ghost, size: .small))
         .keyboardShortcut("r", modifiers: .command)
     }
 
@@ -154,20 +153,18 @@ struct AccountsScreen: View {
                     .foregroundStyle(AerieColor.text1)
             )
             Spacer(minLength: 16)
-            HudNote(text: "tokens kept in memory only")
+            Text("tokens kept in memory only")
+                .aerieFont(AerieFont.code(11.5))
+                .foregroundStyle(AerieColor.text3)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 20)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glass(.card)
-        .overlay(HudCorners().padding(5))
     }
 
     private var okDot: some View {
-        Circle()
-            .fill(AerieColor.ok)
-            .frame(width: 7, height: 7)
-            .shadow(color: AerieColor.ok.opacity(0.6), radius: 6)
+        SettingsDot(tone: .ok)
     }
 
     /// Strips the leading `"gh version "` that `gh --version` prints so the
@@ -204,13 +201,14 @@ struct AccountsScreen: View {
             Text("Run this in a terminal — Aerie will pick the new account up automatically within a few seconds.")
                 .aerieFont(AerieFont.body())
                 .foregroundStyle(AerieColor.text2)
+                .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
                 Text("$")
-                    .aerieFont(AerieFont.code().weight(.semibold))
-                    .foregroundStyle(AerieColor.amber)
-                Text(addAccountCommand)
                     .aerieFont(AerieFont.code())
+                    .foregroundStyle(AerieColor.text4)
+                Text(addAccountCommand)
+                    .aerieFont(AerieFont.code(13))
                     .foregroundStyle(AerieColor.text1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Button("Copy") {
@@ -220,7 +218,7 @@ struct AccountsScreen: View {
                 .buttonStyle(.hud(.standard, size: .small))
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
             .hudWell()
         }
         .padding(.horizontal, 20)
@@ -232,6 +230,6 @@ struct AccountsScreen: View {
     // MARK: - Building blocks
 
     private func sectionEyebrow(_ text: String) -> some View {
-        SettingsSectionLabel(text: text)
+        SectionEyebrow(text: text)
     }
 }

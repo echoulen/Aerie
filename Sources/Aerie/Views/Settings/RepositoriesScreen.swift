@@ -2,10 +2,10 @@ import SwiftUI
 
 /// Settings → Repositories main content.
 ///
-/// MARK III: the shared `SettingsPageHeader` (gold eyebrow + glowing title),
-/// a ghost "Refresh all" key and the gold `.btn.amber` "Add repository" CTA
-/// (both `HudButtonStyle`), a mono column legend on a `.hud-rail`, and the
-/// rows on a chamfered card plate.
+/// MARK III (`settings.jsx` `RepositoriesScreen`): header padded 34/40/18 with
+/// a `.btn ghost sm` "↻ Refresh all" and the gold `.btn amber` "+ Add
+/// repository"; a 9pt `.section-eyebrow` column legend (0/40, 6 below); the
+/// rows in a single `.card` plate padded 0/40/40.
 ///
 /// Visual contract: `docs/superpowers/design/v2/settings.jsx` lines 200-310.
 /// Layout:
@@ -45,18 +45,25 @@ struct RepositoriesScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 pageHeader
+                    .padding(.top, 34)
+                    .padding(.horizontal, 40)
+                    .padding(.bottom, 18)
                 if !viewModel.repos.isEmpty {
-                    columnLegend.padding(.top, 20)
-                    listCard.padding(.top, 6)
+                    columnLegend
+                        .padding(.horizontal, 40)
+                        .padding(.bottom, 6)
+                    listCard
+                        .padding(.horizontal, 40)
                 }
                 if let error = viewModel.error {
                     Text(error)
                         .aerieFont(AerieFont.small())
                         .foregroundStyle(AerieColor.err)
                         .padding(.top, 18)
+                        .padding(.horizontal, 40)
                 }
             }
-            .padding(AerieMetric.pagePadding)
+            .padding(.bottom, 40)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -80,9 +87,8 @@ struct RepositoriesScreen: View {
 
     // MARK: - Column legend
 
-    // Faint guide above the list — `settings.jsx` lines 233-245. Same 5-column
-    // grid as the rows, inset 20 pt to sit over the row content (the rows pad
-    // 20 pt inside the card).
+    // Guide above the list — `settings.jsx` column legend. Same 5-column grid
+    // as the rows (18 / 1fr / 1.3fr / 130 / 28, 18 gap).
     private var columnLegend: some View {
         HStack(spacing: 18) {
             Color.clear.frame(width: 18, height: 1)
@@ -94,17 +100,15 @@ struct RepositoriesScreen: View {
                 .frame(width: 130, alignment: .leading)
             Color.clear.frame(width: 28, height: 1)
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 6)
-        // `.hud-rail` — the measured ruler edge the list card hangs off.
-        .overlay(alignment: .bottom) { HudRail(height: 4).padding(.horizontal, 2) }
     }
 
+    /// `.section-eyebrow` at 9pt / 0.20em: mono, gold at 0.72 opacity.
     private func legendLabel(_ text: String) -> some View {
         Text(text)
-            .aerieFont(AerieFont.custom(.mono, size: 9).weight(.medium))
+            .aerieFont(AerieFont.custom(.mono, size: 9))
             .tracking(1.8) // 0.20em × 9 px
-            .foregroundStyle(AerieColor.text3)
+            .foregroundStyle(AerieColor.amber.opacity(0.72))
+            .lineLimit(1)
     }
 
     // MARK: - List

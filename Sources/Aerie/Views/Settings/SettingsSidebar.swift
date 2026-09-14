@@ -2,50 +2,47 @@ import SwiftUI
 
 /// The Settings navigation rail.
 ///
-/// MARK III treatment (`settings.jsx` sidebar + `styles.css`): a gold mono
-/// section eyebrow, rows in Chakra Petch, and a selected row lit in gold — a
-/// glowing 2pt gold strut on the leading edge, a gold wash fading right, a
-/// gold glyph and a gold count. The MCP row's status dot is arc cyan while the
-/// server is running (live energy) and dim otherwise.
+/// Visual contract: `src/v2/settings.jsx` `SettingsSidebar` — 220 wide, a
+/// glass-line right border, a gold `.section-eyebrow` "SETTINGS", and rows at
+/// 9/14 padding with a 2pt radius. The selected row is glass-3 + a 1px
+/// glass-line border with a text-1 label and a gold glyph; unselected rows are
+/// text-2 with a text-3 glyph. Counts are mono 11 text-4; AI Model shows the
+/// model name in mono 10 gold; MCP shows a green "●" while the server runs.
+/// About is pinned to the bottom.
 struct SettingsSidebar: View {
     @Binding var selection: SettingsRoute
-    /// Whether the MCP server is currently running. Drives the colour of the
-    /// MCP row's status dot (arc cyan = running, dim = stopped).
+    /// Whether the MCP server is currently running. Drives the MCP row's
+    /// status dot (green = running, dim = stopped).
     var mcpRunning: Bool = false
     /// Live counts shown on the right of the Accounts / Repositories rows,
     /// matching the design. `nil` hides the count (e.g. in isolation tests).
     var accountsCount: Int? = nil
     var repositoriesCount: Int? = nil
+    /// Short name of the selected Claude model, shown on the AI Model row.
+    /// `nil` hides it.
+    var aiModelName: String? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
             SectionEyebrow(text: "Settings")
                 .padding(.horizontal, 14)
                 .padding(.top, 4)
-                .padding(.bottom, 12)
+                .padding(.bottom, 10)
 
             ForEach(routesAbove, id: \.self) { route in
                 row(route)
             }
             Spacer()
-            HudRail()
-                .padding(.horizontal, 14)
-                .padding(.bottom, 8)
             row(.about)
         }
-        .padding(.vertical, 16)
-        .padding(.horizontal, 10)
+        .padding(.vertical, 18)
+        .padding(.horizontal, 12)
         .frame(width: 220)
         .background(
             Rectangle()
-                .fill(AerieColor.glass1)
-                .overlay(
-                    // Trailing divider — a gold-lit hairline fading toward the foot.
-                    LinearGradient(colors: [AerieColor.amberLine, AerieColor.glassLine, AerieColor.glassLine],
-                                   startPoint: .top, endPoint: .bottom)
-                        .frame(width: 1)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                )
+                .fill(AerieColor.glassLine)
+                .frame(width: 1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         )
     }
 
@@ -84,68 +81,49 @@ struct SettingsSidebar: View {
                     color: isSelected ? AerieColor.amber : AerieColor.text3
                 )
                 .frame(width: 18)
-                .shadow(color: isSelected ? AerieColor.amberGlow.opacity(0.5) : .clear, radius: 4)
                 Text(route.displayName)
-                    .aerieFont(AerieFont.body().weight(isSelected ? .semibold : .regular))
-                    .tracking(0.3)
+                    .aerieFont(AerieFont.custom(.sans, size: 13))
                     .foregroundStyle(isSelected ? AerieColor.text1 : AerieColor.text2)
                 Spacer(minLength: 8)
-                trailingAccessory(route, isSelected: isSelected)
+                trailingAccessory(route)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .fill(isSelected
-                          ? AnyShapeStyle(LinearGradient(colors: [AerieColor.amberSoft, AerieColor.amber.opacity(0.02)],
-                                                         startPoint: .leading, endPoint: .trailing))
-                          : AnyShapeStyle(Color.clear))
+                    .fill(isSelected ? AerieColor.glass3 : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .strokeBorder(
-                        isSelected
-                            ? AnyShapeStyle(LinearGradient(colors: [AerieColor.amberLine, AerieColor.glassLine.opacity(0.4)],
-                                                           startPoint: .leading, endPoint: .trailing))
-                            : AnyShapeStyle(Color.clear),
-                        lineWidth: 1
-                    )
+                    .strokeBorder(isSelected ? AerieColor.glassLine : Color.clear, lineWidth: 1)
             )
-            .overlay(alignment: .leading) {
-                if isSelected {
-                    // Glowing gold strut on the leading edge.
-                    Rectangle()
-                        .fill(AerieColor.amber)
-                        .frame(width: 2)
-                        .padding(.vertical, 6)
-                        .shadow(color: AerieColor.amberGlow, radius: 5)
-                }
-            }
             // Make the whole row tappable, not just the icon/text glyphs.
             // Plain `Button` style only hits opaque content, so MCP — whose
             // text is shorter than the row — was hard to click anywhere
             // outside the word itself.
-            .contentShape(Rectangle())
-            .animation(.easeOut(duration: 0.18), value: isSelected)
+            .contentShape(RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous))
         }
         .buttonStyle(.plain)
     }
 
     @ViewBuilder
-    private func trailingAccessory(_ route: SettingsRoute, isSelected: Bool) -> some View {
+    private func trailingAccessory(_ route: SettingsRoute) -> some View {
         if route == .mcp {
             // Always show an indicator so the row's MCP state is legible:
-            // arc cyan + glow while the server is running (live), dim otherwise.
-            Circle()
-                .fill(mcpRunning ? AerieColor.arc : AerieColor.text4)
-                .frame(width: 7, height: 7)
-                .shadow(color: mcpRunning ? AerieColor.arcGlow : .clear, radius: 4)
+            // green "●" when the server is running, dim otherwise.
+            Text("●")
+                .aerieFont(AerieFont.code(11))
+                .foregroundStyle(mcpRunning ? AerieColor.ok : AerieColor.text4)
+        } else if route == .aiModel, let aiModelName {
+            Text(aiModelName)
+                .aerieFont(AerieFont.code(10))
+                .foregroundStyle(AerieColor.amber)
+                .lineLimit(1)
         } else if let n = count(for: route) {
             Text("\(n)")
-                .aerieFont(AerieFont.code(11).weight(.medium))
-                .tracking(0.6)
-                .foregroundStyle(isSelected ? AerieColor.amber : AerieColor.text4)
+                .aerieFont(AerieFont.code(11))
+                .foregroundStyle(AerieColor.text4)
         }
     }
 }

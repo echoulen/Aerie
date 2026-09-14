@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// A horizontal meter rendering "remaining / limit" for a GitHub API
-/// account's rate limit.
+/// "remaining / limit" readout + meter for a GitHub API account's rate limit.
 ///
-/// MARK III: a squared 4pt telemetry bar in a recessed well, the fill glowing
-/// in its band colour, with a `.hud-rail` tick ruler beneath and uppercase
-/// mono readouts.
+/// Visual contract (`advanced.jsx` RATE LIMIT column): a 30pt medium text-1
+/// count with a mono 13 text-3 "/ limit", a 4pt capsule meter (black/0.32
+/// track, glass hairline) whose fill glows in its band colour, and an 11.5
+/// text-4 "resets in N min" line when the reset time is known.
 ///
 /// Color thresholds (per Phase 14 spec):
 /// - `> 90%` remaining: `AerieColor.ok` (green)
@@ -14,22 +14,28 @@ import SwiftUI
 struct RateMeter: View {
     let remaining: Int
     let limit: Int
+    /// Unix epoch at which the window resets. `nil` hides the reset line.
+    var resetEpoch: TimeInterval? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("\(remaining) / \(limit)")
-                    .aerieFont(AerieFont.code(11).monospacedDigit())
-                    .foregroundStyle(AerieColor.text2)
-                Spacer()
-                Text("\(percentage)% remaining".uppercased())
-                    .aerieFont(AerieFont.eyebrow())
-                    .tracking(1.4)
-                    .foregroundStyle(color)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(remaining.formatted())
+                    .aerieFont(AerieFont.custom(.sans, size: 30).weight(.medium).monospacedDigit())
+                    .foregroundStyle(AerieColor.text1)
+                Text("/ \(limit.formatted())")
+                    .aerieFont(AerieFont.code(13))
+                    .foregroundStyle(AerieColor.text3)
             }
             bar
-            HudRail(spacing: 10, height: 3)
+            if let resetLabel {
+                Text(resetLabel)
+                    .aerieFont(AerieFont.custom(.sans, size: 11.5))
+                    .foregroundStyle(AerieColor.text4)
+            }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(remaining) of \(limit) requests remaining, \(percentage) percent")
     }
 
     private var percentage: Int {
@@ -44,23 +50,24 @@ struct RateMeter: View {
         return AerieColor.err
     }
 
+    private var resetLabel: String? {
+        guard let resetEpoch else { return nil }
+        let mins = max(0, Int(((resetEpoch - Date().timeIntervalSince1970) / 60).rounded(.up)))
+        return "resets in \(mins) min"
+    }
+
     private var bar: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .fill(Color.black.opacity(0.36))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                            .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-                    )
-                    .frame(height: 6)
-                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                Capsule()
+                    .fill(Color.black.opacity(0.32))
+                    .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
+                Capsule()
                     .fill(color)
-                    .frame(width: max(0, geo.size.width * CGFloat(percentage) / 100 - 2), height: 4)
-                    .padding(.leading, 1)
-                    .shadow(color: color.opacity(0.6), radius: 4)
+                    .frame(width: geo.size.width * CGFloat(percentage) / 100)
+                    .shadow(color: color.opacity(0.8), radius: 4)
             }
         }
-        .frame(height: 6)
+        .frame(height: 4)
     }
 }

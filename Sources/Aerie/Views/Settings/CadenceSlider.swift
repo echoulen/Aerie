@@ -2,11 +2,14 @@ import SwiftUI
 
 /// A labelled slider for picking a polling cadence in seconds.
 ///
-/// Visual contract (MARK III):
-/// - Recessed near-black squared track (2pt radius) with the glass hairline.
-/// - Hot-gold gradient fill from the start of the track to the knob, glowing.
-/// - A bevelled gold key knob (`HudKeyShape`) with a bright rim and gold glow.
-/// - Uppercase mono label readout; the value reads in glowing gold mono.
+/// Visual contract (`advanced.jsx` cadence row):
+/// - Label 14 medium text-1 (optional 12 text-3 hint), value mono 22 medium
+///   text-1 on the right; the slider sits 9pt below.
+/// - Track 6pt tall, fully rounded, black/0.32 with the glass hairline.
+/// - Fill fully rounded, gold gradient `amberFillBot → amberFillTop`
+///   left→right, with a 10pt gold/0.4 glow.
+/// - Knob: 16pt white circle, 1px black/0.10 border, `0 1 4 black/0.6` shadow.
+/// - Min / max labels mono 10.5 text-4, 6pt below the track.
 ///
 /// The slider uses a straight linear mapping over the configured `range`
 /// — `AdvancedScreen` narrows the active slider to `15…600s` and the
@@ -17,31 +20,48 @@ struct CadenceSlider: View {
     @Binding var seconds: TimeInterval
     var range: ClosedRange<TimeInterval> = 15...3600
     var label: String = ""
+    var hint: String? = nil
 
     init(
         label: String,
+        hint: String? = nil,
         seconds: Binding<TimeInterval>,
         range: ClosedRange<TimeInterval> = 15...3600
     ) {
         self.label = label
+        self.hint = hint
         self._seconds = seconds
         self.range = range
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(label)
-                    .aerieFont(AerieFont.body().weight(.medium))
-                    .foregroundStyle(AerieColor.text1)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(label)
+                        .aerieFont(AerieFont.custom(.sans, size: 14).weight(.medium))
+                        .foregroundStyle(AerieColor.text1)
+                    if let hint {
+                        Text(hint)
+                            .aerieFont(AerieFont.small())
+                            .foregroundStyle(AerieColor.text3)
+                    }
+                }
                 Spacer()
-                Text(formatted(seconds).uppercased())
-                    .aerieFont(AerieFont.code(12).weight(.semibold).monospacedDigit())
-                    .tracking(0.6)
-                    .foregroundStyle(AerieColor.amber)
-                    .shadow(color: AerieColor.amberGlow.opacity(0.45), radius: 6)
+                Text(formatted(seconds))
+                    .aerieFont(AerieFont.custom(.mono, size: 22).weight(.medium).monospacedDigit())
+                    .foregroundStyle(AerieColor.text1)
             }
             slider
+                .padding(.top, 9)
+            HStack {
+                Text(formatted(range.lowerBound))
+                Spacer()
+                Text(formatted(range.upperBound))
+            }
+            .aerieFont(AerieFont.code(10.5))
+            .foregroundStyle(AerieColor.text4)
+            .padding(.top, 6)
         }
     }
 
@@ -59,29 +79,25 @@ struct CadenceSlider: View {
             ZStack(alignment: .leading) {
                 // Track — dark translucent groove with the glass hairline,
                 // vertically centred in the knob-height row.
-                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .fill(Color.black.opacity(0.40))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                            .strokeBorder(AerieColor.glassLine, lineWidth: 1)
-                    )
+                Capsule()
+                    .fill(Color.black.opacity(0.32))
+                    .overlay(Capsule().strokeBorder(AerieColor.glassLine, lineWidth: 1))
                     .frame(height: trackHeight)
                     .frame(maxHeight: .infinity, alignment: .center)
                 // Fill
-                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .fill(LinearGradient(colors: [AerieColor.amber2, AerieColor.amber],
+                Capsule()
+                    .fill(LinearGradient(colors: [AerieColor.amberFillBot, AerieColor.amberFillTop],
                                          startPoint: .leading, endPoint: .trailing))
                     .frame(width: max(0, knobX), height: trackHeight)
                     .frame(maxHeight: .infinity, alignment: .center)
-                    .shadow(color: AerieColor.amberGlow.opacity(0.5), radius: 5)
-                // Knob — a bevelled gold key, centred on the track line.
-                HudKeyShape(cut: 4)
-                    .fill(LinearGradient(colors: [AerieColor.amberFillTop, AerieColor.amberFillBot],
-                                         startPoint: .top, endPoint: .bottom))
-                    .overlay(HudKeyShape(cut: 4).strokeBorder(AerieColor.amberCtaLine, lineWidth: 1))
-                    .frame(width: knob - 4, height: knob)
+                    .shadow(color: AerieColor.amber.opacity(0.4), radius: 5)
+                // Knob — white, centred on the track line.
+                Circle()
+                    .fill(.white)
+                    .overlay(Circle().strokeBorder(Color.black.opacity(0.10), lineWidth: 1))
+                    .frame(width: knob, height: knob)
                     .position(x: knobX, y: knob / 2)
-                    .shadow(color: AerieColor.amberGlow.opacity(0.6), radius: 6)
+                    .shadow(color: Color.black.opacity(0.6), radius: 2, y: 1)
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in

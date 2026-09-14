@@ -1,42 +1,52 @@
 import SwiftUI
 
-// MARK III building blocks shared by the Settings screens. Everything here is
-// composed from the design-system primitives (`SectionEyebrow`, `HudKeyShape`,
-// `AerieColor`, …) so the Settings pages speak the same HUD language as the
-// main window without each screen re-deriving the styling.
-// Design source: `src/v2/settings.jsx` + `styles.css`
-// (`.section-eyebrow`, `.section-title`, `.kbd`, `.switch`, `.field`).
+// MARK III building blocks shared by the Settings screens, composed from the
+// design-system primitives so every page renders the same header, wells,
+// keycaps and toggle.
+// Design source: `src/v2/settings.jsx`, `advanced.jsx`, `appearance.jsx`,
+// `mcp.jsx` + `styles.css` (`.section-eyebrow`, `.section-title`).
 
-/// A Settings page header — the Settings twin of the main window's
-/// `PageHeader`: a gold mono eyebrow over a 27pt semibold title with the
-/// `.section-title` gold text-shadow, a mono subtitle on the title baseline,
-/// and an optional trailing action cluster.
+extension View {
+    /// The Settings page gutter from the design: 34 top, 40 sides, 40 bottom.
+    func settingsPagePadding() -> some View {
+        self
+            .padding(.top, 34)
+            .padding(.horizontal, 40)
+            .padding(.bottom, 40)
+    }
+}
+
+/// A Settings page header — `.section-eyebrow`, then 6pt below a row with the
+/// `.section-title` (27 semibold, gold/0.25 text-shadow) and a mono 13 text-3
+/// subtitle sharing a baseline; trailing actions are bottom-aligned.
 struct SettingsPageHeader<Trailing: View>: View {
     let eyebrow: String
     let title: String
     var subtitle: String? = nil
+    var subtitleSize: CGFloat = 13
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             SectionEyebrow(text: eyebrow)
-            HStack(alignment: .firstTextBaseline, spacing: 14) {
-                Text(title)
-                    .aerieFont(AerieFont.pageTitle())
-                    .tracking(0.13)                  // 0.005em @ 27pt
-                    .foregroundStyle(AerieColor.text1)
-                    .shadow(color: AerieColor.amber.opacity(0.25), radius: 15)
-                    .lineLimit(1)
-                    .fixedSize()
-                if let subtitle {
-                    Text(subtitle)
-                        .aerieFont(AerieFont.code(13))
-                        .tracking(0.26)              // 0.02em @ 13pt
-                        .foregroundStyle(AerieColor.text3)
+            HStack(alignment: .bottom, spacing: 16) {
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    Text(title)
+                        .aerieFont(AerieFont.pageTitle())
+                        .tracking(0.13)                  // 0.005em @ 27pt
+                        .foregroundStyle(AerieColor.text1)
+                        .shadow(color: AerieColor.amber.opacity(0.25), radius: 15)
                         .lineLimit(1)
-                        .truncationMode(.tail)
+                        .fixedSize()
+                    if let subtitle {
+                        Text(subtitle)
+                            .aerieFont(AerieFont.code(subtitleSize))
+                            .foregroundStyle(AerieColor.text3)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
-                Spacer(minLength: 16)
+                Spacer(minLength: 0)
                 trailing()
             }
         }
@@ -44,76 +54,66 @@ struct SettingsPageHeader<Trailing: View>: View {
 }
 
 extension SettingsPageHeader where Trailing == EmptyView {
-    init(eyebrow: String, title: String, subtitle: String? = nil) {
-        self.init(eyebrow: eyebrow, title: title, subtitle: subtitle, trailing: { EmptyView() })
+    init(eyebrow: String, title: String, subtitle: String? = nil, subtitleSize: CGFloat = 13) {
+        self.init(eyebrow: eyebrow, title: title, subtitle: subtitle, subtitleSize: subtitleSize, trailing: { EmptyView() })
     }
 }
 
-/// An in-page section label: an uppercase mono overline followed by a gold
-/// hairline that fades out across the column — the HUD "bus" that each card
-/// group hangs off. An optional `live` flag adds the arc-cyan pulse used for
-/// sections fed by live polling (e.g. rate limits).
-struct SettingsSectionLabel: View {
-    let text: String
-    var live: Bool = false
+/// `.dot` — a 7pt status dot with the design's tone glow.
+struct SettingsDot: View {
+    enum Tone { case ok, warn, err, amber, muted }
+    var tone: Tone = .ok
+    var size: CGFloat = 7
 
     var body: some View {
-        HStack(spacing: 10) {
-            Text(text.uppercased())
-                .aerieFont(AerieFont.eyebrow())
-                .tracking(2.6)                       // 0.26em @ 10pt
-                .foregroundStyle(AerieColor.text3)
-                .fixedSize()
-            if live {
-                LiveDot()
-            }
-            LinearGradient(colors: [AerieColor.amberLine, .clear], startPoint: .leading, endPoint: .trailing)
-                .frame(height: 1)
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .shadow(color: tone == .muted ? .clear : color.opacity(0.85), radius: size >= 7 ? 5 : 0)
+            .accessibilityHidden(true)
+    }
+
+    private var color: Color {
+        switch tone {
+        case .ok:    return AerieColor.ok
+        case .warn:  return AerieColor.warn
+        case .err:   return AerieColor.crimsonHot
+        case .amber: return AerieColor.amber
+        case .muted: return AerieColor.text4
         }
     }
 }
 
-/// A 6pt arc-cyan pulse. Arc is reserved for live energy — only use this for
-/// state that is actually updating (polling, a running server).
-struct LiveDot: View {
-    var size: CGFloat = 6
-    @State private var pulsing = false
-
-    var body: some View {
-        Circle()
-            .fill(AerieColor.arc)
-            .frame(width: size, height: size)
-            .shadow(color: AerieColor.arcGlow, radius: pulsing ? 6 : 3)
-            .opacity(pulsing ? 0.6 : 1)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) { pulsing = true }
-            }
-            .accessibilityHidden(true)
-    }
-}
-
-/// `.kbd` — a small bevelled keycap for shortcut hints.
+/// A keycap for shortcut hints: min 20×20, 0/5 padding, 2pt radius,
+/// black/0.30 fill, glass hairline, faint inset top highlight, mono 12 text-2.
 struct HudKeyCap: View {
     let key: String
-    var size: CGFloat = 11
 
     var body: some View {
         Text(key)
-            .aerieFont(AerieFont.code(size).weight(.medium))
+            .aerieFont(AerieFont.code(12))
             .foregroundStyle(AerieColor.text2)
-            .frame(minWidth: size + 8)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 2)
-            .background(Color.black.opacity(0.34), in: HudKeyShape(cut: 4))
-            .overlay(HudKeyShape(cut: 4).strokeBorder(AerieColor.glassLine2, lineWidth: 1))
+            .frame(minWidth: 20, minHeight: 20)
+            .padding(.horizontal, 5)
+            .background(
+                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                    .fill(Color.black.opacity(0.30))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
+            )
+            .overlay(alignment: .top) {
+                Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1).padding(.horizontal, 1).padding(.top, 1)
+            }
             .fixedSize()
     }
 }
 
 extension View {
-    /// A recessed input / code well (`.field`): near-black fill, glass hairline,
-    /// 2pt radius. Used for command boxes, key/value tables and editors.
-    func hudWell(fill: Double = 0.32) -> some View {
+    /// A recessed well / command box: black fill (0.32 by default), 1px glass
+    /// hairline, 2pt radius.
+    func hudWell(fill: Double = 0.32, line: Color = AerieColor.glassLine) -> some View {
         self
             .background(
                 RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
@@ -121,37 +121,36 @@ extension View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .strokeBorder(AerieColor.glassLine, lineWidth: 1)
+                    .strokeBorder(line, lineWidth: 1)
             )
     }
 }
 
-/// MARK III `.switch`: a squared track with a sliding gold key. Off = recessed
-/// black well with a dim key; on = gold wash, gold rim and a glowing key.
-/// Keeps toggle semantics for VoiceOver (`isToggle` trait + on/off value).
-struct HudSwitchStyle: ToggleStyle {
+/// The design's toggle (`mcp.jsx`): a 38×22 pill with 2pt padding. On: gold
+/// fill, gold-line rim, 12pt gold glow, 16pt white knob on the right. Off:
+/// glass-3 fill, glass-line-2 rim, text-2 knob on the left. 200ms slide.
+/// Keeps toggle semantics for VoiceOver via `accessibilityRepresentation`.
+struct AerieToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         let on = configuration.isOn
         return Button {
             configuration.isOn.toggle()
         } label: {
             ZStack(alignment: on ? .trailing : .leading) {
-                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                    .fill(on ? AerieColor.amberSoft : Color.black.opacity(0.40))
-                RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
+                Capsule()
+                    .fill(on ? AerieColor.amber : AerieColor.glass3)
+                Capsule()
                     .strokeBorder(on ? AerieColor.amberLine : AerieColor.glassLine2, lineWidth: 1)
-                HudKeyShape(cut: 3)
-                    .fill(on
-                          ? AnyShapeStyle(LinearGradient(colors: [AerieColor.amberFillTop, AerieColor.amberFillBot],
-                                                         startPoint: .top, endPoint: .bottom))
-                          : AnyShapeStyle(AerieColor.text4))
-                    .frame(width: 14, height: 12)
-                    .shadow(color: on ? AerieColor.amberGlow.opacity(0.6) : .clear, radius: 6)
-                    .padding(.horizontal, 3)
+                Circle()
+                    .fill(on ? Color.white : AerieColor.text2)
+                    .frame(width: 16, height: 16)
+                    .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+                    .padding(3)
             }
-            .frame(width: 36, height: 18)
-            .contentShape(Rectangle())
-            .animation(.easeOut(duration: 0.16), value: on)
+            .frame(width: 38, height: 22)
+            .shadow(color: on ? AerieColor.amber.opacity(0.4) : .clear, radius: 6)
+            .contentShape(Capsule())
+            .animation(.easeOut(duration: 0.2), value: on)
         }
         .buttonStyle(.plain)
         .accessibilityRepresentation {
@@ -160,6 +159,6 @@ struct HudSwitchStyle: ToggleStyle {
     }
 }
 
-extension ToggleStyle where Self == HudSwitchStyle {
-    static var hud: HudSwitchStyle { HudSwitchStyle() }
+extension ToggleStyle where Self == AerieToggleStyle {
+    static var aerie: AerieToggleStyle { AerieToggleStyle() }
 }

@@ -15,9 +15,11 @@ import SwiftUI
 ///   │  ┌ card: focus toggles (switch right-aligned) ┐      │
 ///   └──────────────────────────────────────────────────────┘
 ///
-/// MARK III: shared `SettingsPageHeader`, mono section labels on a gold bus
-/// line (RATE LIMIT carries the arc-cyan live pulse — it's fed by polling),
-/// chamfered card plates and HUD switches.
+/// MARK III (`advanced.jsx`): `SettingsPageHeader` with a `.btn ghost sm`
+/// reset, `.section-eyebrow` sub-sections (28 top, card 10 below), a 22/24
+/// cadence card with gold-fill sliders and a flat warn strip, a 22/24 rate
+/// limit card laid out as hairline-separated per-account columns, and a
+/// behavior card of 16/20 rows with the design's pill toggle.
 ///
 /// Setter bindings dispatch into `Task { await viewModel.set... }` so
 /// SwiftUI's synchronous binding contract is preserved while the
@@ -33,14 +35,13 @@ struct AdvancedScreen: View {
                 sectionEyebrow("POLLING CADENCE").padding(.top, 28)
                 pollingCard.padding(.top, 10)
 
-                SettingsSectionLabel(text: "RATE LIMIT", live: !viewModel.rateLimits.isEmpty)
-                    .padding(.top, 28)
+                sectionEyebrow("RATE LIMIT").padding(.top, 28)
                 rateLimitCard.padding(.top, 10)
 
                 sectionEyebrow("BEHAVIOR").padding(.top, 28)
                 behaviorCard.padding(.top, 10)
             }
-            .padding(AerieMetric.pagePadding)
+            .settingsPagePadding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -61,7 +62,7 @@ struct AdvancedScreen: View {
 
     private var pollingCard: some View {
         card {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 28) {
                 CadenceSlider(
                     label: "Active repo",
                     seconds: Binding(
@@ -86,63 +87,66 @@ struct AdvancedScreen: View {
     }
 
     private var warningChip: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(AerieColor.warn)
-            Text("Lower cadences may hit GitHub's rate limits faster.")
+        HStack(spacing: 10) {
+            SettingsDot(tone: .warn)
+            Text("Lower values use more of your GitHub API quota (5,000 / hr).")
                 .aerieFont(AerieFont.small())
                 .foregroundStyle(AerieColor.text2)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
                 .fill(AerieColor.warn.opacity(0.1))
         )
         .overlay(
             RoundedRectangle(cornerRadius: AerieMetric.radiusPill, style: .continuous)
-                .strokeBorder(AerieColor.warn.opacity(0.4), lineWidth: 1)
+                .strokeBorder(AerieColor.warn.opacity(0.3), lineWidth: 1)
         )
-        .overlay(alignment: .leading) {
-            Rectangle().fill(AerieColor.warn).frame(width: 2)
-        }
     }
 
     // MARK: - Rate limit
 
     private var rateLimitCard: some View {
         card {
-            VStack(alignment: .leading, spacing: 14) {
-                if viewModel.rateLimits.isEmpty {
-                    Text("No rate limit data yet — polling hasn't started.")
-                        .aerieFont(AerieFont.small())
-                        .foregroundStyle(AerieColor.text3)
-                } else {
+            if viewModel.rateLimits.isEmpty {
+                Text("No rate limit data yet — polling hasn't started.")
+                    .aerieFont(AerieFont.small())
+                    .foregroundStyle(AerieColor.text3)
+            } else {
+                // Per-account columns, 30pt apart, split by 1px glass hairlines.
+                HStack(alignment: .top, spacing: 30) {
                     ForEach(Array(viewModel.rateLimits.enumerated()), id: \.element.id) { idx, item in
                         if idx > 0 {
                             Rectangle()
                                 .fill(AerieColor.glassLine)
-                                .frame(height: 1)
+                                .frame(width: 1)
+                                .frame(maxHeight: .infinity)
                         }
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 10) {
-                                Text(item.account.login)
-                                    .aerieFont(AerieFont.body().weight(.semibold))
-                                    .foregroundStyle(AerieColor.text1)
-                                Text("@ \(item.account.host)")
-                                    .aerieFont(AerieFont.code(11.5))
-                                    .foregroundStyle(AerieColor.text3)
-                            }
-                            if let snap = item.snapshot {
-                                RateMeter(remaining: snap.remaining, limit: snap.limit)
-                            } else {
-                                Text("not yet used")
-                                    .aerieFont(AerieFont.small())
-                                    .foregroundStyle(AerieColor.text3)
-                            }
-                        }
+                        rateLimitColumn(item)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func rateLimitColumn(_ item: AccountRateLimitSnapshot) -> some View {
+        let api = item.account.host == "github.com" ? "GITHUB API" : "GHE"
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("\(api) · \(item.account.login)".uppercased())
+                .aerieFont(AerieFont.custom(.mono, size: 9))
+                .tracking(2.3)                       // 0.26em @ 9pt
+                .foregroundStyle(AerieColor.amber.opacity(0.72))
+                .lineLimit(1)
+            if let snap = item.snapshot {
+                RateMeter(remaining: snap.remaining, limit: snap.limit, resetEpoch: snap.resetEpoch)
+            } else {
+                Text("not yet used")
+                    .aerieFont(AerieFont.small())
+                    .foregroundStyle(AerieColor.text3)
             }
         }
     }
@@ -184,7 +188,7 @@ struct AdvancedScreen: View {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .aerieFont(AerieFont.body())
+                        .aerieFont(AerieFont.custom(.sans, size: 14))
                         .foregroundStyle(AerieColor.text1)
                     Text(hint)
                         .aerieFont(AerieFont.small())
@@ -193,7 +197,7 @@ struct AdvancedScreen: View {
                 Spacer(minLength: 16)
                 Toggle(title, isOn: on)
                     .labelsHidden()
-                    .toggleStyle(.hud)
+                    .toggleStyle(.aerie)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
@@ -211,19 +215,20 @@ struct AdvancedScreen: View {
         Button("Reset to defaults") {
             Task { await viewModel.resetToDefaults() }
         }
-        .buttonStyle(.hud(.standard, size: .small))
+        .buttonStyle(.hud(.ghost, size: .small))
     }
 
     // MARK: - Building blocks
 
     private func sectionEyebrow(_ text: String) -> some View {
-        SettingsSectionLabel(text: text)
+        SectionEyebrow(text: text)
     }
 
     @ViewBuilder
     private func card<Body: View>(@ViewBuilder content: () -> Body) -> some View {
         content()
-            .padding(AerieMetric.cardPaddingV)
+            .padding(.vertical, 22)
+            .padding(.horizontal, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glass(.card)
     }
