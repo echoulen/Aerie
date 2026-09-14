@@ -286,6 +286,10 @@ struct CardConsole: View {
                     ConsoleCaret()
                         .id(lines.count)
                 }
+                // Fill the well even before the first line arrives — a scroll
+                // view hugs its content, so an empty console (just the caret)
+                // collapsed to a thin sliver.
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
             }

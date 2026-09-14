@@ -47,4 +47,20 @@ final class CardConsoleTests: XCTestCase {
         // regression) differs by far more than the 7×12 caret.
         assertSnapshot(of: host, as: .image(precision: 0.99, size: size))
     }
+
+    /// Before claude prints anything the well must still span the full width
+    /// (it used to collapse to a sliver around the caret).
+    func test_console_emptyStillFillsWidth() async throws {
+        let feed = ConsoleFeed()
+        let size = CGSize(width: 600, height: 240)
+        let host = NSHostingView(rootView: StreamingConsoleHarness(feed: feed))
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: size),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        assertSnapshot(of: host, as: .image(precision: 0.99, size: size))
+    }
 }
