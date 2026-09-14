@@ -642,6 +642,8 @@ private struct DiscardButton: View {
                 Text(isRunning ? "Discarding…" : "Discard all unstaged")
                     .aerieFont(AerieFont.custom(.sans, size: 11.5).weight(.medium))
                     .tracking(0.69) // 0.06em @ 11.5px
+                    .lineLimit(1)
+                    .fixedSize()
             }
             .foregroundStyle(foreground)
             .padding(.horizontal, 11)
