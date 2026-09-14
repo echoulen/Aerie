@@ -8,10 +8,19 @@ import SwiftUI
 /// Visual contract: `docs/superpowers/design/v2/settings.jsx` AccountCard and
 /// `advanced.jsx` ACTIVE GH ACCOUNT card both render the same shape — a
 /// radial gradient circle with an inset white highlight and 1–2 mono
-/// initials in a near-black warm tone (`oklch(0.15 0.02 70)`).
+/// initials (mono 13 @ 42pt, medium) in a near-black warm ink
+/// (`oklch(0.17 0.03 70)`).
+///
+/// MARK III palette (`settings.jsx` AccountCard): the primary account is hot
+/// gold `oklch(0.92 0.145 88)→(0.50 0.13 60)`; other accounts are blue
+/// `(0.80 0.13 240)→(0.45 0.13 260)` or violet `(0.78 0.13 300)→(0.42 0.13 290)`,
+/// with green and crimson added so 4+ accounts still read distinctly.
 struct AccountAvatar: View {
     let login: String
     var size: CGFloat = 42
+    /// When known, `true` forces the gold primary tone and `false` keeps a
+    /// non-primary account off gold. `nil` hashes across the whole palette.
+    var isPrimary: Bool? = nil
 
     @State private var remote: NSImage?
 
@@ -55,7 +64,7 @@ struct AccountAvatar: View {
     }
 
     private var fallbackCircle: some View {
-        let tone = Self.tone(for: login)
+        let tone = Self.tone(for: login, isPrimary: isPrimary)
         return ZStack {
             Circle()
                 .fill(
@@ -67,8 +76,10 @@ struct AccountAvatar: View {
                     )
                 )
             Text(Self.initials(for: login))
-                .font(.system(size: size * 0.30, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color(red: 0.16, green: 0.13, blue: 0.10))
+                // Resolved at scale 1: the initials must track the avatar's
+                // fixed point size, not the interface font zoom.
+                .font(AerieFont.custom(.mono, size: size * 0.31).weight(.medium).resolve(scale: 1))
+                .foregroundStyle(Color(red: 0.10, green: 0.055, blue: 0.01))
         }
     }
 
@@ -84,19 +95,27 @@ struct AccountAvatar: View {
         let shade: Color
     }
 
-    /// Five-tone palette covering the design's amber / blue / violet + two
-    /// additions (green, coral) so dashboards with 4+ accounts still read
-    /// distinctly.
+    /// Five-tone palette: the design's gold / blue / violet + two additions
+    /// (green, crimson) so dashboards with 4+ accounts still read distinctly.
+    /// Index 0 (gold) is the primary tone.
     private static let palette: [Tone] = [
-        Tone(highlight: Color(hex: 0xF1C98F), shade: Color(hex: 0xB58748)), // amber
-        Tone(highlight: Color(hex: 0x8FBDEC), shade: Color(hex: 0x4C6FA7)), // blue
-        Tone(highlight: Color(hex: 0xC18FE0), shade: Color(hex: 0x7B47A3)), // violet
+        Tone(highlight: Color(hex: 0xFFDF67), shade: Color(hex: 0x9A5A12)), // hot gold (primary)
+        Tone(highlight: Color(hex: 0x72BDF5), shade: Color(hex: 0x2F5AA8)), // blue
+        Tone(highlight: Color(hex: 0xC9A0F5), shade: Color(hex: 0x5B3A9E)), // violet
         Tone(highlight: Color(hex: 0x8FE0B8), shade: Color(hex: 0x437D5B)), // green
-        Tone(highlight: Color(hex: 0xE89998), shade: Color(hex: 0xA84F4D)), // coral
+        Tone(highlight: Color(hex: 0xFF8A7A), shade: Color(hex: 0xB23A36)), // crimson
     ]
 
     static func tone(for login: String) -> Tone {
         palette[paletteIndex(for: login)]
+    }
+
+    static func tone(for login: String, isPrimary: Bool?) -> Tone {
+        switch isPrimary {
+        case .some(true):  return palette[0]
+        case .some(false): return palette[1 + paletteIndex(for: login) % (palette.count - 1)]
+        case .none:        return tone(for: login)
+        }
     }
 
     /// 1–2 letter abbreviation. Splits on `-` first (the gh convention

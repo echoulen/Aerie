@@ -166,8 +166,8 @@ struct RepoSettingsRow: View {
     }
 }
 
-/// Plain `×` (no chip) per `settings.jsx` line 300 — text-4 at rest,
-/// brightening to text-2 on hover.
+/// Plain `×` (no chip) per `settings.jsx` — text-4 at rest, brightening to
+/// text-2 on hover.
 private struct RemoveButton: View {
     let action: () -> Void
     @State private var hover = false
