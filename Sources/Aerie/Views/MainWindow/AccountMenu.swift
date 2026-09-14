@@ -94,7 +94,9 @@ struct AccountMenu: View {
                 // matching the centred brand cluster. (The native traffic lights
                 // stay pinned at 16 pt, so both sit slightly below them by design.)
                 .padding(.top, 11)
-                .padding(.trailing, 14)
+                // Sit left of the hull's top-right notch (`HullShape`), as the
+                // design's titlebar does with its 132px right padding.
+                .padding(.trailing, AerieMetric.hullNotchClearance)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)

@@ -1,65 +1,95 @@
 import SwiftUI
 
-/// Aerie's color tokens. Values match the design's CSS variables.
-/// (Design source: docs/superpowers/design/v2/styles.css)
+/// Aerie's color tokens — the v3 "MARK III" HUD palette: hot gold + crimson
+/// on deep space. Arc cyan is reserved for live energy (polling ticks,
+/// running processes); nothing else gets to glow cyan.
+/// (Design source: Claude Design project "Aerie", `src/v2/styles.css`.
+///  oklch values converted to sRGB.)
 enum AerieColor {
-    // Backdrop
-    static let backdrop1 = Color(red: 0x0b/255, green: 0x0b/255, blue: 0x10/255)
-    static let backdrop2 = Color(red: 0x13/255, green: 0x12/255, blue: 0x18/255)
+    // Deep-space backdrop
+    static let space0 = Color(red: 0x03/255, green: 0x04/255, blue: 0x0a/255)
+    static let space1 = Color(red: 0x07/255, green: 0x08/255, blue: 0x18/255)
+    static let space2 = Color(red: 0x0d/255, green: 0x0a/255, blue: 0x18/255)
+    // Kept for existing call sites.
+    static let backdrop1 = space1
+    static let backdrop2 = space2
 
-    // Glass surfaces (white with alpha)
-    static let glass1     = Color.white.opacity(0.035)
-    static let glass2     = Color.white.opacity(0.055)
-    static let glass3     = Color.white.opacity(0.085)
-    static let glassLine  = Color.white.opacity(0.08)
-    static let glassLine2 = Color.white.opacity(0.14)
-    static let glassHighlight = Color.white.opacity(0.22)
+    // Glass — tinted warm so gold hairlines feel emitted, not painted
+    private static let warmGlass = Color(red: 1.0, green: 214/255, blue: 160/255)
+    private static let warmLine  = Color(red: 1.0, green: 196/255, blue: 120/255)
+    static let glass1     = Color(red: 1.0, green: 218/255, blue: 170/255).opacity(0.035)
+    static let glass2     = warmGlass.opacity(0.055)
+    static let glass3     = warmGlass.opacity(0.105)
+    static let glassLine  = warmLine.opacity(0.16)
+    static let glassLine2 = warmLine.opacity(0.30)
+    static let glassHighlight = Color(red: 1.0, green: 235/255, blue: 205/255).opacity(0.28)
 
-    // Card frosted-glass wash — a warm dark-brown tint over the card's
-    // behind-window blur (see `GlassModifier`). Lighter than the modal
-    // `dialogSurface` so the frosted backdrop still reads through the card.
-    // Raise the opacity for a more solid card, lower it to let more show.
-    static let cardGlassTint = Color(red: 42/255, green: 31/255, blue: 22/255).opacity(0.62)
+    // Card plate wash — the faint warm gradient at the top of a `.card`.
+    static let cardSheen = Color(red: 1.0, green: 206/255, blue: 140/255)
+    // Card frosted-glass tint over the behind-window blur (see `GlassModifier`).
+    static let cardGlassTint = Color(red: 10/255, green: 9/255, blue: 20/255).opacity(0.72)
 
-    // Dialog surface — dark warm-tinted, sits over a within-window blur.
-    // Matches design `rgba(28, 26, 32, 0.78)`: opaque enough to read dark,
-    // not the milky white-on-glass that .glass2 produced on the dialog.
-    static let dialogSurface = Color(red: 28/255, green: 26/255, blue: 32/255).opacity(0.78)
-    // Slightly recessed footer band inside a dialog (`rgba(0,0,0,0.18)`).
-    static let dialogFooter  = Color.black.opacity(0.18)
+    // Dialog / window interior — near-black space glass (`#0b0a16 → #04040a`).
+    static let dialogSurface = Color(red: 11/255, green: 10/255, blue: 22/255).opacity(0.90)
+    static let hullInteriorTop = Color(red: 11/255, green: 10/255, blue: 22/255)
+    static let hullInteriorBot = Color(red: 4/255, green: 4/255, blue: 10/255)
+    // Slightly recessed footer band inside a dialog.
+    static let dialogFooter  = Color.black.opacity(0.34)
+    // Dropdown menu panel — `oklch(0.20 0.012 70 / 0.96)`.
+    static let menuSurface = Color(red: 0.10, green: 0.083, blue: 0.063).opacity(0.96)
 
-    // Text (white + stepped alpha)
-    static let text1 = Color.white.opacity(0.96)
-    static let text2 = Color.white.opacity(0.72)
-    static let text3 = Color.white.opacity(0.50)
-    static let text4 = Color.white.opacity(0.32)
+    // Text — warm white, stepped alpha
+    static let text1 = Color(red: 1.0, green: 248/255, blue: 238/255).opacity(0.97)
+    static let text2 = Color(red: 1.0, green: 240/255, blue: 224/255).opacity(0.74)
+    static let text3 = Color(red: 1.0, green: 232/255, blue: 210/255).opacity(0.52)
+    static let text4 = Color(red: 1.0, green: 226/255, blue: 200/255).opacity(0.46)
 
-    // Sodium amber accent — oklch(0.86 0.140 78)
-    static let amber     = Color(red: 0.98, green: 0.75, blue: 0.30)
-    static let amberSoft = amber.opacity(0.14)
-    static let amberLine = amber.opacity(0.32)
-    static let amberGlow = amber.opacity(0.55)
+    // Primary accent — hot gold `oklch(0.86 0.155 85)` (kept under `amber`)
+    static let amber     = Color(red: 1.0, green: 0.784, blue: 0.264)
+    static let amber2    = Color(red: 0.909, green: 0.589, blue: 0.161)  // oklch(0.74 0.150 68)
+    static let amberSoft = amber.opacity(0.13)
+    static let amberLine = amber.opacity(0.42)
+    static let amberGlow = amber.opacity(0.70)
 
-    // Amber primary CTA (`.btn.amber`) — a vertical amber gradient with dark
-    // ink, a top inset highlight, and an amber glow. Matches styles.css:
-    //   bg linear-gradient(oklch(0.88 0.14 78) → oklch(0.78 0.14 75));
-    //   color oklch(0.20 0.02 75); border oklch(0.78 0.14 75 / 0.50).
-    // (oklch values converted to sRGB.)
-    static let amberFillTop = Color(red: 1.00, green: 0.80, blue: 0.39)
-    static let amberFillBot = Color(red: 0.92, green: 0.66, blue: 0.25)
-    static let amberInk     = Color(red: 0.11, green: 0.08, blue: 0.05)
-    static let amberCtaLine = amberFillBot.opacity(0.50)
+    // Gold primary CTA (`.btn.amber`) — vertical gradient, dark ink, bright rim.
+    static let amberFillTop = Color(red: 1.0, green: 0.873, blue: 0.406)  // oklch(0.92 0.145 88)
+    static let amberFillBot = Color(red: 0.955, green: 0.646, blue: 0.17) // oklch(0.78 0.155 72)
+    static let amberInk     = Color(red: 0.121, green: 0.063, blue: 0.01) // oklch(0.19 0.04 70)
+    static let amberCtaLine = Color(red: 1.0, green: 0.917, blue: 0.614)  // oklch(0.94 0.10 92)
 
-    // Status — desaturated
-    static let ok   = Color(red: 0.52, green: 0.85, blue: 0.65)  // oklch(0.82 0.130 158)
-    static let warn = Color(red: 0.94, green: 0.78, blue: 0.30)  // oklch(0.86 0.140 88)
-    static let err  = Color(red: 0.96, green: 0.42, blue: 0.40)  // oklch(0.74 0.165 26)
+    // Crimson — danger / destructive
+    static let crimson     = Color(red: 0.982, green: 0.284, blue: 0.273) // oklch(0.66 0.215 26)
+    static let crimsonHot  = Color(red: 1.0, green: 0.465, blue: 0.405)   // oklch(0.76 0.195 28)
+    static let crimsonSoft = crimson.opacity(0.14)
+    static let crimsonLine = crimson.opacity(0.45)
 
-    // Danger button (`.btn.danger`) — lighter red text on an `err`-tinted
-    // fill with an `err`-tinted hairline. Matches styles.css:
-    //   color oklch(0.85 0.14 26); border err/0.40; bg err/0.10; hover err/0.18
-    static let dangerText      = Color(red: 1.0, green: 0.60, blue: 0.56)
-    static let dangerLine      = err.opacity(0.40)
-    static let dangerFill      = err.opacity(0.10)
-    static let dangerFillHover = err.opacity(0.18)
+    // Arc reactor cyan — energy only: live polling, running processes
+    static let arc     = Color(red: 0.263, green: 0.931, blue: 0.997)     // oklch(0.87 0.135 205)
+    static let arcSoft = arc.opacity(0.13)
+    static let arcLine = arc.opacity(0.42)
+    static let arcGlow = arc.opacity(0.65)
+
+    // Status
+    static let ok   = Color(red: 0.491, green: 0.929, blue: 0.625)  // oklch(0.86 0.150 152)
+    static let warn = Color(red: 0.971, green: 0.818, blue: 0.309)  // oklch(0.87 0.150 92)
+    static let err  = crimsonHot
+
+    // Danger button (`.btn.danger`) — crimson-hot text on a crimson wash.
+    static let dangerText      = crimsonHot
+    static let dangerLine      = crimsonLine
+    static let dangerFill      = crimsonSoft
+    static let dangerFillHover = crimson.opacity(0.26)
+
+    // Window hull edge gradient (`.window` background, 150deg)
+    static let hullEdgeA = Color(red: 1.0, green: 0.853, blue: 0.402)     // oklch(0.90 0.14 90)
+    static let hullEdgeB = Color(red: 0.883, green: 0.564, blue: 0.12)    // oklch(0.72 0.15 68)
+
+    // Diff viewer
+    static let diffAddBg   = ok.opacity(0.10)
+    static let diffAddText = Color(red: 0.733, green: 0.98, blue: 0.794)  // oklch(0.93 0.09 152)
+    static let diffDelBg   = crimson.opacity(0.13)
+    static let diffDelText = Color(red: 1.0, green: 0.697, blue: 0.658)   // oklch(0.86 0.12 26)
+    static let diffHunkBg  = amber.opacity(0.07)
+    static let tokKeyword  = Color(red: 0.799, green: 0.659, blue: 1.0)   // oklch(0.80 0.14 300)
+    static let tokString   = Color(red: 0.548, green: 0.916, blue: 0.653) // oklch(0.86 0.13 152)
 }

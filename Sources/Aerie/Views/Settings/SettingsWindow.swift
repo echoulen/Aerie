@@ -154,6 +154,7 @@ struct SettingsWindow: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: signOutTarget)
+        .aerieHull()
         .frame(minWidth: AerieMetric.settingsWindowW, minHeight: AerieMetric.settingsWindowH)
         .aerieWindowChrome()
         .task(id: route.wrappedValue) {

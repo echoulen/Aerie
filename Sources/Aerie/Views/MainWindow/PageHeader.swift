@@ -30,10 +30,7 @@ struct PageHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(eyebrow)
-                .aerieFont(AerieFont.eyebrow())
-                .tracking(2.2)                       // 0.22em @ 10pt
-                .foregroundStyle(AerieColor.text4)
+            SectionEyebrow(text: eyebrow)
 
             // The one-line header needs ~800pt; when it doesn't fit the count
             // and the tab toggle drop onto their own rows instead of forcing
@@ -62,8 +59,9 @@ struct PageHeader: View {
                 HStack(alignment: .firstTextBaseline, spacing: 14) {
                     Text(title)
                         .aerieFont(AerieFont.pageTitle())
-                        .tracking(-0.3)          // -0.012em @ 26pt
+                        .tracking(0.13)          // 0.005em @ 27pt
                         .foregroundStyle(AerieColor.text1)
+                        .shadow(color: AerieColor.amber.opacity(0.25), radius: 15)
                     Text(count)
                         .aerieFont(AerieFont.code(13))
                         .tracking(0.26)          // 0.02em @ 13pt
@@ -86,8 +84,9 @@ struct PageHeader: View {
             HStack(alignment: .center, spacing: 14) {
                 Text(title)
                     .aerieFont(AerieFont.pageTitle())
-                    .tracking(-0.3)
+                    .tracking(0.13)
                     .foregroundStyle(AerieColor.text1)
+                    .shadow(color: AerieColor.amber.opacity(0.25), radius: 15)
                     .lineLimit(1)
                 RefreshButton(action: onRefresh)
                 if let trailing {

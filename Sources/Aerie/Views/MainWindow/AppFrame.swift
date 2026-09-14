@@ -73,6 +73,7 @@ struct AppFrame<Content: View>: View {
                 AccountMenu(viewModel: accountMenu, onOpenSettings: onOpenSettings)
             }
         }
+        .aerieHull()
         .frame(minWidth: AerieMetric.mainWindowW, minHeight: AerieMetric.mainWindowH)
         .aerieWindowChrome()
     }
