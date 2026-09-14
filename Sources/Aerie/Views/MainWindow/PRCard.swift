@@ -65,6 +65,10 @@ struct PRCard: View {
 
     @State private var showMergeConfirm = false
     @State private var showCheckoutConfirm = false
+    /// Where a narrow row's keys + ⋯ menu sit, in the row's coordinate space.
+    /// Clicks inside it must not open the PR (see `adaptiveRow`).
+    @State private var narrowActionsFrame: CGRect = .zero
+    fileprivate static let rowSpace = "PRCardRow"
 
     // MARK: - Derived presentation bits
 
@@ -212,10 +216,16 @@ struct PRCard: View {
             }
         }
         .adaptiveRowPlate(widthClass)
-        // Clicking the row body opens the PR on GitHub; the keys and the ⋯
-        // menu keep their own clicks.
+        .coordinateSpace(name: Self.rowSpace)
+        // Clicking the row body opens the PR on GitHub. SwiftUI buttons win
+        // over this gesture, but the ⋯ menu is an AppKit pop-up button that
+        // doesn't swallow the click — opening it also opened the PR. Ignore
+        // clicks that land on the action cluster.
         .contentShape(Rectangle())
-        .onTapGesture(perform: onOpen)
+        .onTapGesture(coordinateSpace: .named(Self.rowSpace)) { location in
+            guard !narrowActionsFrame.insetBy(dx: -4, dy: -4).contains(location) else { return }
+            onOpen()
+        }
         .help("Open \(row.repo.name) #\(row.pr.number) on GitHub")
         .popover(isPresented: $showMergeConfirm) { mergeDialog }
         .background(Color.clear.popover(isPresented: $showCheckoutConfirm) { checkoutDialog })
@@ -297,6 +307,7 @@ struct PRCard: View {
             overflowMenu
         }
         .fixedSize()
+        .modifier(TracksNarrowActionsFrame(frame: $narrowActionsFrame))
     }
 
     /// The narrow rows' primary key: gold `.btn.amber.sm` "AI Review", arc
@@ -352,9 +363,12 @@ struct PRCard: View {
                     .aerieFont(AerieFont.code(10.5))
                     .foregroundStyle(AerieColor.text4)
                     .fixedSize()
-                runningSpinner
-                narrowAIReviewKey
-                overflowMenu
+                HStack(spacing: 8) {
+                    runningSpinner
+                    narrowAIReviewKey
+                    overflowMenu
+                }
+                .modifier(TracksNarrowActionsFrame(frame: $narrowActionsFrame))
             }
             Text(row.pr.title)
                 .aerieFont(AerieFont.custom(.sans, size: 13.5))
@@ -669,6 +683,19 @@ struct PRCard: View {
         // stays enabled so the arc key isn't dimmed — the guard ignores taps.
         .disabled(!mergeable && !isMerging)
         .popover(isPresented: $showMergeConfirm) { mergeDialog }
+    }
+}
+
+/// Records a narrow row's action cluster frame in the row's coordinate space.
+private struct TracksNarrowActionsFrame: ViewModifier {
+    @Binding var frame: CGRect
+
+    func body(content: Content) -> some View {
+        content.onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .named(PRCard.rowSpace))
+        } action: { newFrame in
+            frame = newFrame
+        }
     }
 }
 

@@ -78,10 +78,13 @@ final class PRCreateServiceTests: XCTestCase {
         let r = StreamStubRunner()
         r.lines = [#"{"type":"result","subtype":"success","result":"{\"outcome\":\"nothing_to_do\",\"summary\":\"s\"}"}"#]
         _ = await create(svc(r), template: "T {{OWNER}}/{{REPO}} {{STATUS_SUMMARY}}")
-        XCTAssertEqual(r.lastArgs.first, "-p")
-        XCTAssertEqual(r.lastArgs[1], "T echoulen/aerie working tree dirty (2 files)")
+        guard let p = r.lastArgs.firstIndex(of: "-p") else { return XCTFail("missing -p") }
+        XCTAssertEqual(r.lastArgs[p + 1], "T echoulen/aerie working tree dirty (2 files)")
         guard let i = r.lastArgs.firstIndex(of: "--allowedTools") else { return XCTFail() }
         XCTAssertEqual(r.lastArgs[i + 1], "Read,Grep,Glob,Bash(git:*),Bash(gh:*)")
+        // `--tools` removes Edit / Write / Web… from the session entirely.
+        guard let t = r.lastArgs.firstIndex(of: "--tools") else { return XCTFail("missing --tools") }
+        XCTAssertEqual(r.lastArgs[t + 1], "Read,Grep,Glob,Bash")
         XCTAssertEqual(r.lastCwd, URL(fileURLWithPath: "/tmp"))
     }
 

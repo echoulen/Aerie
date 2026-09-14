@@ -184,8 +184,12 @@ struct LivePRCreateService: PRCreateService {
             template: template, owner: owner, repo: repo,
             defaultBranch: defaultBranch, currentBranch: currentBranch,
             statusSummary: statusSummary)
-        let args = ["-p", prompt, "--model", model.rawValue, "--output-format", "stream-json",
-                    "--verbose", "--allowedTools", "Read,Grep,Glob,Bash(git:*),Bash(gh:*)"]
+        //    `--tools` drops everything else (Edit, Write, Web…) from the session;
+        //    `--allowedTools` alone would only pre-approve, not restrict.
+        let args = ["--tools", "Read,Grep,Glob,Bash",
+                    "--allowedTools", "Read,Grep,Glob,Bash(git:*),Bash(gh:*)",
+                    "--include-partial-messages", "--output-format", "stream-json", "--verbose",
+                    "--model", model.rawValue, "-p", prompt]
 
         // 4. Stream with idle + total watchdog (same shape as review).
         let activity = PRCreateActivityClock()

@@ -142,14 +142,25 @@ enum ClaudeReviewParsing {
 enum ClaudeStreamEvent: Equatable {
     case progress(String)     // a human-readable progress line to show
     case finalResult(String)  // the `result` event's text (feed to ClaudeReviewParsing)
-    case ignored              // system/hook/tool_result/noise
+    case ignored              // tool_result, deltas, status and other noise
 }
 
 enum ClaudeStreamParsing {
     private struct Line: Decodable {
         let type: String
+        let subtype: String?
         let result: String?
+        let model: String?
+        let tools: [String]?
+        let hook_name: String?
+        let event: StreamEvent?
         let message: Message?
+        /// `--include-partial-messages` wrapper: only block starts are used.
+        struct StreamEvent: Decodable {
+            let type: String
+            let content_block: ContentBlock?
+            struct ContentBlock: Decodable { let type: String }
+        }
         struct Message: Decodable { let content: [Block]? }
         struct Block: Decodable {
             let type: String
@@ -174,6 +185,27 @@ enum ClaudeStreamParsing {
         else { return .ignored }
 
         switch parsed.type {
+        case "system":
+            // Startup: hooks run and the session initialises before the model
+            // sees the prompt — surfaced so the console isn't blank meanwhile.
+            switch parsed.subtype {
+            case "init":
+                let model = parsed.model ?? "claude"
+                return .progress("› session started · \(model) · \(parsed.tools?.count ?? 0) tools")
+            case "hook_started":
+                return .progress("› running hook \(parsed.hook_name ?? "")".trimmingCharacters(in: .whitespaces))
+            default:
+                return .ignored
+            }
+        case "stream_event":
+            // A long thinking or writing block used to show nothing until it
+            // finished; its start is enough to show claude is at work.
+            guard parsed.event?.type == "content_block_start" else { return .ignored }
+            switch parsed.event?.content_block?.type {
+            case "thinking": return .progress("› thinking…")
+            case "text":     return .progress("› writing…")
+            default:         return .ignored   // tool_use: the `assistant` event names it
+            }
         case "result":
             if let r = parsed.result { return .finalResult(r) }
             return .ignored
@@ -188,7 +220,7 @@ enum ClaudeStreamParsing {
             }
             return .ignored
         default:
-            // system (incl. hook_*), user (tool_result), anything else
+            // user (tool_result), rate_limit_event, anything else
             return .ignored
         }
     }
@@ -250,8 +282,14 @@ struct LiveClaudeReviewService: ClaudeReviewService {
         let prompt = ClaudeReviewPrompt.build(
             owner: owner, repo: repo, number: number,
             title: title, author: author, sourceBranch: sourceBranch, diff: diff)
-        let args = ["-p", prompt, "--model", model.rawValue, "--output-format", "stream-json",
-                    "--verbose", "--allowedTools", "Read,Grep,Glob"]
+        // `--tools` limits which tools exist at all; `--allowedTools` alone
+        // only pre-approves them and left Bash & co. available (a review ran
+        // `git log`). `--include-partial-messages` streams block starts so
+        // progress shows while claude is still thinking.
+        let args = ["--tools", "Read,Grep,Glob", "--allowedTools", "Read,Grep,Glob",
+                    "--include-partial-messages", "--output-format", "stream-json", "--verbose",
+                    "--model", model.rawValue, "-p", prompt]
+        onLine("$ claude -p <review prompt> --model \(model.rawValue)")
 
         // 4. Stream with idle + total watchdog. Each shown line bumps the activity
         //    clock; the watchdog cancels (→ terminate process) if idle or total

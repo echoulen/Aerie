@@ -2,9 +2,41 @@ import XCTest
 @testable import Aerie
 
 final class ClaudeStreamParsingTests: XCTestCase {
-    func test_systemAndHookLines_ignored() {
-        XCTAssertEqual(ClaudeStreamParsing.parseLine(#"{"type":"system","subtype":"init"}"#), .ignored)
-        XCTAssertEqual(ClaudeStreamParsing.parseLine(#"{"type":"system","subtype":"hook_started","hook_name":"X"}"#), .ignored)
+    // Startup and in-flight signals, so the console isn't blank while claude
+    // boots or thinks through a large diff.
+
+    func test_systemInit_becomesSessionStartedProgress() {
+        let line = #"{"type":"system","subtype":"init","model":"claude-sonnet-5","tools":["Read","Grep","Glob"]}"#
+        XCTAssertEqual(ClaudeStreamParsing.parseLine(line), .progress("› session started · claude-sonnet-5 · 3 tools"))
+    }
+
+    func test_hookStarted_becomesProgress() {
+        let line = #"{"type":"system","subtype":"hook_started","hook_name":"SessionStart:startup"}"#
+        XCTAssertEqual(ClaudeStreamParsing.parseLine(line), .progress("› running hook SessionStart:startup"))
+    }
+
+    func test_otherSystemLines_ignored() {
+        XCTAssertEqual(ClaudeStreamParsing.parseLine(#"{"type":"system","subtype":"hook_response"}"#), .ignored)
+        XCTAssertEqual(ClaudeStreamParsing.parseLine(#"{"type":"system","subtype":"status","status":"requesting"}"#), .ignored)
+        XCTAssertEqual(ClaudeStreamParsing.parseLine(#"{"type":"system","subtype":"thinking_tokens","estimated_tokens":50}"#), .ignored)
+    }
+
+    func test_thinkingBlockStart_becomesProgress() {
+        let line = #"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}}"#
+        XCTAssertEqual(ClaudeStreamParsing.parseLine(line), .progress("› thinking…"))
+    }
+
+    func test_textBlockStart_becomesProgress() {
+        let line = #"{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}}"#
+        XCTAssertEqual(ClaudeStreamParsing.parseLine(line), .progress("› writing…"))
+    }
+
+    func test_toolUseBlockStartAndDeltas_ignored() {
+        // The completed `assistant` event names the tool with its input.
+        let start = #"{"type":"stream_event","event":{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","name":"Read"}}}"#
+        let delta = #"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}}"#
+        XCTAssertEqual(ClaudeStreamParsing.parseLine(start), .ignored)
+        XCTAssertEqual(ClaudeStreamParsing.parseLine(delta), .ignored)
     }
 
     func test_assistantText_becomesProgress() {

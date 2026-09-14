@@ -46,7 +46,7 @@ final class ClaudeReviewServiceTests: XCTestCase {
     func test_streamsProgress_andParsesVerdict() async {
         let r = StreamStubRunner()
         r.lines = [
-            #"{"type":"system","subtype":"hook_started"}"#,
+            #"{"type":"system","subtype":"hook_started","hook_name":"SessionStart:startup"}"#,
             #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"A.swift"}}]}}"#,
             #"{"type":"assistant","message":{"content":[{"type":"text","text":"looks fine"}]}}"#,
             #"{"type":"result","subtype":"success","result":"{\"verdict\":\"approve\",\"summary\":\"LGTM\",\"issues\":[]}"}"#,
@@ -55,7 +55,26 @@ final class ClaudeReviewServiceTests: XCTestCase {
         let outcome = await review(svc(r), onLine: { box.add($0) })
         guard case .success(let rev) = outcome else { return XCTFail("expected success") }
         XCTAssertEqual(rev.verdict, .approve)
-        XCTAssertEqual(box.lines, ["Read A.swift", "looks fine"])  // hooks + result not shown
+        // The command echo and startup lines show before claude's own output;
+        // the result JSON is never shown.
+        XCTAssertEqual(box.lines, [
+            "$ claude -p <review prompt> --model claude-sonnet-5",
+            "› running hook SessionStart:startup",
+            "Read A.swift",
+            "looks fine",
+        ])
+    }
+
+    /// Review is read-only: `--tools` must restrict the session to Read/Grep/Glob
+    /// (`--allowedTools` alone leaves Bash and the rest available), and partial
+    /// messages are streamed so progress appears while claude thinks.
+    func test_restrictsToolsToReadOnly_andStreamsPartialMessages() async {
+        let r = StreamStubRunner()
+        r.lines = [#"{"type":"result","subtype":"success","result":"{\"verdict\":\"approve\",\"summary\":\"s\",\"issues\":[]}"}"#]
+        _ = await review(svc(r))
+        guard let i = r.lastArgs.firstIndex(of: "--tools") else { return XCTFail("missing --tools") }
+        XCTAssertEqual(r.lastArgs[i + 1], "Read,Grep,Glob")
+        XCTAssertTrue(r.lastArgs.contains("--include-partial-messages"))
     }
 
     func test_claudeMissing_fails_noStream() async {
