@@ -15,9 +15,18 @@ struct HullModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         let hull = HullShape(topLeftCut: topLeftCut)
+        // Every hull layer ignores the safe area. The window roots pull their
+        // titlebar up under the native title bar with `.ignoresSafeArea`, but a
+        // plain `clipShape` still measures from *below* that inset — it sliced
+        // off the brand and the account avatar. Masking with a safe-area-ignoring
+        // shape measures the hull from the real window top instead.
         content
-            .clipShape(hull)
-            .overlay { HullFurniture(topLeftCut: topLeftCut).clipShape(hull) }
+            .mask { hull.fill().ignoresSafeArea() }
+            .overlay {
+                HullFurniture(topLeftCut: topLeftCut)
+                    .mask { hull.fill() }
+                    .ignoresSafeArea()
+            }
             .overlay {
                 hull.strokeBorder(
                     LinearGradient(stops: [
@@ -29,12 +38,14 @@ struct HullModifier: ViewModifier {
                     lineWidth: 1
                 )
                 .allowsHitTesting(false)
+                .ignoresSafeArea()
             }
             // `filter: drop-shadow(0 0 44px amber/0.30)` — the emitted glow.
             .background {
                 hull.fill(AerieColor.space0.opacity(0.01))
                     .shadow(color: AerieColor.amber.opacity(0.22), radius: 22)
                     .allowsHitTesting(false)
+                    .ignoresSafeArea()
             }
     }
 }
