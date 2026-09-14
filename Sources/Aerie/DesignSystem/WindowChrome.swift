@@ -54,6 +54,11 @@ struct AerieWindowChrome: NSViewRepresentable {
         // so white-on-dark content stays legible.
         window.isOpaque = false
         window.backgroundColor = .clear
+        // The MARK III hull (`HullShape`) cuts its corners out of the window
+        // rect. AppKit's window shadow carries a dark 1px outline that traces
+        // the full rounded rect, so it showed as a black line across those
+        // cut-outs. Drop the system shadow; the hull draws its own gold glow.
+        window.hasShadow = false
     }
 }
 
