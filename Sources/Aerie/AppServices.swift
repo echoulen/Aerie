@@ -74,6 +74,9 @@ final class AppServices {
     let prSync: PRSyncService
     let issueSync: IssueSyncService
     let gitService: any GitService
+    /// Gates the poller's git status reads on FSEvents; `refreshNow()` marks
+    /// every tree changed so the manual button always re-reads.
+    let workingTreeWatcher: WorkingTreeWatcher
     let scheduler: PollingScheduler
     let focusObserver: any AppFocusObserver
     /// Cross-window navigation intents (e.g. the main window asking Settings to
@@ -141,12 +144,15 @@ final class AppServices {
         // closure, so it must drive both sides for each repo:
         //   * PR fetch → cache: `prSync.sync` posts `.aeriePRCacheDidChange`
         //     (on main, via `onChange`) so the PRs tab re-projects.
-        //   * Local git status: `refresher.refresh` upserts `gitStatusCache`,
-        //     then we signal `gitStatusDidChange` (on main — `PassthroughSubject`
-        //     `.send()` isn't thread-safe) so the Repos tab re-reads.
-        // Both captured values are Sendable (actors / value types), so they're
-        // safe inside the scheduler's `@Sendable` closure.
+        //   * Local git status: `refresher.refresh` upserts `gitStatusCache`
+        //     (gated by the FSEvents watcher — an unchanged tree isn't re-read).
+        //     Once the whole tick has settled we signal `gitStatusDidChange`
+        //     (on main — `PassthroughSubject` `.send()` isn't thread-safe) so
+        //     the Repos tab re-reads exactly once per tick.
+        // All captured values are Sendable (actors / value types / lock-guarded
+        // classes), so they're safe inside the scheduler's `@Sendable` closure.
         let gitService = LiveGitService()
+        let workingTreeWatcher = WorkingTreeWatcher()
         let prSync = PRSyncService(db: db, api: multiApi, git: gitService, onChange: {
             await MainActor.run {
                 NotificationCenter.default.post(name: .aeriePRCacheDidChange, object: nil)
@@ -157,16 +163,21 @@ final class AppServices {
                 NotificationCenter.default.post(name: .aerieIssueCacheDidChange, object: nil)
             }
         })
-        let refresher = GitStatusRefresher(db: db, gitService: gitService)
+        let refresher = GitStatusRefresher(db: db, gitService: gitService, changes: workingTreeWatcher)
         let mergedSync = MergedBranchSync(db: db, api: multiApi)
         let statusSubject = PassthroughSubject<Void, Never>()
-        let scheduler = PollingScheduler(clock: LiveClock()) { [prSync, issueSync, refresher, mergedSync, statusSubject] repoId in
-            await prSync.sync(repoId: repoId)
-            await issueSync.sync(repoId: repoId)
-            await refresher.refresh(repoId: repoId)
-            await mergedSync.sync(repoId: repoId)
-            await MainActor.run { statusSubject.send() }
-        }
+        let scheduler = PollingScheduler(
+            clock: LiveClock(),
+            refresh: { [prSync, issueSync, refresher, mergedSync] repoId in
+                await prSync.sync(repoId: repoId)
+                await issueSync.sync(repoId: repoId)
+                await refresher.refresh(repoId: repoId)
+                await mergedSync.sync(repoId: repoId)
+            },
+            onTickComplete: { [statusSubject] in
+                await MainActor.run { statusSubject.send() }
+            }
+        )
         let focusObserver = LiveAppFocusObserver()
 
         let router = JSONRPCRouter()
@@ -181,6 +192,7 @@ final class AppServices {
         self.prSync = prSync
         self.issueSync = issueSync
         self.gitService = gitService
+        self.workingTreeWatcher = workingTreeWatcher
         self.scheduler = scheduler
         self.focusObserver = focusObserver
         self.gitStatusDidChange = statusSubject
@@ -239,6 +251,8 @@ final class AppServices {
     /// open views. Backs the page header's manual Refresh button. Returns once
     /// every repo's fetch has settled, so the button can spin until then.
     func refreshNow() async {
+        // A manual refresh must always re-read status, changed or not.
+        workingTreeWatcher.markAllChanged()
         let repoIds = ((try? await db.repos.all()) ?? []).filter { !$0.hidden }.map(\.id)
         await scheduler.refreshNow(repoIds: repoIds, now: Date())
     }
