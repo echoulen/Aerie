@@ -19,7 +19,6 @@ struct AboutScreen: View {
     var githubURL: URL = URL(string: "https://github.com/echoulen/Aerie")!
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var ringAngle: Double = 0
 
     var body: some View {
         ZStack {
@@ -83,18 +82,14 @@ struct AboutScreen: View {
                 .strokeBorder(AerieColor.amberLine, lineWidth: 1)
                 .frame(width: 380, height: 380)
                 .opacity(0.35)
-            Circle()
-                .strokeBorder(AerieColor.glassLine2, style: StrokeStyle(lineWidth: 1, dash: [4, 6]))
+            ArcSpinner(
+                style: .init(color: AerieColor.glassLine2, lineWidth: 1, duration: 70, dash: [4, 6]),
+                animated: !reduceMotion)
                 .frame(width: 250, height: 250)
                 .opacity(0.5)
-                .rotationEffect(.degrees(ringAngle))
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.linear(duration: 70).repeatForever(autoreverses: false)) { ringAngle = 360 }
-        }
     }
 
     /// The real macOS app icon — the sodium-amber radar mark on dark glass

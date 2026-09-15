@@ -230,24 +230,13 @@ struct CardOpenButton: View {
 struct CardArcSpinner: View {
     var size: CGFloat = 11
     var color: Color = AerieColor.arc
-    @State private var spinning = false
 
     var body: some View {
-        Circle()
-            // Bottom + left borders visible → a half ring spanning 45°–225°
-            // (SwiftUI angles run clockwise from 3 o'clock).
-            .trim(from: 0, to: 0.5)
-            .stroke(color, lineWidth: 2)
-            .rotationEffect(.degrees(45))
-            .shadow(color: color, radius: 2)
-            .frame(width: size - 2, height: size - 2)
+        // Bottom + left borders visible → a half ring spanning 45°–225°.
+        ArcSpinner(style: .init(
+            color: color, lineWidth: 2, trimTo: 0.5, startAngle: 45,
+            duration: 0.7, shadow: color, shadowRadius: 2, diameter: size - 2))
             .frame(width: size, height: size)
-            .rotationEffect(.degrees(spinning ? 360 : 0))
-            .onAppear {
-                withAnimation(.linear(duration: 0.7).repeatForever(autoreverses: false)) {
-                    spinning = true
-                }
-            }
     }
 }
 
@@ -322,17 +311,10 @@ struct CardConsole: View {
 }
 
 /// `.caret` — a 7×12 arc block cursor that blinks on/off every half second
-/// (`steps(2)` over 1s) with an 8pt arc glow.
+/// (`steps(2)` over 1s) with an 8pt arc glow. On Core Animation
+/// (`ConsoleCaretView`) so the blink doesn't re-render the console.
 private struct ConsoleCaret: View {
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.5)) { context in
-            let on = Int(context.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
-            Rectangle()
-                .fill(AerieColor.arc)
-                .frame(width: 7, height: 12)
-                .shadow(color: AerieColor.arcGlow, radius: 4)
-                .opacity(on ? 1 : 0)
-        }
-        .frame(width: 7, height: 12)
+        ConsoleCaretLayer().frame(width: 7, height: 12)
     }
 }

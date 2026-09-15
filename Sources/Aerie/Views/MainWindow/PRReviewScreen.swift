@@ -670,21 +670,14 @@ private struct AIReviewConsole: View {
 /// `pill arc` led by a pulsing `dot arc live`.
 private struct LiveArcPill: View {
     let text: String
-    @State private var pulsing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 6) {
-            Circle()
-                .fill(AerieColor.arc)
+            BreathingDot(
+                style: .init(color: AerieColor.arc, glow: AerieColor.arcGlow, glowRadius: 6),
+                animated: !reduceMotion)
                 .frame(width: 7, height: 7)
-                .shadow(color: AerieColor.arcGlow, radius: 6)
-                .scaleEffect(pulsing ? 0.82 : 1)
-                .opacity(pulsing ? 0.55 : 1)
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                        pulsing = true
-                    }
-                }
             Text(text.uppercased())
                 .aerieFont(AerieFont.custom(.sans, size: 10.5).weight(.semibold))
                 .tracking(1.05)

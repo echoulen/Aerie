@@ -130,23 +130,7 @@ actor LiveGitService: GitService {
         let dirtyFileCount = dirtyEntries.count
         let isDirty = dirtyFileCount > 0
 
-        // Resolve the current branch name. HEAD can be:
-        //   * a Branch (normal case — `.name` is e.g. "main")
-        //   * a Tag (HEAD detached on a tag)
-        //   * a Branch with name "HEAD" (detached on a commit)
-        // For a fresh repo with an initial commit on `main` the first case fires.
-        let currentBranch: String
-        do {
-            let head = try repo.HEAD
-            if let branch = head as? SwiftGitX.Branch, branch.name != "HEAD" {
-                currentBranch = branch.name
-            } else {
-                currentBranch = ""
-            }
-        } catch {
-            // Unborn HEAD (no commits) — leave empty.
-            currentBranch = ""
-        }
+        let currentBranch = Self.currentBranchName(of: repo)
 
         // Resolve the default branch via origin/HEAD → main → master chain.
         let defaultBranch = detectDefaultBranch(at: url)
@@ -177,16 +161,27 @@ actor LiveGitService: GitService {
         )
     }
 
+    /// The checked-out branch's short name, or "" when HEAD is detached (on a
+    /// tag or a commit) or unborn (no commits yet).
+    private static func currentBranchName(of repo: SwiftGitX.Repository) -> String {
+        guard let head = try? repo.HEAD,
+              let branch = head as? SwiftGitX.Branch, branch.name != "HEAD"
+        else { return "" }
+        return branch.name
+    }
+
     // MARK: - PRLocalState
 
     func prLocalState(
         repoAt url: URL, prId: UUID, sourceBranch: String
     ) async throws -> PRLocalState {
+        // Existence and HEAD come from libgit2: this runs for every open PR on
+        // every tick, and the two `git` subprocesses it used to spawn per PR
+        // were a visible slice of each tick's CPU.
+        let repo = try SwiftGitX.Repository(at: url, createIfNotExists: false)
+
         // 1. Does the local branch exist?
-        let exists = runGit(
-            ["show-ref", "--verify", "--quiet", "refs/heads/\(sourceBranch)"],
-            at: url
-        ) != nil
+        let exists = (try? repo.branch.get(named: sourceBranch, type: .local)) != nil
 
         guard exists else {
             return PRLocalState(
@@ -202,9 +197,7 @@ actor LiveGitService: GitService {
         }
 
         // 2. Is it the current branch?
-        let currentBranch = runGit(
-            ["symbolic-ref", "--short", "HEAD"], at: url
-        ) ?? ""
+        let currentBranch = Self.currentBranchName(of: repo)
         let isCurrent = currentBranch == sourceBranch
 
         guard isCurrent else {
@@ -225,7 +218,6 @@ actor LiveGitService: GitService {
         }
 
         // 3. Current branch — reuse the same machinery as readStatus.
-        let repo = try SwiftGitX.Repository(at: url, createIfNotExists: false)
         let entries = try repo.status(options: SwiftGitX.StatusOption.default)
         let dirtyFileCount = entries.filter { entry in
             entry.status.contains { status in
