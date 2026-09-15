@@ -158,6 +158,18 @@ protocol GitHubAPIClient: Sendable {
         token: String
     ) async throws
 
+    /// Fetches a PR's reviews, conversation and inline comments, and commits,
+    /// so a re-run of AI Review can follow up on its previous review. Throws
+    /// 404 when the PR isn't visible to the token. Declared on the protocol
+    /// (with an extension default) for dynamic dispatch through the
+    /// `GitHubAPIClient` existential.
+    func fetchPRConversation(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws -> PRConversation
+
     /// Submits a changes-requested review on a PR (REST `POST .../pulls/{n}/reviews`
     /// with `event: REQUEST_CHANGES`) — this is what blocks the PR from merging
     /// under branch protection, unlike a plain comment. GitHub rejects the event
@@ -230,6 +242,17 @@ extension GitHubAPIClient {
         token: String
     ) async throws {}
 
+    /// Default: an empty conversation. Stubs that don't exercise follow-up
+    /// reviews inherit it; the live client overrides it.
+    func fetchPRConversation(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws -> PRConversation {
+        PRConversation(reviews: [], comments: [], commits: [])
+    }
+
     /// Default: no-op. Stubs that don't exercise request-changes inherit a
     /// harmless no-op; the live client overrides it with the real REST call.
     func requestChangesPR(
@@ -286,6 +309,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             title
             author { login }
             headRefName
+            headRefOid
             state
             isDraft
             mergeable
@@ -300,6 +324,9 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             }
             reviewDecision
             reviews(states: [APPROVED], last: 1) { nodes { author { login } } }
+            changesRequests: reviews(last: 1, states: [CHANGES_REQUESTED]) { nodes { submittedAt author { login } commit { oid } } }
+            recentReviews: reviews(last: 5, states: [COMMENTED, APPROVED, DISMISSED]) { nodes { submittedAt author { login } } }
+            recentComments: comments(last: 5) { nodes { createdAt author { login } } }
             additions
             deletions
             changedFiles
@@ -816,6 +843,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             let title: String
             let author: Author?
             let headRefName: String
+            let headRefOid: String?
             let state: String
             let isDraft: Bool?
             let mergeable: String
@@ -824,6 +852,9 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             let commits: CommitsLayer
             let reviewDecision: String?
             let reviews: ReviewsLayer?
+            let changesRequests: ActivityLayer?
+            let recentReviews: ActivityLayer?
+            let recentComments: ActivityLayer?
             let additions: Int?
             let deletions: Int?
             let changedFiles: Int?
@@ -839,6 +870,14 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         struct RollupOrNull: Decodable { let state: String }
         struct ReviewsLayer: Decodable { let nodes: [ReviewNode] }
         struct ReviewNode: Decodable { let author: Author? }
+        struct ActivityLayer: Decodable { let nodes: [ActivityNode] }
+        struct ActivityNode: Decodable {
+            let submittedAt: Date?
+            let createdAt: Date?
+            let author: Author?
+            let commit: OidNode?
+        }
+        struct OidNode: Decodable { let oid: String }
         let data: DataLayer
     }
 
@@ -884,8 +923,135 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             additions: node.additions,
             deletions: node.deletions,
             changedFiles: node.changedFiles,
+            respondedToChangesRequest: Self.respondedToChangesRequest(node),
             isDraft: node.isDraft,
             mergeStateStatus: node.mergeStateStatus
+        )
+    }
+
+    /// Nil when the PR has no changes request (or the query didn't ask).
+    private static func respondedToChangesRequest(_ node: ListPRsResponse.Node) -> Bool? {
+        guard let request = node.changesRequests?.nodes.first,
+              let reviewedAt = request.submittedAt else { return nil }
+        let reviews = (node.recentReviews?.nodes ?? []).compactMap { n in
+            n.submittedAt.map { ChangesRequestResponse.Activity(author: n.author?.login ?? "ghost", at: $0) }
+        }
+        let comments = (node.recentComments?.nodes ?? []).compactMap { n in
+            n.createdAt.map { ChangesRequestResponse.Activity(author: n.author?.login ?? "ghost", at: $0) }
+        }
+        return ChangesRequestResponse.responded(
+            reviewer: request.author?.login ?? "ghost",
+            reviewedAt: reviewedAt,
+            reviewedCommit: request.commit?.oid,
+            headCommit: node.headRefOid,
+            activity: reviews + comments
+        )
+    }
+
+    // MARK: fetchPRConversation
+
+    private static let conversationQuery: String = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          reviews(last: 50) { nodes { author { login } state body submittedAt commit { oid } } }
+          comments(last: 100) { nodes { author { login } body createdAt } }
+          reviewThreads(last: 50) {
+            nodes { path line comments(last: 30) { nodes { author { login } body createdAt } } }
+          }
+          commits(last: 100) { nodes { commit { oid messageHeadline } } }
+        }
+      }
+    }
+    """
+
+    private struct ConversationResponse: Decodable {
+        struct DataLayer: Decodable { let repository: Repo? }
+        struct Repo: Decodable { let pullRequest: PR? }
+        struct PR: Decodable {
+            let reviews: Nodes<ReviewNode>
+            let comments: Nodes<CommentNode>
+            let reviewThreads: Nodes<ThreadNode>
+            let commits: Nodes<CommitNode>
+        }
+        struct Nodes<T: Decodable>: Decodable { let nodes: [T] }
+        struct Author: Decodable { let login: String }
+        struct ReviewNode: Decodable {
+            let author: Author?
+            let state: String
+            let body: String
+            let submittedAt: Date?
+            let commit: Oid?
+        }
+        struct Oid: Decodable { let oid: String }
+        struct CommentNode: Decodable {
+            let author: Author?
+            let body: String
+            let createdAt: Date
+        }
+        struct ThreadNode: Decodable {
+            let path: String
+            let line: Int?
+            let comments: Nodes<CommentNode>
+        }
+        struct CommitNode: Decodable {
+            struct Inner: Decodable { let oid: String; let messageHeadline: String }
+            let commit: Inner
+        }
+        let data: DataLayer
+    }
+
+    func fetchPRConversation(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async throws -> PRConversation {
+        var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+        let payload: [String: Any] = [
+            "query": Self.conversationQuery,
+            "variables": ["owner": owner, "repo": repo, "number": number] as [String: Any],
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await session.data(for: request)
+        let http = response as? HTTPURLResponse
+        recordRateLimit(token: token, response: http)
+        try checkOK(status: http?.statusCode ?? 0, data: data)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ConversationResponse.self, from: data)
+        guard let pr = decoded.data.repository?.pullRequest else {
+            throw GitHubAPIError(status: 404, message: "pull request not visible")
+        }
+
+        func login(_ a: ConversationResponse.Author?) -> String { a?.login ?? "ghost" }
+        // Pending reviews (the viewer's unsubmitted draft) have no submittedAt.
+        let reviews = pr.reviews.nodes.compactMap { r -> PRConversation.Review? in
+            guard let at = r.submittedAt else { return nil }
+            return .init(author: login(r.author), state: r.state, body: r.body,
+                         submittedAt: at, commitOid: r.commit?.oid)
+        }
+        let conversation = pr.comments.nodes.map {
+            PRConversation.Comment(author: login($0.author), body: $0.body, createdAt: $0.createdAt,
+                                   kind: .conversation)
+        }
+        let inline = pr.reviewThreads.nodes.flatMap { thread in
+            thread.comments.nodes.map {
+                PRConversation.Comment(author: login($0.author), body: $0.body, createdAt: $0.createdAt,
+                                       kind: .inline(path: thread.path, line: thread.line))
+            }
+        }
+        return PRConversation(
+            reviews: reviews,
+            comments: conversation + inline,
+            commits: pr.commits.nodes.map { .init(oid: $0.commit.oid, headline: $0.commit.messageHeadline) }
         )
     }
 

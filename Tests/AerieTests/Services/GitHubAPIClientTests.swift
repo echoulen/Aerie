@@ -290,6 +290,116 @@ final class GitHubAPIClientTests: XCTestCase {
         XCTAssertEqual(prs[0].mergeStateStatus, "CLEAN")
     }
 
+    func test_listOpenPRs_mapsResponseToTheLatestChangesRequest() async throws {
+        // PR 1: author replied after the changes request → awaiting re-review.
+        // PR 2: only the reviewer spoke since, same head → not a response.
+        // PR 3: a new commit since the review → a response.
+        // PR 4: no changes request at all → nil.
+        func node(_ n: Int, head: String, cr: String, reviews: String, comments: String) -> String {
+            """
+            {
+              "id": "PR_\(n)", "number": \(n), "title": "t\(n)",
+              "author": { "login": "octocat" }, "headRefName": "feat/\(n)", "headRefOid": "\(head)",
+              "state": "OPEN", "mergeable": "MERGEABLE", "labels": { "nodes": [] },
+              "commits": { "nodes": [] }, "reviewDecision": "CHANGES_REQUESTED",
+              "changesRequests": { "nodes": [\(cr)] },
+              "recentReviews": { "nodes": [\(reviews)] },
+              "recentComments": { "nodes": [\(comments)] },
+              "updatedAt": "2026-05-28T10:00:00Z", "url": "https://github.com/acme/widgets/pull/\(n)"
+            }
+            """
+        }
+        let cr = #"{ "submittedAt": "2026-05-28T09:00:00Z", "author": { "login": "Reviewer" }, "commit": { "oid": "aaa" } }"#
+        let responseJSON = """
+        { "data": { "repository": { "pullRequests": { "nodes": [
+          \(node(1, head: "aaa", cr: cr, reviews: "", comments: #"{ "createdAt": "2026-05-28T09:30:00Z", "author": { "login": "octocat" } }"#)),
+          \(node(2, head: "aaa", cr: cr, reviews: #"{ "submittedAt": "2026-05-28T09:40:00Z", "author": { "login": "reviewer" } }"#, comments: "")),
+          \(node(3, head: "bbb", cr: cr, reviews: "", comments: "")),
+          \(node(4, head: "aaa", cr: "", reviews: "", comments: ""))
+        ] } } } }
+        """
+        StubURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                             headerFields: ["Content-Type": "application/json"])!, Data(responseJSON.utf8))
+        }
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let prs = try await client.listOpenPRs(owner: "acme", repo: "widgets", repoId: UUID(), token: "t")
+
+        XCTAssertEqual(prs.map(\.respondedToChangesRequest), [true, false, true, nil])
+        XCTAssertTrue(prs[0].awaitingReReview)
+
+        let body = try XCTUnwrap(StubURLProtocol.lastBody)
+        let query = try XCTUnwrap((try JSONSerialization.jsonObject(with: body) as? [String: Any])?["query"] as? String)
+        XCTAssertTrue(query.contains("changesRequests: reviews(last: 1, states: [CHANGES_REQUESTED])"))
+        XCTAssertTrue(query.contains("headRefOid"))
+    }
+
+    func test_fetchPRConversation_decodesReviewsCommentsThreadsAndCommits() async throws {
+        let responseJSON = """
+        { "data": { "repository": { "pullRequest": {
+          "reviews": { "nodes": [
+            { "author": { "login": "reviewer" }, "state": "CHANGES_REQUESTED", "body": "<!-- aerie:ai-review -->\\n- race",
+              "submittedAt": "2026-05-28T09:00:00Z", "commit": { "oid": "aaa" } },
+            { "author": { "login": "reviewer" }, "state": "PENDING", "body": "draft", "submittedAt": null, "commit": null },
+            { "author": null, "state": "COMMENTED", "body": "ghost says hi",
+              "submittedAt": "2026-05-28T09:10:00Z", "commit": { "oid": "aaa" } }
+          ] },
+          "comments": { "nodes": [
+            { "author": { "login": "octocat" }, "body": "runs on main only", "createdAt": "2026-05-28T09:20:00Z" }
+          ] },
+          "reviewThreads": { "nodes": [
+            { "path": "Sources/A.swift", "line": 42, "comments": { "nodes": [
+              { "author": { "login": "reviewer" }, "body": "race here", "createdAt": "2026-05-28T09:00:00Z" },
+              { "author": { "login": "octocat" }, "body": "can't race", "createdAt": "2026-05-28T09:25:00Z" }
+            ] } },
+            { "path": "README.md", "line": null, "comments": { "nodes": [
+              { "author": { "login": "octocat" }, "body": "outdated thread", "createdAt": "2026-05-28T09:26:00Z" }
+            ] } }
+          ] },
+          "commits": { "nodes": [
+            { "commit": { "oid": "aaa", "messageHeadline": "first" } },
+            { "commit": { "oid": "bbb", "messageHeadline": "fix race" } }
+          ] }
+        } } } }
+        """
+        StubURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                             headerFields: ["Content-Type": "application/json"])!, Data(responseJSON.utf8))
+        }
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let conv = try await client.fetchPRConversation(owner: "acme", repo: "widgets", number: 7, token: "t")
+
+        XCTAssertEqual(conv.reviews.count, 2, "a pending review (no submittedAt) is skipped")
+        XCTAssertEqual(conv.reviews[0].state, "CHANGES_REQUESTED")
+        XCTAssertEqual(conv.reviews[0].commitOid, "aaa")
+        XCTAssertEqual(conv.reviews[1].author, "ghost", "a deleted account reads as ghost")
+        XCTAssertEqual(conv.comments.count, 4)
+        XCTAssertTrue(conv.comments.contains(.init(author: "octocat", body: "runs on main only",
+            createdAt: ISO8601DateFormatter().date(from: "2026-05-28T09:20:00Z")!, kind: .conversation)))
+        XCTAssertTrue(conv.comments.contains { $0.body == "can't race" && $0.kind == .inline(path: "Sources/A.swift", line: 42) })
+        XCTAssertTrue(conv.comments.contains { $0.body == "outdated thread" && $0.kind == .inline(path: "README.md", line: nil) })
+        XCTAssertEqual(conv.commits.map(\.oid), ["aaa", "bbb"])
+        XCTAssertEqual(conv.commits.last?.headline, "fix race")
+
+        let body = try XCTUnwrap(StubURLProtocol.lastBody)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual((json["variables"] as? [String: Any])?["number"] as? Int, 7)
+    }
+
+    func test_fetchPRConversation_invisiblePR_throws404() async throws {
+        StubURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!,
+             Data(#"{ "data": { "repository": null } }"#.utf8))
+        }
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        do {
+            _ = try await client.fetchPRConversation(owner: "acme", repo: "private", number: 1, token: "t")
+            XCTFail("expected throw")
+        } catch let error as GitHubAPIError {
+            XCTAssertEqual(error.status, 404)
+        }
+    }
+
     func test_listOpenPRs_mapsIsDraft() async throws {
         // Draft PRs stay in the list (they're OPEN), so the flag has to come
         // through for the card to mark them and hold AI Review back.

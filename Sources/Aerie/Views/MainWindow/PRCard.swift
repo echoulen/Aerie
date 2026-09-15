@@ -147,6 +147,11 @@ struct PRCard: View {
             }
             CIChip(state: row.pr.ciState)
             ReviewChip(state: row.pr.reviewState)
+            // Someone answered the changes request (a reply or a new commit):
+            // AI Review re-runs with those replies in context.
+            if row.pr.awaitingReReview {
+                StatusPill(text: "Responded · re-review", tone: .amber)
+            }
             // Merge conflicts have no chip of their own otherwise — they'd show
             // only as a dimmed Merge button. Surface them explicitly, in red, so
             // the blocking reason is legible at a glance (grouped with the other
@@ -342,7 +347,7 @@ struct PRCard: View {
     private var reviewShortLabel: String {
         switch row.pr.reviewState {
         case .approved:         return "approved"
-        case .changesRequested: return "changes requested"
+        case .changesRequested: return row.pr.awaitingReReview ? "responded · re-review" : "changes requested"
         case .reviewRequired:   return "review requested"
         }
     }

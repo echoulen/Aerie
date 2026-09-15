@@ -28,19 +28,22 @@ final class AIReviewStore {
     private let maxLines = 200
 
     private let loadFiles: (PRRow) async throws -> [PRFileChange]
-    private let runReview: (PRRow, String, @escaping @Sendable (String) -> Void) async -> ClaudeReviewOutcome
+    private let loadFollowUp: (PRRow) async throws -> AIReviewFollowUp?
+    private let runReview: (PRRow, String, AIReviewFollowUp?, @escaping @Sendable (String) -> Void) async -> ClaudeReviewOutcome
     private let resolveApprover: (PRRow) async -> ApproverResolution
     private let approve: (PRRow, GitHubAccount, String) async -> String?
     private let requestChanges: (PRRow, GitHubAccount, String) async -> String?
 
     init(
         loadFiles: @escaping (PRRow) async throws -> [PRFileChange],
-        runReview: @escaping (PRRow, String, @escaping @Sendable (String) -> Void) async -> ClaudeReviewOutcome,
+        loadFollowUp: @escaping (PRRow) async throws -> AIReviewFollowUp? = { _ in nil },
+        runReview: @escaping (PRRow, String, AIReviewFollowUp?, @escaping @Sendable (String) -> Void) async -> ClaudeReviewOutcome,
         resolveApprover: @escaping (PRRow) async -> ApproverResolution,
         approve: @escaping (PRRow, GitHubAccount, String) async -> String?,
         requestChanges: @escaping (PRRow, GitHubAccount, String) async -> String?
     ) {
         self.loadFiles = loadFiles
+        self.loadFollowUp = loadFollowUp
         self.runReview = runReview
         self.resolveApprover = resolveApprover
         self.approve = approve
@@ -110,11 +113,24 @@ final class AIReviewStore {
             catch { self.phases[key] = .failed("無法取得 PR 變更:\(error.localizedDescription)"); return }
             let diff = ClaudeReviewPrompt.diffText(files: files)
 
+            // A re-run must see the replies to its previous review; reviewing
+            // blind would re-raise issues the author already answered and
+            // request changes again, so a failed fetch fails the review.
+            let followUp: AIReviewFollowUp?
+            do { followUp = try await self.loadFollowUp(row) }
+            catch { self.phases[key] = .failed("無法取得 PR 對話紀錄:\(error.localizedDescription)"); return }
+            if let followUp {
+                self.appendLine(
+                    "複審:前次 AI Review 之後有 \(followUp.responses.count) 則回覆、"
+                    + (followUp.historyRewritten ? "分支歷史已改寫" : "\(followUp.newCommits.count) 個新 commit"),
+                    to: key)
+            }
+
             let onLine: @Sendable (String) -> Void = { line in
                 Task { @MainActor [weak self] in self?.appendLine(line, to: key) }
             }
 
-            switch await self.runReview(row, diff, onLine) {
+            switch await self.runReview(row, diff, followUp, onLine) {
             case .failed(let m):
                 self.phases[key] = .failed(m)
             case .success(let review):
@@ -151,7 +167,22 @@ final class AIReviewStore {
         let header = review.verdict == .approve
             ? "## ✅ AI Review · Approved"
             : "## ⚠️ AI Review · 發現需處理的問題"
-        var parts = [header, "", review.summary]
+        // The marker leads the body (invisible on GitHub) so the next run can
+        // find this review and follow up on it.
+        var parts = [AIReviewMarker.tag, header, "", review.summary]
+        if !review.previous.isEmpty {
+            parts.append("")
+            parts.append("### 前次問題追蹤")
+            parts.append(contentsOf: review.previous.map { p in
+                let label: String
+                switch p.status {
+                case .fixed:     label = "✅ 已修正"
+                case .justified: label = "💬 理由採納"
+                case .open:      label = "❌ 仍未解決"
+                }
+                return "- \(label) — \(p.issue)" + (p.note.isEmpty ? "" : " — \(p.note)")
+            })
+        }
         if !review.issues.isEmpty {
             parts.append("")
             parts.append("### 需處理的問題")

@@ -226,6 +226,24 @@ actor MultiAccountAPI {
         }
     }
 
+    /// Fetches a PR's reviews, comments, and commits using exactly
+    /// `accountId`'s token — the repo's bound account, like `fetchPRFiles`.
+    func fetchPRConversation(
+        owner: String,
+        repo: String,
+        number: Int,
+        accountId: UUID
+    ) async throws -> MultiAccountAPIResult<PRConversation> {
+        try await withAccount(accountId) { token in
+            try await self.client.fetchPRConversation(
+                owner: owner,
+                repo: repo,
+                number: number,
+                token: token
+            )
+        }
+    }
+
     /// Submits an approving review using exactly `accountId`'s token. **No**
     /// round-robin: the approver is chosen deliberately by the caller (it must
     /// not be the PR author — GitHub forbids self-approval), so falling back to
