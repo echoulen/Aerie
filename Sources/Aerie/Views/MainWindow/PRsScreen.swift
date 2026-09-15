@@ -55,6 +55,7 @@ struct PRsScreen: View {
     /// `AIReviewStore.start(row:)`; defaulted to a no-op for snapshot tests
     /// and previews.
     var onStartAIReview: (PRRow) -> Void = { _ in }
+    var onStopAIReview: (PRRow) -> Void = { _ in }
     /// Clears a failed AI-review phase for `row` back to idle. Wraps
     /// `AIReviewStore.dismiss(row:)`; defaulted to a no-op for snapshot tests
     /// and previews.
@@ -165,6 +166,7 @@ struct PRsScreen: View {
                         onReview: { onReview(row) },
                         aiReviewPhase: aiReviewPhase(row),
                         onStartAIReview: { onStartAIReview(row) },
+                        onStopAIReview: { onStopAIReview(row) },
                         onDismissAIReview: { onDismissAIReview(row) },
                         onUpdateBranch: { await onUpdateBranch(row) },
                         now: now

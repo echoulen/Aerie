@@ -24,7 +24,15 @@ final class AIReviewStore {
     /// rebuilt (Back → re-enter, or switching between PRs of the same repo).
     /// In-memory only: resets to the resolved default on relaunch.
     private(set) var selectedApproverByRepo: [UUID: UUID] = [:]
-    private var running: Set<String> = []
+    /// The review in flight per PR. A stopped run is removed at once, so a new
+    /// `start` can begin while the old task winds down; `id` keeps the old
+    /// task's late writes from landing on the new run.
+    private struct Run {
+        let id: UUID
+        let task: Task<Void, Never>
+        var submitting = false
+    }
+    private var runs: [String: Run] = [:]
     private let maxLines = 200
 
     private let loadFiles: (PRRow) async throws -> [PRFileChange]
@@ -89,16 +97,17 @@ final class AIReviewStore {
 
     /// Starts a review for `row` (no-op if one is already running for it). Fails
     /// fast when no eligible approver. Runs in a Task NOT tied to any view, so
-    /// Back doesn't cancel it.
+    /// Back doesn't cancel it — only `stop(row:)` does.
     func start(row: PRRow) {
         let key = Self.key(row)
-        guard !running.contains(key) else { return }
-        running.insert(key)
+        guard runs[key] == nil else { return }
+        let id = UUID()
 
-        Task {
-            defer { self.running.remove(key) }
+        let task = Task {
+            defer { self.finish(key, id) }
 
             let resolution = await self.resolveApprover(row)
+            guard self.isCurrent(key, id) else { return }
             guard let approver = Self.effectiveApprover(
                 resolution: resolution,
                 selectedId: self.selectedApproverByRepo[row.repo.id]
@@ -110,7 +119,11 @@ final class AIReviewStore {
 
             let files: [PRFileChange]
             do { files = try await self.loadFiles(row) }
-            catch { self.phases[key] = .failed("無法取得 PR 變更:\(error.localizedDescription)"); return }
+            catch {
+                if self.isCurrent(key, id) { self.phases[key] = .failed("無法取得 PR 變更:\(error.localizedDescription)") }
+                return
+            }
+            guard self.isCurrent(key, id) else { return }
             let diff = ClaudeReviewPrompt.diffText(files: files)
 
             // A re-run must see the replies to its previous review; reviewing
@@ -118,7 +131,11 @@ final class AIReviewStore {
             // request changes again, so a failed fetch fails the review.
             let followUp: AIReviewFollowUp?
             do { followUp = try await self.loadFollowUp(row) }
-            catch { self.phases[key] = .failed("無法取得 PR 對話紀錄:\(error.localizedDescription)"); return }
+            catch {
+                if self.isCurrent(key, id) { self.phases[key] = .failed("無法取得 PR 對話紀錄:\(error.localizedDescription)") }
+                return
+            }
+            guard self.isCurrent(key, id) else { return }
             if let followUp {
                 self.appendLine(
                     "複審:前次 AI Review 之後有 \(followUp.responses.count) 則回覆、"
@@ -130,26 +147,57 @@ final class AIReviewStore {
                 Task { @MainActor [weak self] in self?.appendLine(line, to: key) }
             }
 
-            switch await self.runReview(row, diff, followUp, onLine) {
+            let outcome = await self.runReview(row, diff, followUp, onLine)
+            // Stopped while Claude was running: drop whatever it returned.
+            guard self.isCurrent(key, id) else { return }
+
+            switch outcome {
             case .failed(let m):
                 self.phases[key] = .failed(m)
             case .success(let review):
+                // From here the review is being posted and can't be taken back,
+                // so `stop` is ignored and the post runs outside this task's
+                // cancellation.
+                self.runs[key]?.submitting = true
+                let body = Self.reviewBody(from: review)
+                let error: String?
+                let label: String
                 switch review.verdict {
                 case .approve:
-                    if let err = await self.approve(row, approver, Self.reviewBody(from: review)) {
-                        self.phases[key] = .failed("Approve 失敗:\(err)")
-                    } else {
-                        self.phases[key] = .done(review, actedAs: approver.login)
-                    }
+                    label = "Approve 失敗"
+                    error = await Task { await self.approve(row, approver, body) }.value
                 case .issuesFound:
-                    if let err = await self.requestChanges(row, approver, Self.reviewBody(from: review)) {
-                        self.phases[key] = .failed("Request changes 失敗:\(err)")
-                    } else {
-                        self.phases[key] = .done(review, actedAs: approver.login)
-                    }
+                    label = "Request changes 失敗"
+                    error = await Task { await self.requestChanges(row, approver, body) }.value
                 }
+                self.phases[key] = error.map { .failed("\(label):\($0)") } ?? .done(review, actedAs: approver.login)
             }
         }
+        runs[key] = Run(id: id, task: task)
+    }
+
+    /// Whether `row` has a review that can still be stopped: running, and not
+    /// yet posting its verdict to GitHub.
+    func canStop(row: PRRow) -> Bool {
+        guard let run = runs[Self.key(row)] else { return false }
+        return !run.submitting
+    }
+
+    /// Stops `row`'s running review: cancels its task (which terminates the
+    /// `claude` process) and returns the PR to idle. No-op when nothing is
+    /// running, or once the verdict is being posted.
+    func stop(row: PRRow) {
+        let key = Self.key(row)
+        guard let run = runs[key], !run.submitting else { return }
+        run.task.cancel()
+        runs[key] = nil
+        phases[key] = .idle
+    }
+
+    private func isCurrent(_ key: String, _ id: UUID) -> Bool { runs[key]?.id == id }
+
+    private func finish(_ key: String, _ id: UUID) {
+        if isCurrent(key, id) { runs[key] = nil }
     }
 
     private func appendLine(_ line: String, to key: String) {

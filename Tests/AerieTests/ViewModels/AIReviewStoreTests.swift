@@ -93,6 +93,112 @@ final class AIReviewStoreTests: XCTestCase {
         XCTAssertTrue(m.contains("422 unprocessable"))
     }
 
+    // MARK: Stop
+
+    /// A one-shot latch the test opens to let a suspended closure continue.
+    private actor Gate {
+        private var open = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+        func wait() async {
+            if open { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+        func release() { open = true; waiters.forEach { $0.resume() }; waiters.removeAll() }
+    }
+
+    /// Polls until `condition` holds (or ~1 s passes).
+    private func eventually(_ condition: @MainActor () -> Bool) async {
+        for _ in 0..<200 where !condition() {
+            await Task.yield(); try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    private func isRunning(_ store: AIReviewStore, _ row: PRRow) -> Bool {
+        if case .running = store.phase(for: row) { return true }; return false
+    }
+
+    func test_stop_whileReviewing_cancelsTheRun_returnsToIdle_andPostsNothing() async {
+        var sawCancellation = false
+        var posted = false
+        let store = makeStore(
+            run: { _, _, _, _ in
+                // A long review that honours cancellation, like the real CLI run.
+                while !Task.isCancelled { try? await Task.sleep(nanoseconds: 2_000_000) }
+                sawCancellation = true
+                return .success(ClaudeReview(verdict: .approve, summary: "late", issues: [], raw: ""))
+            },
+            resolveApprover: { _ in self.resolution(default: self.acct()) },
+            approve: { _, _, _ in posted = true; return nil },
+            requestChanges: { _, _, _ in posted = true; return nil })
+        let row = prRow()
+        store.start(row: row)
+        await eventually { self.isRunning(store, row) }
+        XCTAssertTrue(store.canStop(row: row))
+
+        store.stop(row: row)
+        XCTAssertEqual(store.phase(for: row), .idle, "stop is immediate")
+        XCTAssertFalse(store.canStop(row: row))
+        await eventually { sawCancellation }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(sawCancellation, "the review task is cancelled, which terminates the CLI")
+        XCTAssertFalse(posted, "a stopped review never approves or requests changes")
+        XCTAssertEqual(store.phase(for: row), .idle, "the cancelled run's result is discarded")
+    }
+
+    func test_stop_thenStartAgain_theOldRunDoesNotClobberTheNewOne() async {
+        let firstGate = Gate()
+        var calls = 0
+        let store = makeStore(
+            run: { _, _, _, _ in
+                calls += 1
+                if calls == 1 {
+                    await firstGate.wait()   // ignores cancellation, finishes late
+                    return .failed("stale")
+                }
+                return .success(ClaudeReview(verdict: .approve, summary: "fresh", issues: [], raw: ""))
+            },
+            resolveApprover: { _ in self.resolution(default: self.acct()) })
+        let row = prRow()
+        store.start(row: row)
+        await eventually { calls == 1 }
+        store.stop(row: row)
+        store.start(row: row)
+        await eventually { if case .done = store.phase(for: row) { return true }; return false }
+        await firstGate.release()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        guard case .done(let review, _) = store.phase(for: row) else { return XCTFail("\(store.phase(for: row))") }
+        XCTAssertEqual(review.summary, "fresh", "the stale run finishing later must not overwrite the new result")
+        store.start(row: row)   // and the key isn't stuck as running
+        await eventually { calls == 3 }
+        XCTAssertEqual(calls, 3)
+    }
+
+    func test_stop_duringSubmission_isIgnored_soThePostedReviewIsReported() async {
+        let postGate = Gate()
+        var posts = 0
+        let store = makeStore(
+            run: { _, _, _, _ in .success(ClaudeReview(verdict: .approve, summary: "ok", issues: [], raw: "")) },
+            resolveApprover: { _ in self.resolution(default: self.acct()) },
+            approve: { _, _, _ in posts += 1; await postGate.wait(); return nil })
+        let row = prRow()
+        store.start(row: row)
+        await eventually { posts == 1 }
+        XCTAssertFalse(store.canStop(row: row), "once the review is being posted it can't be taken back")
+        store.stop(row: row)
+        await postGate.release()
+        await settle(store, row)
+        guard case .done = store.phase(for: row) else { return XCTFail("\(store.phase(for: row))") }
+        XCTAssertEqual(posts, 1)
+    }
+
+    func test_stop_whenNothingIsRunning_isANoOp() {
+        let store = makeStore(run: { _, _, _, _ in .failed("unused") })
+        let row = prRow()
+        XCTAssertFalse(store.canStop(row: row))
+        store.stop(row: row)
+        XCTAssertEqual(store.phase(for: row), .idle)
+    }
+
     // MARK: Follow-up
 
     private func sampleFollowUp() -> AIReviewFollowUp {
