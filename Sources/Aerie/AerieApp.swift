@@ -361,6 +361,7 @@ struct MainShell: View {
                 onReview: { reviewing = $0 },
                 aiReviewPhase: { aiReviewStore.phase(for: $0) },
                 onStartAIReview: { aiReviewStore.start(row: $0) },
+                onStopAIReview: { aiReviewStore.stop(row: $0) },
                 onDismissAIReview: { aiReviewStore.dismiss(row: $0) }
             )
         case .issues:

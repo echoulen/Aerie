@@ -103,6 +103,21 @@ final class ClaudeReviewServiceTests: XCTestCase {
         XCTAssertTrue(m.contains("進度") || m.contains("逾時"))
     }
 
+    func test_cancellingTheCaller_endsTheReviewPromptly() async {
+        // AI Review's Stop cancels the store's task; the running CLI must be
+        // cancelled with it, not left until the idle timeout.
+        let runner = StreamStubRunner(); runner.hang = true
+        let service = svc(runner, idle: 20, total: 60)
+        let started = Date()
+        let task = Task { await self.review(service) }
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertTrue(runner.ranClaude)
+        task.cancel()
+        let outcome = await task.value
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3, "cancellation propagates to the CLI run")
+        guard case .failed = outcome else { return XCTFail("\(outcome)") }
+    }
+
     func test_existingLocalPath_usedAsCwd() async {
         let r = StreamStubRunner()
         r.lines = [#"{"type":"result","result":"{\"verdict\":\"approve\",\"summary\":\"x\",\"issues\":[]}"}"#]

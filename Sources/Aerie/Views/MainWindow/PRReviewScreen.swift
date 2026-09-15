@@ -80,7 +80,7 @@ struct PRReviewScreen: View {
         case .idle:
             EmptyView()
         case .running(let lines):
-            AIReviewConsole(lines: lines)
+            AIReviewConsole(lines: lines, onStop: { store.stop(row: vm.row) })
                 .padding(.horizontal, gutter).padding(.top, widthClass == .compact ? 12 : 16)
         case .done(let review, let actedAs):
             AIReviewCard(review: review, actedAs: actedAs)
@@ -649,6 +649,7 @@ private struct AIReviewCard: View {
 /// `.console` well (max 150pt) streaming Claude's progress with a caret.
 private struct AIReviewConsole: View {
     let lines: [String]
+    let onStop: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -663,6 +664,14 @@ private struct AIReviewConsole: View {
                 }
                 Spacer(minLength: 8)
                 LiveArcPill(text: "claude cli")
+                Button(action: onStop) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "stop.fill").font(.system(size: 9, weight: .bold))
+                        Text("Stop")
+                    }
+                }
+                .buttonStyle(.hud(.danger, size: .small))
+                .help("Stop this AI Review — nothing is posted to the PR")
             }
             CardConsole(lines: lines, maxHeight: 150)
         }

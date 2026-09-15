@@ -51,6 +51,9 @@ struct PRCard: View {
     /// opening the detail screen. Wraps `AIReviewStore.start(row:)`.
     /// Defaulted to a no-op for snapshot tests and previews.
     var onStartAIReview: () -> Void = {}
+    /// Stops this PR's running AI review. Wraps `AIReviewStore.stop(row:)`.
+    /// Defaulted to a no-op for snapshot tests and previews.
+    var onStopAIReview: () -> Void = {}
     /// Clears a failed AI-review phase back to idle (the error strip's
     /// Dismiss control). Wraps `AIReviewStore.dismiss(row:)`. Defaulted to a
     /// no-op for snapshot tests and previews.
@@ -316,12 +319,10 @@ struct PRCard: View {
     }
 
     /// The narrow rows' primary key: gold `.btn.amber.sm` "AI Review", arc
-    /// cyan with a spinner while the review runs, disabled on drafts.
+    /// cyan with a spinner while the review runs — tapping it then stops the
+    /// review — disabled on drafts.
     private var narrowAIReviewKey: some View {
-        Button {
-            guard !isAIReviewing, !row.pr.isDraftPR else { return }
-            onStartAIReview()
-        } label: {
+        Button(action: aiReviewKeyTapped) {
             HStack(spacing: 6) {
                 aiReviewIcon
                 Text(aiReviewLabel)
@@ -329,9 +330,7 @@ struct PRCard: View {
         }
         .buttonStyle(.hud(isAIReviewing ? .arc : .amber, size: .small))
         .disabled(row.pr.isDraftPR && !isAIReviewing)
-        .help(row.pr.isDraftPR
-            ? "\(row.repo.name) #\(row.pr.number) is still a draft — mark it ready for review first"
-            : "Run AI Review for \(row.repo.name) #\(row.pr.number)")
+        .help(aiReviewHelp(verb: "Run AI Review for"))
     }
 
     /// "CI PASS" / "CI FAIL" / "CI ···".
@@ -459,8 +458,12 @@ struct PRCard: View {
     private var overflowMenu: some View {
         RowOverflowMenu(help: "Actions for \(row.repo.name) #\(row.pr.number)") {
             Button("Review Diff", action: onReview)
-            Button(aiReviewMenuLabel, action: onStartAIReview)
-                .disabled(row.pr.isDraftPR || isAIReviewing)
+            if isAIReviewing {
+                Button("Stop AI Review", action: onStopAIReview)
+            } else {
+                Button(aiReviewMenuLabel, action: onStartAIReview)
+                    .disabled(row.pr.isDraftPR)
+            }
             Divider()
             Button(isMerging ? "Merging…" : "Merge…") { showMergeConfirm = true }
                 .disabled(!mergeable || isMerging)
@@ -479,11 +482,8 @@ struct PRCard: View {
     }
 
     private var aiReviewMenuLabel: String {
-        switch aiReviewPhase {
-        case .running: return "AI Review Running…"
-        case .failed:  return "Retry AI Review"
-        default:       return "AI Review"
-        }
+        if case .failed = aiReviewPhase { return "Retry AI Review" }
+        return "AI Review"
     }
 
     private var mergeDialog: some View {
@@ -559,12 +559,10 @@ struct PRCard: View {
     // (`PRReviewScreen.swift`) but degrades to a plain tap (no account picker)
     // since the row has no room for one; switching accounts still works from
     // the detail screen's split button. While the review runs the key turns
-    // arc cyan (`.btn.arc`) — a live process — and taps are ignored.
+    // arc cyan (`.btn.arc`) — a live process — and reads "Stop": tapping it
+    // stops the review.
     private var aiReviewButton: some View {
-        Button {
-            guard !isAIReviewing, !row.pr.isDraftPR else { return }
-            onStartAIReview()
-        } label: {
+        Button(action: aiReviewKeyTapped) {
             HStack(spacing: 6) {
                 aiReviewIcon
                 Text(aiReviewLabel)
@@ -572,12 +570,25 @@ struct PRCard: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.hud(isAIReviewing ? .arc : .standard, size: .small))
-        // Running stays enabled (the guard above ignores taps) so the arc key
-        // isn't dimmed by the disabled treatment; drafts are truly disabled.
+        // Running stays enabled — the key is the Stop control then; drafts are
+        // truly disabled.
         .disabled(row.pr.isDraftPR && !isAIReviewing)
-        .help(row.pr.isDraftPR
-            ? "\(row.repo.name) #\(row.pr.number) is still a draft — mark it ready for review first"
-            : "Run AI Review for \(row.repo.name) #\(row.pr.number) without opening the diff")
+        .help(aiReviewHelp(verb: "Run AI Review for", suffix: " without opening the diff"))
+    }
+
+    /// Both AI Review keys: start when idle, stop while running.
+    private func aiReviewKeyTapped() {
+        if isAIReviewing { onStopAIReview(); return }
+        guard !row.pr.isDraftPR else { return }
+        onStartAIReview()
+    }
+
+    private func aiReviewHelp(verb: String, suffix: String = "") -> String {
+        if isAIReviewing { return "Stop the running AI Review for \(row.repo.name) #\(row.pr.number)" }
+        if row.pr.isDraftPR {
+            return "\(row.repo.name) #\(row.pr.number) is still a draft — mark it ready for review first"
+        }
+        return "\(verb) \(row.repo.name) #\(row.pr.number)\(suffix)"
     }
 
     @ViewBuilder
@@ -600,7 +611,7 @@ struct PRCard: View {
     private var aiReviewLabel: String {
         switch aiReviewPhase {
         case .idle: return "AI Review"
-        case .running: return "Reviewing…"
+        case .running: return "Stop"
         case .done(let review, _): return review.verdict == .approve ? "Approved" : "Issues found"
         case .failed: return "Retry AI Review"
         }
