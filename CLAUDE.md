@@ -45,3 +45,16 @@ to see it in the running app.
 `swift test` runs the suite. Note: ~70 snapshot-test failures here are
 environmental (baselines are machine-dependent), not regressions — see the
 project memory note before treating snapshot diffs as real failures.
+
+## Releasing
+
+Create releases as a **draft**; CI publishes them once the installer is attached:
+
+```bash
+gh release create vX.Y.Z --draft --generate-notes --target "$(git rev-parse origin/main)"
+```
+
+`.github/workflows/build-app.yml` builds the draft, uploads
+`Aerie-macOS-arm64.zip`, then publishes it. A release created already published
+still builds, but apps checking for updates see it for several minutes before
+its zip exists ("still being published").

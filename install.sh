@@ -62,6 +62,8 @@ if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
 fi
 
 log "Installing to ${INSTALL_DIR}/${APP_BUNDLE}…"
+ICON_REL="Contents/Resources/AppIcon.icns"
+OLD_ICON_SUM="$(shasum "${INSTALL_DIR}/${APP_BUNDLE}/${ICON_REL}" 2>/dev/null | cut -d' ' -f1 || true)"
 rm -rf "${INSTALL_DIR:?}/${APP_BUNDLE}"
 cp -R "${WORK_DIR}/${APP_BUNDLE}" "${INSTALL_DIR}/${APP_BUNDLE}"
 
@@ -70,6 +72,18 @@ cp -R "${WORK_DIR}/${APP_BUNDLE}" "${INSTALL_DIR}/${APP_BUNDLE}"
 # curl | bash is already the user's trust decision, so strip it here instead
 # of making them right-click → Open on first launch.
 xattr -dr com.apple.quarantine "${INSTALL_DIR}/${APP_BUNDLE}" 2>/dev/null || true
+
+# Replacing a bundle in place leaves Finder and the Dock on the old build's
+# cached icon. Bump the bundle's mtime and re-register it with LaunchServices;
+# if the icon itself changed, restart the Dock too (it keeps its own cache) —
+# ordinary updates with the same icon don't flash the Dock.
+touch "${INSTALL_DIR}/${APP_BUNDLE}"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+[ -x "$LSREGISTER" ] && "$LSREGISTER" -f "${INSTALL_DIR}/${APP_BUNDLE}" >/dev/null 2>&1 || true
+NEW_ICON_SUM="$(shasum "${INSTALL_DIR}/${APP_BUNDLE}/${ICON_REL}" 2>/dev/null | cut -d' ' -f1 || true)"
+if [ -n "$OLD_ICON_SUM" ] && [ "$OLD_ICON_SUM" != "$NEW_ICON_SUM" ]; then
+  killall Dock 2>/dev/null || true
+fi
 
 open "${INSTALL_DIR}/${APP_BUNDLE}"
 

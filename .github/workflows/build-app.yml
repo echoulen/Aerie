@@ -1,8 +1,15 @@
 name: Build App
 
+# Release flow: create the release as a DRAFT, e.g.
+#   gh release create vX.Y.Z --draft --generate-notes --target "$(git rev-parse origin/main)"
+# A draft fires `created`; this job builds it, uploads the zip, and only then
+# publishes it. Apps checking for updates never see a release without its
+# installer. (Publishing a draft fires `published`, not `created`, so it doesn't
+# rebuild.) A release created already published still fires `created` and is
+# built as before, it just has the no-installer window.
 on:
   release:
-    types: [published]
+    types: [created]
 
 permissions:
   contents: write
@@ -17,9 +24,19 @@ jobs:
     env:
       TAG: ${{ github.event.release.tag_name }}
     steps:
+      # A draft's tag doesn't exist yet, so build its target commit; a release
+      # published directly already has its tag.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.release.draft && github.event.release.target_commitish || github.event.release.tag_name }}
           fetch-depth: 0
+
+      # `make app` stamps CFBundleShortVersionString from `git describe --tags`.
+      # A draft's tag isn't created until it's published, so without this the
+      # build would carry the previous version and keep offering itself as an
+      # update. Local only — publishing creates the real tag.
+      - name: Tag the build locally
+        run: git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || git tag "$TAG"
 
       - name: Show toolchain
         run: swift --version
@@ -43,3 +60,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" dist/Aerie-macOS-arm64.zip --clobber
+
+      # Publish only now that the installer is attached, pinned to the commit
+      # that was built (the draft's target branch may have moved meanwhile).
+      - name: Publish the draft
+        if: github.event.release.draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$TAG" --draft=false --latest --target "$(git rev-parse HEAD)"
