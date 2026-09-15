@@ -360,20 +360,10 @@ struct DialogSpinner: View {
     var stroke: Color
     var size: CGFloat = 13
 
-    @State private var spinning = false
-
     var body: some View {
-        Circle()
-            .trim(from: 0, to: 0.5)
-            .stroke(stroke, lineWidth: 2)
-            .shadow(color: stroke.opacity(0.8), radius: 2)
-            .frame(width: size - 2, height: size - 2)
+        ArcSpinner(style: .init(
+            color: stroke, lineWidth: 2, trimTo: 0.5, duration: 0.7,
+            shadow: stroke.opacity(0.8), shadowRadius: 2, diameter: size - 2))
             .frame(width: size, height: size)
-            .rotationEffect(.degrees(spinning ? 360 : 0))
-            .animation(
-                .linear(duration: 0.7).repeatForever(autoreverses: false),
-                value: spinning
-            )
-            .onAppear { spinning = true }
     }
 }

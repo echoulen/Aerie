@@ -170,41 +170,21 @@ struct SectionEyebrow: View {
 // MARK: - Energy / progress
 
 /// `.arc-ring` — the arc-reactor loader used by running states: a thin cyan
-/// ring with a spinning highlight arc and a pulsing core.
+/// ring with a spinning highlight arc and a pulsing core. Core Animation
+/// (`ArcRingView`); the SwiftUI shell only sizes it.
 struct ArcRing: View {
     var size: CGFloat = 26
-    @State private var spinning = false
-    @State private var pulsing = false
 
     var body: some View {
-        ZStack {
-            Circle()
-                .strokeBorder(AerieColor.arcLine, lineWidth: 1)
-                .shadow(color: AerieColor.arcGlow, radius: 5)
-            Circle()
-                .trim(from: 0, to: 0.25)
-                .stroke(AerieColor.arc, lineWidth: 1)
-                .rotationEffect(.degrees(spinning ? 360 : 0))
-            Circle()
-                .fill(AerieColor.arc)
-                .frame(width: size - 16, height: size - 16)
-                .shadow(color: AerieColor.arcGlow, radius: 6)
-                .scaleEffect(pulsing ? 0.82 : 1)
-                .opacity(pulsing ? 0.55 : 1)
-        }
-        .frame(width: size, height: size)
-        .onAppear {
-            withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) { spinning = true }
-            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulsing = true }
-        }
+        ArcRingLayer().frame(width: size, height: size)
     }
 }
 
 /// `.progress-track` — a 2pt hairline with a glowing sweep running across it.
+/// Core Animation (`ProgressSweepView`).
 struct ProgressSweep: View {
     enum Tone { case amber, arc, danger }
     var tone: Tone = .amber
-    @State private var phase: CGFloat = -1
 
     private var color: Color {
         switch tone {
@@ -215,21 +195,7 @@ struct ProgressSweep: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            ZStack(alignment: .leading) {
-                AerieColor.glassLine
-                LinearGradient(colors: [.clear, color, .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: w * 0.25)
-                    .shadow(color: color.opacity(0.7), radius: 6)
-                    .offset(x: phase * w)
-            }
-            .clipped()
-        }
-        .frame(height: 2)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: false)) { phase = 1 }
-        }
+        ProgressSweepLayer(color: color).frame(height: 2)
     }
 }
 

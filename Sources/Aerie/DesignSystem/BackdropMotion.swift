@@ -8,6 +8,7 @@ import QuartzCore
 // waiting on GPU surfaces for) the whole backdrop 60–120 times a second, which
 // held an idle window at ~40% CPU. Here each layer's contents are built once and
 // the drift is a render-server animation that never touches the main thread.
+// Both views sit on `LayerAnimationView` (epoch, resize, occlusion freeze).
 
 // MARK: - Geometry (pure)
 
@@ -64,66 +65,9 @@ enum BackdropGeometry {
     }
 }
 
-// MARK: - Shared host view
-
-/// A layer-hosting, top-left-origin view that ignores the mouse. Subclasses
-/// rebuild their layer geometry when the size changes and (re)attach their
-/// animations only while `animated` and in a window.
-class BackdropLayerView: NSView {
-    var animated = false {
-        didSet { if animated != oldValue { needsLayout = true; lastSize = nil } }
-    }
-
-    /// Every animation shares this epoch as its `beginTime`, so rebuilding them
-    /// on resize continues the drift in phase instead of snapping to the start.
-    private let epoch = CACurrentMediaTime()
-    private var lastSize: CGSize?
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        let root = CALayer()
-        root.masksToBounds = true
-        layer = root
-        wantsLayer = true
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    /// Top-left origin, matching SwiftUI. AppKit manages a hosted layer's
-    /// `isGeometryFlipped` from this, so setting it on the layer directly
-    /// doesn't stick.
-    override var isFlipped: Bool { true }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        lastSize = nil
-        needsLayout = true
-    }
-
-    override func layout() {
-        super.layout()
-        let size = bounds.size
-        guard size.width > 0, size.height > 0, size != lastSize else { return }
-        lastSize = size
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        rebuild(size: size, animate: animated && window != nil)
-        CATransaction.commit()
-    }
-
-    /// Lay the layers out for `size` and attach or strip animations.
-    func rebuild(size: CGSize, animate: Bool) {}
-
-    func beginTime(for layer: CALayer) -> CFTimeInterval {
-        layer.convertTime(epoch, from: nil)
-    }
-}
-
 // MARK: - Nebula
 
-final class NebulaFieldView: BackdropLayerView {
+final class NebulaFieldView: LayerAnimationView {
     struct Cloud {
         let color: Color
         let alpha: Double
@@ -232,7 +176,7 @@ struct NebulaField: NSViewRepresentable {
 
 // MARK: - Stars
 
-final class StarfieldView: BackdropLayerView {
+final class StarfieldView: LayerAnimationView {
     struct Dot {
         let size: CGFloat, tile: CGFloat, x: CGFloat, y: CGFloat, color: Color
     }
