@@ -49,7 +49,7 @@ final class PRReviewScreenTests: XCTestCase {
         let files = self.files
         let store = AIReviewStore(
             loadFiles: { _ in files },
-            runReview: { _, _, _ in .failed("unused") },
+            runReview: { _, _, _, _ in .failed("unused") },
             resolveApprover: { _ in ApproverResolution(eligible: [], defaultApprover: nil) },
             approve: { _, _, _ in nil },
             requestChanges: { _, _, _ in nil })

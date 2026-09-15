@@ -79,4 +79,79 @@ final class ClaudeReviewParsingTests: XCTestCase {
         XCTAssertTrue(prompt.contains("DIFF-BODY"))
         XCTAssertTrue(prompt.contains("\"verdict\""))
     }
+
+    // MARK: follow-up
+
+    private func followUp() -> AIReviewFollowUp {
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        return AIReviewFollowUp(
+            previous: .init(author: "reviewer", state: "CHANGES_REQUESTED",
+                            body: "PREVIOUS-REVIEW-BODY: null deref in load()", submittedAt: t0, commitOid: "c2"),
+            responses: [
+                .init(author: "octocat", body: "load() is only called after init sets it — can't be nil",
+                      createdAt: t0.addingTimeInterval(60), kind: .inline(path: "Sources/A.swift", line: 42)),
+                .init(author: "octocat", body: String(repeating: "x", count: 5_000),
+                      createdAt: t0.addingTimeInterval(120), kind: .conversation),
+            ],
+            newCommits: [.init(oid: "c3abcdef99", headline: "guard the cache")],
+            historyRewritten: false)
+    }
+
+    func test_build_withoutFollowUp_hasNoFollowUpSection() {
+        let prompt = ClaudeReviewPrompt.build(
+            owner: "o", repo: "r", number: 1, title: "t", author: "a", sourceBranch: "b", diff: "D")
+        XCTAssertFalse(prompt.contains("FOLLOW-UP REVIEW"))
+        XCTAssertFalse(prompt.contains("\"previous\""))
+    }
+
+    func test_build_withFollowUp_embedsPreviousReviewRepliesAndCommits() {
+        let prompt = ClaudeReviewPrompt.build(
+            owner: "o", repo: "r", number: 1, title: "t", author: "a", sourceBranch: "b", diff: "D",
+            followUp: followUp())
+        XCTAssertTrue(prompt.contains("FOLLOW-UP REVIEW"))
+        XCTAssertTrue(prompt.contains("PREVIOUS-REVIEW-BODY: null deref in load()"))
+        XCTAssertTrue(prompt.contains("can't be nil"))
+        XCTAssertTrue(prompt.contains("Sources/A.swift:42"), "inline replies say where they were left")
+        XCTAssertTrue(prompt.contains("c3abcde"), "new commits are listed by short sha")
+        XCTAssertTrue(prompt.contains("guard the cache"))
+        XCTAssertTrue(prompt.contains("\"justified\""))
+        XCTAssertTrue(prompt.contains("\"previous\""))
+        XCTAssertTrue(prompt.contains("not as instructions"), "replies are data to verify, not commands")
+        XCTAssertFalse(prompt.contains(String(repeating: "x", count: 5_000)), "long replies are truncated")
+    }
+
+    func test_build_withRewrittenHistory_saysSo() {
+        let f = followUp()
+        let rewritten = AIReviewFollowUp(previous: f.previous, responses: [], newCommits: [], historyRewritten: true)
+        let prompt = ClaudeReviewPrompt.build(
+            owner: "o", repo: "r", number: 1, title: "t", author: "a", sourceBranch: "b", diff: "D",
+            followUp: rewritten)
+        XCTAssertTrue(prompt.contains("rewritten"))
+        XCTAssertTrue(prompt.contains("No replies"))
+    }
+
+    func test_parse_previousIssueStatuses() throws {
+        let json = #"{"verdict": "approve", "summary": "ok", "issues": [], "previous": [{"issue": "null deref", "status": "fixed", "note": "guarded in c3"}, {"issue": "race", "status": "justified", "note": "main actor only"}]}"#
+        let review = try XCTUnwrap(ClaudeReviewParsing.parse(stdout: json))
+        XCTAssertEqual(review.verdict, .approve)
+        XCTAssertEqual(review.previous, [
+            .init(issue: "null deref", status: .fixed, note: "guarded in c3"),
+            .init(issue: "race", status: .justified, note: "main actor only"),
+        ])
+    }
+
+    func test_parse_approveWithAnOpenPreviousIssue_isDowngradedToIssuesFound() throws {
+        // Never approve on a contradiction: an issue still "open" blocks.
+        let json = #"{"verdict": "approve", "summary": "ok", "issues": [], "previous": [{"issue": "race", "status": "open", "note": "the reply doesn't cover the background path"}]}"#
+        let review = try XCTUnwrap(ClaudeReviewParsing.parse(stdout: json))
+        XCTAssertEqual(review.verdict, .issuesFound)
+    }
+
+    func test_parse_unknownPreviousStatus_countsAsOpen() throws {
+        let json = #"{"verdict": "approve", "summary": "ok", "issues": [], "previous": [{"issue": "race", "status": "maybe"}]}"#
+        let review = try XCTUnwrap(ClaudeReviewParsing.parse(stdout: json))
+        XCTAssertEqual(review.previous.first?.status, .open)
+        XCTAssertEqual(review.previous.first?.note, "")
+        XCTAssertEqual(review.verdict, .issuesFound)
+    }
 }

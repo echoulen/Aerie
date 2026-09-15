@@ -476,7 +476,13 @@ struct MainShell: View {
                     owner: r.repo.githubOwner, repo: r.repo.githubRepo,
                     number: r.pr.number, accountId: r.repo.primaryAccountId).value
             },
-            runReview: { r, diff, onLine in
+            loadFollowUp: { r in
+                let conversation = try await services.multiApi.fetchPRConversation(
+                    owner: r.repo.githubOwner, repo: r.repo.githubRepo,
+                    number: r.pr.number, accountId: r.repo.primaryAccountId).value
+                return AIReviewFollowUp.from(conversation)
+            },
+            runReview: { r, diff, followUp, onLine in
                 // Read the model fresh on every run (not at store construction)
                 // so Settings edits apply to the next click.
                 let storedModel = (try? await services.db.settings.getString(AIModelViewModel.settingsKey)) ?? nil
@@ -484,7 +490,7 @@ struct MainShell: View {
                 return await claude.review(
                     owner: r.repo.githubOwner, repo: r.repo.githubRepo, number: r.pr.number,
                     title: r.pr.title, author: r.pr.authorLogin, sourceBranch: r.pr.sourceBranch,
-                    diff: diff, localPath: r.repo.localPath, model: model, onLine: onLine)
+                    diff: diff, followUp: followUp, localPath: r.repo.localPath, model: model, onLine: onLine)
             },
             resolveApprover: { r in
                 let accounts = await services.auth.allAccounts()

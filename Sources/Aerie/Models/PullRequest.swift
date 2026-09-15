@@ -42,6 +42,11 @@ struct PullRequest: Codable, Equatable, Identifiable {
     var additions: Int? = nil
     var deletions: Int? = nil
     var changedFiles: Int? = nil
+    /// Whether anyone answered the latest changes request — a comment or review
+    /// from someone other than the requester, or a new commit, after it. Nil
+    /// when the PR has no changes request. Optional + defaulted for the same
+    /// back-compat reason as `approvedBy`.
+    var respondedToChangesRequest: Bool? = nil
     /// GitHub's draft flag. Optional + defaulted for the same back-compat
     /// reason as `approvedBy`: older cached rows predate the field.
     var isDraft: Bool? = nil
@@ -52,6 +57,12 @@ struct PullRequest: Codable, Equatable, Identifiable {
 }
 
 extension PullRequest {
+    /// Changes were requested and someone has since responded: the PR is
+    /// waiting on a re-review (AI Review re-runs with the replies in context).
+    var awaitingReReview: Bool {
+        reviewState == .changesRequested && respondedToChangesRequest == true
+    }
+
     /// Whether GitHub treats this PR as a draft — the authoritative `isDraft`
     /// when present, falling back to `mergeStateStatus` for cached rows that
     /// predate the field. Draft PRs are shown in the list like any other, but

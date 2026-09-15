@@ -251,6 +251,9 @@ struct PRReviewScreen: View {
             }
             CIChip(state: pr.ciState)
             ReviewChip(state: pr.reviewState)
+            if pr.awaitingReReview {
+                StatusPill(text: "Responded · re-review", tone: .amber)
+            }
             if let add = pr.additions, let del = pr.deletions, let files = pr.changedFiles {
                 HStack(spacing: 5) {
                     Text("+\(add)").foregroundStyle(AerieColor.ok)
