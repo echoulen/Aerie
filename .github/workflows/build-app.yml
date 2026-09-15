@@ -1,15 +1,18 @@
 name: Build App
 
-# Release flow: create the release as a DRAFT, e.g.
-#   gh release create vX.Y.Z --draft --generate-notes --target "$(git rev-parse origin/main)"
-# A draft fires `created`; this job builds it, uploads the zip, and only then
-# publishes it. Apps checking for updates never see a release without its
-# installer. (Publishing a draft fires `published`, not `created`, so it doesn't
-# rebuild.) A release created already published still fires `created` and is
-# built as before, it just has the no-installer window.
+# Release flow: push a version tag.
+#   git tag vX.Y.Z origin/main && git push origin vX.Y.Z
+# This job builds the tag, creates the release as a draft, uploads the zip, and
+# only then publishes it — apps checking for updates never see a release
+# without its installer.
+#
+# (A draft release can't start the job itself: GitHub doesn't run workflows for
+# a draft's `created` event.) If the release already exists — e.g. made with
+# `gh release create`, which also creates the tag — the zip is attached to it
+# as before, with the brief no-installer window that implies.
 on:
-  release:
-    types: [created]
+  push:
+    tags: ['v*']
 
 permissions:
   contents: write
@@ -22,21 +25,12 @@ jobs:
     # dependency resolution with "incompatible tools version (6.0.0)".
     runs-on: macos-15
     env:
-      TAG: ${{ github.event.release.tag_name }}
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      # A draft's tag doesn't exist yet, so build its target commit; a release
-      # published directly already has its tag.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.draft && github.event.release.target_commitish || github.event.release.tag_name }}
           fetch-depth: 0
-
-      # `make app` stamps CFBundleShortVersionString from `git describe --tags`.
-      # A draft's tag isn't created until it's published, so without this the
-      # build would carry the previous version and keep offering itself as an
-      # update. Local only — publishing creates the real tag.
-      - name: Tag the build locally
-        run: git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || git tag "$TAG"
 
       - name: Show toolchain
         run: swift --version
@@ -56,15 +50,19 @@ jobs:
           mkdir -p dist
           ditto -c -k --sequesterRsrc --keepParent Aerie.app dist/Aerie-macOS-arm64.zip
 
+      - name: Create the release as a draft (unless it exists)
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — attaching the zip to it."
+          else
+            gh release create "$TAG" --draft --generate-notes --verify-tag
+          fi
+
       - name: Upload asset to release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" dist/Aerie-macOS-arm64.zip --clobber
 
-      # Publish only now that the installer is attached, pinned to the commit
-      # that was built (the draft's target branch may have moved meanwhile).
-      - name: Publish the draft
-        if: github.event.release.draft
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$TAG" --draft=false --latest --target "$(git rev-parse HEAD)"
+      - name: Publish once the installer is attached
+        run: |
+          if [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" = "true" ]; then
+            gh release edit "$TAG" --draft=false --latest
+          fi

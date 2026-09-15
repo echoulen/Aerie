@@ -48,13 +48,16 @@ project memory note before treating snapshot diffs as real failures.
 
 ## Releasing
 
-Create releases as a **draft**; CI publishes them once the installer is attached:
+Push a version tag; CI creates the release and publishes it once the installer
+is attached:
 
 ```bash
-gh release create vX.Y.Z --draft --generate-notes --target "$(git rev-parse origin/main)"
+git fetch origin && git tag vX.Y.Z origin/main && git push origin vX.Y.Z
 ```
 
-`.github/workflows/build-app.yml` builds the draft, uploads
-`Aerie-macOS-arm64.zip`, then publishes it. A release created already published
-still builds, but apps checking for updates see it for several minutes before
-its zip exists ("still being published").
+`.github/workflows/build-app.yml` builds the tag, creates a draft release with
+generated notes, uploads `Aerie-macOS-arm64.zip`, then publishes it. Don't
+create the release first with `gh release create --draft`: GitHub doesn't run
+workflows for a draft's `created` event, so nothing would build. A release made
+already published (`gh release create vX.Y.Z`) still gets its zip, but apps see
+it for several minutes before the zip exists ("still being published").
