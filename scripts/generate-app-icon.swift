@@ -1,28 +1,32 @@
 #!/usr/bin/env swift
 //
-// Generates the Aerie app icon PNG set for the macOS asset catalog.
+// Generates the Aerie app icon: the asset-catalog PNG set plus the About
+// screen's `app-icon.png`.
 //
-// Faithfully reproduces docs/superpowers/design/v2/icon.jsx (`AppIcon`):
-//   • Dark glass squircle (border-radius ≈ 22.5% of size)
-//   • Diagonal warm→cool linear gradient
-//   • Warm radial wash at top-left + cool radial wash at bottom-right
-//   • Top/bottom inset highlight + lowlight
-//   • SVG-style radar layer (viewBox 100×100, center at 50,55):
-//       - 4 concentric range rings (r = 14/22/30/38) amber, faint
-//       - faint cross hairs
-//       - amber sweep wedge from top to right
-//       - soft amber halo around the orb
-//       - sodium-amber orb (r = 12) with off-center radial gradient
-//       - white specular highlight ellipse on the orb
-//   • Top-edge white highlight gradient (top 30%)
-//   • "AERIE" wordmark at bottom (only when image is ≥ 96 px)
+//     swift scripts/generate-app-icon.swift [appiconset-dir] [about-png]
 //
-// The viewBox coordinates from icon.jsx are SVG (y grows downward); this
-// script maps them into CG (y grows upward) via the `y()` / `flipY()`
-// helpers. Distances are scaled linearly via `s`.
+// Reproduces the design's MARK III arc reactor (claude.ai/design project
+// "Aerie", `src/v2/icon.jsx` → `AppIcon`): a dark-alloy squircle holding a
+// segmented energy ring, six radial struts, a triangular reactor core, and an
+// etched HUD reticle with tick rails.
+//
+// Fidelity notes — each mirrors how a browser renders the design:
+//   • Colours are the design's oklch values converted exactly (OKLab → linear
+//     sRGB → sRGB, per-channel clip), not eyeballed approximations.
+//   • The CSS background gradients use oklch colours, so CSS interpolates
+//     them in OKLab; they're expanded into dense sRGB stops here. SVG
+//     gradients interpolate in sRGB, so they map to CGGradient directly.
+//   • SVG `objectBoundingBox` gradients are resolved against each shape's
+//     bounding box — including the ring's `rotate(-90)`, which turns its
+//     gradient too, and the core's non-square box, which makes its radial
+//     gradient elliptical.
+//   • Drawing happens in a y-down space (the SVG/CSS convention), so design
+//     coordinates are used verbatim.
 
 import AppKit
 import CoreGraphics
+
+// MARK: - Output
 
 struct IconSpec {
     let size: Int
@@ -41,269 +45,287 @@ let specs: [IconSpec] = [
     .init(size: 512, scale: 1), .init(size: 512, scale: 2),
 ]
 
-let outDir = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first
-                 ?? "Sources/Aerie/Resources/Assets.xcassets/AppIcon.appiconset")
-try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+let args = Array(CommandLine.arguments.dropFirst())
+let outDir = URL(fileURLWithPath: args.first ?? "Sources/Aerie/Resources/Assets.xcassets/AppIcon.appiconset")
+let aboutPNG = URL(fileURLWithPath: args.dropFirst().first ?? "Sources/Aerie/Resources/app-icon.png")
+let aboutDimension = 512
 
-func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
-    CGColor(red: r, green: g, blue: b, alpha: a)
+// MARK: - Colour
+
+let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+
+/// OKLab, the space CSS interpolates oklch gradients in.
+struct Lab { var l, a, b: Double }
+
+func oklab(_ L: Double, _ C: Double, _ hDegrees: Double) -> Lab {
+    let h = hDegrees * .pi / 180
+    return Lab(l: L, a: C * cos(h), b: C * sin(h))
 }
 
-// Approximated sRGB equivalents of the oklch colors used in icon.jsx.
-enum Palette {
-    // Background gradients
-    static let warmDim    = rgb(0.29, 0.24, 0.20)              // oklch(0.30 0.04 70)
-    static let coolDim    = rgb(0.13, 0.13, 0.22, 0.6)         // oklch(0.18 0.06 290 / 0.6)
-    static let linearTop  = rgb(0.21, 0.18, 0.17)              // oklch(0.22 0.02 70)
-    static let linearBot  = rgb(0.07, 0.08, 0.10)              // oklch(0.10 0.01 270)
-    // Radar amber family
-    static let amberLight = rgb(0.99, 0.81, 0.49)              // oklch(0.85 0.15 75)
-    static let amberPale  = rgb(1.00, 0.91, 0.62)              // oklch(0.95 0.16 80)
-    static let amberMid   = rgb(0.67, 0.45, 0.20)              // oklch(0.55 0.14 60)
-    static let amberDeep  = rgb(0.70, 0.42, 0.13)              // oklch(0.55 0.16 60)
-    static let amberDark  = rgb(0.41, 0.29, 0.16, 0.0)         // oklch(0.35 0.08 50, 0)
-    // Orb
-    static let orbBright  = rgb(1.00, 0.96, 0.75)              // oklch(0.98 0.10 80)
-    static let orbMid     = rgb(0.99, 0.81, 0.49)              // oklch(0.85 0.15 75)
-    static let orbDeep    = rgb(0.70, 0.42, 0.13)              // oklch(0.55 0.16 60)
-    // Wordmark
-    static let wordmark   = NSColor(red: 0.96, green: 0.88, blue: 0.74, alpha: 0.85)
-    static let wordShadow = NSColor(red: 0.00, green: 0.00, blue: 0.00, alpha: 0.60)
+/// OKLab → gamma-encoded sRGB, clipped per channel.
+func srgb(_ c: Lab) -> (Double, Double, Double) {
+    let l_ = c.l + 0.3963377774 * c.a + 0.2158037573 * c.b
+    let m_ = c.l - 0.1055613458 * c.a - 0.0638541728 * c.b
+    let s_ = c.l - 0.0894841775 * c.a - 1.2914855480 * c.b
+    let l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_
+    let lin = (
+        +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+    )
+    func encode(_ x: Double) -> Double {
+        let v = x <= 0.0031308 ? 12.92 * x : 1.055 * pow(x, 1 / 2.4) - 0.055
+        return min(max(v, 0), 1)
+    }
+    return (encode(lin.0), encode(lin.1), encode(lin.2))
 }
+
+func color(_ lab: Lab, _ alpha: Double = 1) -> CGColor {
+    let (r, g, b) = srgb(lab)
+    return CGColor(colorSpace: sRGB, components: [r, g, b, alpha])!
+}
+
+func oklch(_ L: Double, _ C: Double, _ h: Double, _ alpha: Double = 1) -> CGColor {
+    color(oklab(L, C, h), alpha)
+}
+
+func rgba(_ r: Double, _ g: Double, _ b: Double, _ a: Double) -> CGColor {
+    CGColor(colorSpace: sRGB, components: [r / 255, g / 255, b / 255, a])!
+}
+
+/// A CSS gradient between opaque oklch stops, expanded into dense sRGB stops
+/// so CoreGraphics' sRGB interpolation follows CSS's OKLab path.
+func cssGradient(_ stops: [(Lab, Double)], samples: Int = 32) -> CGGradient {
+    var colors: [CGColor] = []
+    var locations: [CGFloat] = []
+    for i in 0...samples {
+        let t = Double(i) / Double(samples)
+        let k = stops.lastIndex { $0.1 <= t } ?? 0
+        let (c0, p0) = stops[k]
+        let (c1, p1) = stops[min(k + 1, stops.count - 1)]
+        let u = p1 > p0 ? (t - p0) / (p1 - p0) : 0
+        colors.append(color(Lab(l: c0.l + (c1.l - c0.l) * u,
+                                a: c0.a + (c1.a - c0.a) * u,
+                                b: c0.b + (c1.b - c0.b) * u)))
+        locations.append(CGFloat(t))
+    }
+    return CGGradient(colorsSpace: sRGB, colors: colors as CFArray, locations: locations)!
+}
+
+/// A colour fading to CSS `transparent` over `[0, end]`. CSS interpolates
+/// premultiplied, so the hue holds and only alpha ramps.
+func fadeGradient(_ c: CGColor, alpha: Double, end: CGFloat) -> CGGradient {
+    CGGradient(colorsSpace: sRGB,
+               colors: [c.copy(alpha: alpha)!, c.copy(alpha: 0)!] as CFArray,
+               locations: [0, end])!
+}
+
+func svgGradient(_ stops: [(CGColor, CGFloat)]) -> CGGradient {
+    CGGradient(colorsSpace: sRGB, colors: stops.map(\.0) as CFArray, locations: stops.map(\.1))!
+}
+
+// MARK: - Palette (icon.jsx)
+
+let gold = oklch(0.86, 0.155, 85)
+
+// MARK: - Render
 
 func renderIcon(dim: Int) -> Data {
-    let cs = CGColorSpaceCreateDeviceRGB()
     let ctx = CGContext(
-        data: nil,
-        width: dim, height: dim,
-        bitsPerComponent: 8, bytesPerRow: 0,
-        space: cs,
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        data: nil, width: dim, height: dim, bitsPerComponent: 8, bytesPerRow: 0,
+        space: sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
     )!
     let D = CGFloat(dim)
-    let s = D / 100.0   // viewBox unit → pixels
-    // SVG → CG y-flip helpers. SVG y=0 is top; CG y=0 is bottom.
-    func y(_ svgY: CGFloat) -> CGFloat { (100 - svgY) * s }
-    func x(_ svgX: CGFloat) -> CGFloat { svgX * s }
-    func d(_ svgD: CGFloat) -> CGFloat { svgD * s }
+    ctx.clear(CGRect(x: 0, y: 0, width: D, height: D))
+    // y-down, like the design.
+    ctx.translateBy(x: 0, y: D)
+    ctx.scaleBy(x: 1, y: -1)
 
-    ctx.clear(CGRect(x: 0, y: 0, width: dim, height: dim))
-
-    // ---------- Squircle clip ----------
-    let cornerR = D * 0.225
-    let squircle = CGPath(
-        roundedRect: CGRect(x: 0, y: 0, width: D, height: D),
-        cornerWidth: cornerR, cornerHeight: cornerR,
-        transform: nil
-    )
-    ctx.saveGState()
+    // ---------- Squircle (CSS border-radius: 22.5%) ----------
+    let box = CGRect(x: 0, y: 0, width: D, height: D)
+    let squircle = CGPath(roundedRect: box, cornerWidth: D * 0.225, cornerHeight: D * 0.225, transform: nil)
     ctx.addPath(squircle)
     ctx.clip()
 
-    // ---------- Dark glass base ----------
-    // Linear 155deg from oklch(0.22 0.02 70) → oklch(0.10 0.01 270).
-    // 155deg in CSS = pointing down + slightly left. Closest CG direction:
-    // start at top-right, end at bottom-left.
-    let baseGradient = CGGradient(colorsSpace: cs, colors: [
-        Palette.linearTop,
-        Palette.linearBot,
-    ] as CFArray, locations: [0.0, 1.0])!
+    // ---------- CSS background (bottom layer first) ----------
+    // linear-gradient(155deg, oklch(0.20 0.02 70), oklch(0.07 0.012 275)).
+    // The gradient line runs through the centre at 155° (0° = up) and is
+    // |w·sin θ| + |h·cos θ| long.
+    let theta = 155.0 * .pi / 180
+    let dir = CGPoint(x: sin(theta), y: -cos(theta))          // y-down
+    let half = (abs(sin(theta)) + abs(cos(theta))) * D / 2
     ctx.drawLinearGradient(
-        baseGradient,
-        start: CGPoint(x: D * 0.78, y: D),          // top-right-ish in CG
-        end:   CGPoint(x: D * 0.22, y: 0),          // bottom-left-ish in CG
-        options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
-    )
+        cssGradient([(oklab(0.20, 0.02, 70), 0), (oklab(0.07, 0.012, 275), 1)]),
+        start: CGPoint(x: D / 2 - dir.x * half, y: D / 2 - dir.y * half),
+        end: CGPoint(x: D / 2 + dir.x * half, y: D / 2 + dir.y * half),
+        options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
 
-    // Warm radial wash from top-left of the squircle (SVG (20%, 0%)).
-    let warmWash = CGGradient(colorsSpace: cs, colors: [
-        Palette.warmDim,
-        Palette.warmDim.copy(alpha: 0)!,
-    ] as CFArray, locations: [0.0, 0.55])!
-    ctx.drawRadialGradient(
-        warmWash,
-        startCenter: CGPoint(x: x(20), y: y(0)),
-        startRadius: 0,
-        endCenter: CGPoint(x: x(20), y: y(0)),
-        endRadius: D * 0.72,
-        options: []
-    )
+    /// CSS `radial-gradient(rx% ry% at cx% cy%, c 0%, transparent end%)`.
+    func cssEllipse(rx: CGFloat, ry: CGFloat, cx: CGFloat, cy: CGFloat, color c: CGColor, alpha: Double, end: CGFloat) {
+        ctx.saveGState()
+        ctx.translateBy(x: cx * D, y: cy * D)
+        ctx.scaleBy(x: rx / ry, y: 1)
+        ctx.drawRadialGradient(fadeGradient(c, alpha: alpha, end: end),
+                               startCenter: .zero, startRadius: 0,
+                               endCenter: .zero, endRadius: ry * D, options: [])
+        ctx.restoreGState()
+    }
+    // radial-gradient(90% 80% at 85% 100%, oklch(0.24 0.14 28 / 0.55) 0%, transparent 62%)
+    cssEllipse(rx: 0.90, ry: 0.80, cx: 0.85, cy: 1.00, color: oklch(0.24, 0.14, 28), alpha: 0.55, end: 0.62)
+    // radial-gradient(70% 60% at 50% 42%, oklch(0.30 0.055 70) 0%, transparent 62%)
+    cssEllipse(rx: 0.70, ry: 0.60, cx: 0.50, cy: 0.42, color: oklch(0.30, 0.055, 70), alpha: 1, end: 0.62)
 
-    // Cool radial wash from bottom-right (SVG (80%, 100%)).
-    let coolWash = CGGradient(colorsSpace: cs, colors: [
-        Palette.coolDim,
-        Palette.coolDim.copy(alpha: 0)!,
-    ] as CFArray, locations: [0.0, 0.6])!
-    ctx.drawRadialGradient(
-        coolWash,
-        startCenter: CGPoint(x: x(80), y: y(100)),
-        startRadius: 0,
-        endCenter: CGPoint(x: x(80), y: y(100)),
-        endRadius: D * 0.60,
-        options: []
-    )
+    // ---------- SVG layer (viewBox 0 0 100 100) ----------
+    ctx.saveGState()
+    ctx.scaleBy(x: D / 100, y: D / 100)
 
-    // ---------- Radar layer ----------
-    let cx = x(50)
-    let cy = y(55)
-
-    // Concentric range rings at r = 14, 22, 30, 38; amber stroke alpha 0.18.
-    let ringStroke = Palette.amberLight.copy(alpha: 0.18)!
-    ctx.setStrokeColor(ringStroke)
-    ctx.setLineWidth(max(0.5, 0.4 * s))
-    for r in [14.0, 22.0, 30.0, 38.0] {
-        let R = d(CGFloat(r))
-        ctx.strokeEllipse(in: CGRect(x: cx - R, y: cy - R, width: R * 2, height: R * 2))
+    func stroke(_ path: CGPath, _ c: CGColor, width: CGFloat, cap: CGLineCap = .butt, join: CGLineJoin = .miter) {
+        ctx.addPath(path)
+        ctx.setStrokeColor(c)
+        ctx.setLineWidth(width)
+        ctx.setLineCap(cap)
+        ctx.setLineJoin(join)
+        ctx.strokePath()
+    }
+    func circle(_ r: CGFloat, cx: CGFloat = 50, cy: CGFloat = 50) -> CGPath {
+        CGPath(ellipseIn: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r), transform: nil)
+    }
+    func poly(_ points: [(CGFloat, CGFloat)], closed: Bool) -> CGPath {
+        let p = CGMutablePath()
+        p.addLines(between: points.map { CGPoint(x: $0.0, y: $0.1) })
+        if closed { p.closeSubpath() }
+        return p
     }
 
-    // Cross hairs (faint amber).
-    let hairStroke = Palette.amberLight.copy(alpha: 0.10)!
-    ctx.setStrokeColor(hairStroke)
-    ctx.setLineWidth(max(0.4, 0.3 * s))
-    ctx.beginPath()
-    // Vertical: x=50, y from 13 to 97 (SVG).
-    ctx.move(to: CGPoint(x: x(50), y: y(13)))
-    ctx.addLine(to: CGPoint(x: x(50), y: y(97)))
-    // Horizontal: y=55, x from 8 to 92.
-    ctx.move(to: CGPoint(x: x(8),  y: y(55)))
-    ctx.addLine(to: CGPoint(x: x(92), y: y(55)))
-    ctx.strokePath()
+    // Etched HUD reticle — chamfered frame + corner ticks.
+    stroke(poly([(17, 9), (72, 9), (83, 20), (83, 79), (30, 79), (17, 66)], closed: true),
+           gold.copy(alpha: 0.16)!, width: 0.5)
+    let ticks = CGMutablePath()
+    ticks.addPath(poly([(11, 22), (11, 13), (20, 13)], closed: false))
+    ticks.addPath(poly([(89, 78), (89, 87), (80, 87)], closed: false))
+    stroke(ticks, gold.copy(alpha: 0.34)!, width: 0.7, cap: .round)
 
-    // Radar sweep wedge: M 50,55 L 50,17 → arc to 88,55 → close.
-    // In CG (y-up), top is angle π/2, right is angle 0; clockwise=true
-    // walks from top to right in the displayed image.
+    // Measured tick rails down each side.
+    let rails = CGMutablePath()
+    for y: CGFloat in [32, 39, 46, 53, 60, 67] { rails.addLines(between: [CGPoint(x: 7, y: y), CGPoint(x: 11.5, y: y)]) }
+    for y: CGFloat in [36, 44, 52, 60] { rails.addLines(between: [CGPoint(x: 89, y: y), CGPoint(x: 93, y: y)]) }
+    stroke(rails, gold.copy(alpha: 0.22)!, width: 0.55)
+
+    // Alloy housing: objectBoundingBox gradient (0,0)→(1,1) over the r=36 circle.
     ctx.saveGState()
-    ctx.beginPath()
-    ctx.move(to: CGPoint(x: cx, y: cy))
-    ctx.addLine(to: CGPoint(x: x(50), y: y(17)))
-    ctx.addArc(
-        center: CGPoint(x: cx, y: cy),
-        radius: d(38),
-        startAngle: .pi / 2,
-        endAngle: 0,
-        clockwise: true
-    )
-    ctx.closePath()
+    ctx.addPath(circle(36))
     ctx.clip()
-    let sweepGradient = CGGradient(colorsSpace: cs, colors: [
-        Palette.amberLight.copy(alpha: 0.0)!,
-        Palette.amberLight.copy(alpha: 0.55)!,
-    ] as CFArray, locations: [0.0, 1.0])!
+    ctx.setAlpha(0.5)
     ctx.drawLinearGradient(
-        sweepGradient,
-        start: CGPoint(x: 0, y: cy),
-        end:   CGPoint(x: D, y: cy),
-        options: []
-    )
+        svgGradient([(oklch(0.46, 0.03, 75), 0), (oklch(0.26, 0.02, 70), 0.5), (oklch(0.38, 0.03, 60), 1)]),
+        start: CGPoint(x: 14, y: 14), end: CGPoint(x: 86, y: 86),
+        options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+    ctx.restoreGState()
+    stroke(circle(36), gold.copy(alpha: 0.22)!, width: 0.5)
+
+    // Segmented energy ring — 12 dashes starting at 12 o'clock, clockwise.
+    let ringArc = CGMutablePath()
+    ringArc.addArc(center: CGPoint(x: 50, y: 50), radius: 30,
+                   startAngle: -.pi / 2, endAngle: 3 * .pi / 2, clockwise: false)
+    let segment = 2 * CGFloat.pi * 30 / 12
+    let ringShape = ringArc
+        .copy(dashingWithPhase: 0, lengths: [segment * 0.68, segment * 0.32])
+        .copy(strokingWithWidth: 5.5, lineCap: .butt, lineJoin: .miter, miterLimit: 4)
+    ctx.saveGState()
+    ctx.addPath(ringShape)
+    ctx.clip()
+    // Bounding-box vector (0,0)→(0.7,1) on the circle's 20…80 box, then the
+    // element's rotate(-90 50 50): (20,20)→(20,80), (62,80)→(80,38).
+    ctx.drawLinearGradient(
+        svgGradient([(oklch(0.94, 0.13, 90), 0), (oklch(0.78, 0.155, 70), 0.55), (oklch(0.62, 0.17, 34), 1)]),
+        start: CGPoint(x: 20, y: 80), end: CGPoint(x: 80, y: 38),
+        options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
     ctx.restoreGState()
 
-    // Outer amber halo (radial), opacity 0.28 — anchored at the orb center,
-    // extending out to ~32 SVG units.
-    let haloGradient = CGGradient(colorsSpace: cs, colors: [
-        Palette.amberPale.copy(alpha: 0.28)!,
-        Palette.amberLight.copy(alpha: 0.25)!,
-        Palette.amberMid.copy(alpha: 0.12)!,
-        Palette.amberDark,
-    ] as CFArray, locations: [0.0, 0.35, 0.70, 1.0])!
-    ctx.drawRadialGradient(
-        haloGradient,
-        startCenter: CGPoint(x: cx, y: cy),
-        startRadius: 0,
-        endCenter:   CGPoint(x: cx, y: cy),
-        endRadius:   d(32),
-        options: []
-    )
+    // Inner containment rings.
+    stroke(circle(23), gold.copy(alpha: 0.5)!, width: 0.9)
+    stroke(circle(20.5), oklch(0.62, 0.17, 34, 0.55), width: 0.6)
 
-    // ---------- Orb (r = 12 SVG units) ----------
-    let orbR = d(12)
-    let orbRect = CGRect(x: cx - orbR, y: cy - orbR, width: orbR * 2, height: orbR * 2)
-    // Orb gradient center: SVG (40%, 35%) of orb bounds, then y-flipped to CG.
-    let orbHotspot = CGPoint(
-        x: orbRect.minX + 0.40 * (orbR * 2),
-        y: orbRect.maxY - 0.35 * (orbR * 2)   // flip
-    )
-    let orbGradient = CGGradient(colorsSpace: cs, colors: [
-        Palette.orbBright,
-        Palette.orbMid,
-        Palette.orbDeep,
-    ] as CFArray, locations: [0.0, 0.5, 1.0])!
-    ctx.saveGState()
-    ctx.addEllipse(in: orbRect)
-    ctx.clip()
-    ctx.drawRadialGradient(
-        orbGradient,
-        startCenter: orbHotspot,
-        startRadius: 0,
-        endCenter:   CGPoint(x: cx, y: cy),
-        endRadius:   orbR,
-        options: []
-    )
-    ctx.restoreGState()
-
-    // Specular highlight on the orb: white ellipse rx=4.5 ry=2.6 at SVG (46, 50).
-    let hx = x(46), hy = y(50)
-    let hrx = d(4.5), hry = d(2.6)
-    ctx.setFillColor(rgb(1, 1, 1, 0.55))
-    ctx.fillEllipse(in: CGRect(x: hx - hrx, y: hy - hry, width: hrx * 2, height: hry * 2))
-
-    // ---------- Top-edge highlight gradient (top 30% of squircle) ----------
-    let topHi = CGGradient(colorsSpace: cs, colors: [
-        rgb(1, 1, 1, 0.06),
-        rgb(1, 1, 1, 0.0),
-    ] as CFArray, locations: [0.0, 1.0])!
-    ctx.drawLinearGradient(
-        topHi,
-        start: CGPoint(x: 0, y: D),
-        end:   CGPoint(x: 0, y: D * 0.70),
-        options: []
-    )
-
-    // ---------- Inset highlight / lowlight (1px lines) ----------
-    ctx.setFillColor(rgb(1, 1, 1, 0.10))
-    ctx.fill(CGRect(x: 0, y: D - max(1, s * 0.5), width: D, height: max(1, s * 0.5)))
-    ctx.setFillColor(rgb(0, 0, 0, 0.40))
-    ctx.fill(CGRect(x: 0, y: 0, width: D, height: max(1, s * 0.5)))
-
-    ctx.restoreGState()   // pop squircle clip
-
-    // ---------- "AERIE" wordmark (only when image is large enough) ----------
-    if dim >= 96 {
-        let nsContext = NSGraphicsContext(cgContext: ctx, flipped: false)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = nsContext
-
-        let fontSize = D * 0.075
-        let kern = fontSize * 0.18                          // CSS letter-spacing 0.18em
-        let font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
-        let text = "AERIE"
-
-        func attrs(color: NSColor) -> [NSAttributedString.Key: Any] {
-            [.font: font, .foregroundColor: color, .kern: kern]
-        }
-
-        let str    = NSAttributedString(string: text, attributes: attrs(color: Palette.wordmark))
-        let shadow = NSAttributedString(string: text, attributes: attrs(color: Palette.wordShadow))
-        let size   = str.size()
-        // CSS positions the wordmark at `bottom: r * 0.10` from the bottom edge.
-        // The `.size()` height is the typographic line, so we offset by descender
-        // to make the baseline sit ~10% from the bottom.
-        let xPos = (D - size.width) / 2
-        let yPos = D * 0.10                                 // CG y from bottom
-
-        shadow.draw(at: NSPoint(x: xPos, y: yPos - max(1, s * 0.5)))
-        str.draw(at: NSPoint(x: xPos, y: yPos))
-
-        NSGraphicsContext.restoreGraphicsState()
+    // Radial struts through the ring.
+    let struts = CGMutablePath()
+    for a in stride(from: 0.0, to: 360.0, by: 60.0) {
+        let rad = (a - 90) * .pi / 180
+        struts.addLines(between: [
+            CGPoint(x: 50 + cos(rad) * 20.5, y: 50 + sin(rad) * 20.5),
+            CGPoint(x: 50 + cos(rad) * 34, y: 50 + sin(rad) * 34),
+        ])
     }
+    stroke(struts, oklch(0.20, 0.02, 70, 0.85), width: 1.6)
 
-    let img = ctx.makeImage()!
-    let rep = NSBitmapImageRep(cgImage: img)
+    // Core bloom (objectBoundingBox r=50% of the r=21 circle), opacity 0.55.
+    ctx.saveGState()
+    ctx.addPath(circle(21))
+    ctx.clip()
+    ctx.setAlpha(0.55)
+    ctx.drawRadialGradient(
+        svgGradient([(oklch(0.92, 0.145, 88, 0.85), 0), (oklch(0.80, 0.15, 72, 0.30), 0.45), (oklch(0.60, 0.15, 60, 0), 1)]),
+        startCenter: CGPoint(x: 50, y: 50), startRadius: 0,
+        endCenter: CGPoint(x: 50, y: 50), endRadius: 21, options: [])
+    ctx.restoreGState()
+
+    // Triangular reactor core. Its gradient (cx 46%, cy 40%, r 62%) lives in
+    // the triangle's 24×21 bounding box, so it's an ellipse in user space.
+    let core = poly([(50, 36.5), (62, 57.5), (38, 57.5)], closed: true)
+    ctx.saveGState()
+    ctx.addPath(core)
+    ctx.clip()
+    ctx.translateBy(x: 38, y: 36.5)
+    ctx.scaleBy(x: 24, y: 21)
+    ctx.drawRadialGradient(
+        svgGradient([(oklch(0.99, 0.04, 90), 0), (oklch(0.92, 0.145, 88), 0.34),
+                     (oklch(0.76, 0.155, 70), 0.72), (oklch(0.56, 0.15, 58), 1)]),
+        startCenter: CGPoint(x: 0.46, y: 0.40), startRadius: 0,
+        endCenter: CGPoint(x: 0.46, y: 0.40), endRadius: 0.62,
+        options: [.drawsAfterEndLocation])
+    ctx.restoreGState()
+    stroke(core, oklch(0.99, 0.05, 92, 0.8), width: 0.8)
+
+    ctx.addPath(poly([(50, 42), (57.5, 55), (42.5, 55)], closed: true))
+    ctx.setFillColor(oklch(1, 0, 0, 0.55))
+    ctx.fillPath()
+    ctx.addPath(circle(2.6, cy: 50.5))
+    ctx.setFillColor(oklch(1, 0, 0, 0.95))
+    ctx.fillPath()
+
+    ctx.restoreGState()   // leave viewBox space
+
+    // ---------- Top-edge glass highlight (top 34%) ----------
+    ctx.drawLinearGradient(
+        fadeGradient(rgba(255, 240, 215, 1), alpha: 0.09, end: 1),
+        start: CGPoint(x: 0, y: 0), end: CGPoint(x: 0, y: D * 0.34), options: [])
+
+    // ---------- Inset box-shadows (1px, no blur) ----------
+    // `inset 0 1px 0 0 c` paints the part of the box not covered by the box
+    // shifted down 1px — a hairline crescent along the top edge; `-1px` does
+    // the same along the bottom.
+    func insetEdge(dy: CGFloat, _ c: CGColor) {
+        let shifted = CGPath(roundedRect: box.offsetBy(dx: 0, dy: dy),
+                             cornerWidth: D * 0.225, cornerHeight: D * 0.225, transform: nil)
+        let region = CGMutablePath()
+        region.addPath(squircle)
+        region.addPath(shifted)
+        ctx.addPath(region)
+        ctx.setFillColor(c)
+        ctx.fillPath(using: .evenOdd)
+    }
+    insetEdge(dy: 1, rgba(255, 236, 205, 0.16))
+    insetEdge(dy: -1, rgba(0, 0, 0, 0.5))
+
+    let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
     return rep.representation(using: .png, properties: [:])!
 }
 
+// MARK: - Main
+
+try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
 for spec in specs {
-    let data = renderIcon(dim: spec.dimension)
-    let url = outDir.appendingPathComponent(spec.filename)
-    try data.write(to: url)
+    try renderIcon(dim: spec.dimension).write(to: outDir.appendingPathComponent(spec.filename))
     print("Wrote \(spec.filename) (\(spec.dimension)×\(spec.dimension))")
 }
+try renderIcon(dim: aboutDimension).write(to: aboutPNG)
+print("Wrote \(aboutPNG.lastPathComponent) (\(aboutDimension)×\(aboutDimension))")
