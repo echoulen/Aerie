@@ -37,7 +37,11 @@ struct SettingsSidebar: View {
         }
         .padding(.vertical, 18)
         .padding(.horizontal, 12)
-        .frame(width: 220)
+        // 220pt is the design width at 100%. Labels scale with the interface
+        // zoom, so the column widens to fit its widest row rather than
+        // wrapping a label (e.g. "Repositories" beside its count at 125%).
+        .frame(minWidth: 220, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
         .background(
             Rectangle()
                 .fill(AerieColor.glassLine)
@@ -84,6 +88,8 @@ struct SettingsSidebar: View {
                 Text(route.displayName)
                     .aerieFont(AerieFont.custom(.sans, size: 13))
                     .foregroundStyle(isSelected ? AerieColor.text1 : AerieColor.text2)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                 Spacer(minLength: 8)
                 trailingAccessory(route)
             }
