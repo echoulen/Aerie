@@ -15,6 +15,11 @@ actor PollingScheduler {
 
     private let clock: any Clock
     private let refresh: @Sendable (UUID) async -> Void
+    /// Fires once after every tick that refreshed at least one repo (and after
+    /// a manual `refreshNow`). Views that re-read *all* repos — the Repos tab's
+    /// worktree scan — hang off this rather than the per-repo refresh, so N
+    /// repos finishing over several seconds don't re-scan N times.
+    private let onTickComplete: (@Sendable () async -> Void)?
     private let maxInFlight: Int
 
     private(set) var activeRepoId: UUID?
@@ -46,11 +51,13 @@ actor PollingScheduler {
     init(
         clock: any Clock,
         maxInFlight: Int = 5,
-        refresh: @escaping @Sendable (UUID) async -> Void
+        refresh: @escaping @Sendable (UUID) async -> Void,
+        onTickComplete: (@Sendable () async -> Void)? = nil
     ) {
         self.clock = clock
         self.maxInFlight = maxInFlight
         self.refresh = refresh
+        self.onTickComplete = onTickComplete
     }
 
     // MARK: Mutators
@@ -194,5 +201,6 @@ actor PollingScheduler {
                 }
             }
         }
+        if let onTickComplete { await onTickComplete() }
     }
 }

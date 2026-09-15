@@ -100,6 +100,57 @@ final class GitStatusRefresherTests: XCTestCase {
         return r
     }
 
+    // MARK: - Change gate
+
+    /// A stand-in for the FSEvents watcher: reports whatever the test says.
+    private final class ScriptedChanges: WorkingTreeChangeSource, @unchecked Sendable {
+        var changed = true
+        private(set) var consumed: [URL] = []
+        func consumeChange(at url: URL) -> Bool { consumed.append(url); return changed }
+        func markAllChanged() { changed = true }
+    }
+
+    func test_refresh_skipsTheStatusRead_whenTheTreeHasNotChanged() async throws {
+        let db = try makeDB()
+        let accountId = try insertAccount(db)
+        let repoURL = try makeTempRepo()
+        let repo = try await insertRepo(db, accountId: accountId, localPath: repoURL)
+        let changes = ScriptedChanges()
+        let refresher = GitStatusRefresher(db: db, gitService: LiveGitService(), changes: changes)
+
+        await refresher.refresh(repoId: repo.id)
+        let first = try await db.gitStatusCache.status(forRepo: repo.id)
+        XCTAssertNotNil(first, "first read always happens")
+        XCTAssertEqual(changes.consumed.map(\.path), [repoURL.path])
+
+        // Dirty the tree for real, but tell the refresher nothing changed:
+        // the cache must keep the stale (clean) reading — proving no read ran.
+        try "dirty".write(to: repoURL.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+        changes.changed = false
+        await refresher.refresh(repoId: repo.id)
+        let second = try await db.gitStatusCache.status(forRepo: repo.id)
+        XCTAssertEqual(second, first, "unchanged tree → cache untouched")
+
+        changes.changed = true
+        await refresher.refresh(repoId: repo.id)
+        let third = try await db.gitStatusCache.status(forRepo: repo.id)
+        XCTAssertEqual(third?.isDirty, true, "changed tree → fresh read lands")
+    }
+
+    func test_refresh_consumesTheChangeBeforeReading_soWritesDuringTheReadAreNotLost() async throws {
+        // The flag is consumed *before* the read: a write that lands mid-read
+        // re-arms it, and the next tick re-reads. Consuming after the read
+        // would swallow that write until something else changed.
+        let db = try makeDB()
+        let accountId = try insertAccount(db)
+        let repoURL = try makeTempRepo()
+        let repo = try await insertRepo(db, accountId: accountId, localPath: repoURL)
+        let changes = ScriptedChanges()
+        let refresher = GitStatusRefresher(db: db, gitService: LiveGitService(), changes: changes)
+        await refresher.refresh(repoId: repo.id)
+        XCTAssertEqual(changes.consumed.count, 1)
+    }
+
     // MARK: - Core repro (issue #30)
 
     func test_refresh_populatesCacheWithActualBranchAndDirtyState() async throws {

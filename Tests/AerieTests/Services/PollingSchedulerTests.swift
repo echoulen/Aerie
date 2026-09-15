@@ -202,6 +202,44 @@ final class PollingSchedulerTests: XCTestCase {
         XCTAssertEqual(snap4.count, 3)
     }
 
+    // MARK: Tick-complete signal
+
+    /// The Repos tab re-reads on `onTickComplete`, not per repo: with 16 repos
+    /// finishing over several seconds, a per-repo signal (even throttled to
+    /// 250 ms) re-ran the full worktree scan up to 16 times a tick.
+    func test_onTickComplete_firesOncePerTickWithDueRepos() async throws {
+        let ticks = RefreshRecorder()
+        let marker = UUID()
+        let scheduler = PollingScheduler(
+            clock: VirtualClock(),
+            refresh: { _ in },
+            onTickComplete: { await ticks.record(marker) }
+        )
+        let ids = (0..<8).map { _ in UUID() }
+        await scheduler.tickOnce(repoIds: ids, now: Date.distantFuture)
+        var calls = await ticks.snapshot()
+        XCTAssertEqual(calls.count, 1, "one signal for the whole tick, not one per repo")
+
+        await scheduler.refreshNow(repoIds: ids, now: Date.distantFuture)
+        calls = await ticks.snapshot()
+        XCTAssertEqual(calls.count, 2, "a manual refresh is a tick too")
+    }
+
+    func test_onTickComplete_doesNotFireWhenNothingIsDue() async throws {
+        let ticks = RefreshRecorder()
+        let scheduler = PollingScheduler(
+            clock: VirtualClock(),
+            refresh: { _ in },
+            onTickComplete: { await ticks.record(UUID()) }
+        )
+        let id = UUID()
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        await scheduler.tickOnce(repoIds: [id], now: t0)
+        await scheduler.tickOnce(repoIds: [id], now: t0.addingTimeInterval(5))
+        let calls = await ticks.snapshot()
+        XCTAssertEqual(calls.count, 1, "the second tick had no due repo → no signal")
+    }
+
     // MARK: Task 7.2 — bounded concurrency
 
     func test_refreshAll_capsConcurrencyToFive() async throws {
