@@ -266,7 +266,9 @@ struct MainShell: View {
                     ).value
                 },
                 accountsProvider: { await services.auth.allAccounts() },
-                lastApproverProvider: { repoId in await services.lastApprover.login(forRepo: repoId) },
+                lastApproverProvider: { r in
+                    await services.lastApprover.logins(forRepo: r.repo.id, author: r.pr.authorLogin)
+                },
                 onBack: { reviewing = nil },
                 onApproveConfirmed: { row, approver, comment in
                     do {
@@ -277,7 +279,8 @@ struct MainShell: View {
                             body: comment,
                             accountId: approver.id
                         )
-                        await services.lastApprover.record(approver.login, forRepo: row.repo.id)
+                        await services.lastApprover.record(
+                            approver.login, forRepo: row.repo.id, author: row.pr.authorLogin)
                         await services.refreshNow()
                         return nil
                     } catch {
@@ -495,17 +498,17 @@ struct MainShell: View {
             },
             resolveApprover: { r in
                 let accounts = await services.auth.allAccounts()
-                let preferred = await services.lastApprover.login(forRepo: r.repo.id)
+                let preferred = await services.lastApprover.logins(forRepo: r.repo.id, author: r.pr.authorLogin)
                 return ApproverResolver.resolve(
                     accounts: accounts, boundAccountId: r.repo.primaryAccountId,
-                    authorLogin: r.pr.authorLogin, preferredLogin: preferred)
+                    authorLogin: r.pr.authorLogin, preferredLogins: preferred)
             },
             approve: { r, approver, body in
                 do {
                     _ = try await services.multiApi.approvePR(
                         owner: r.repo.githubOwner, repo: r.repo.githubRepo,
                         number: r.pr.number, body: body, accountId: approver.id)
-                    await services.lastApprover.record(approver.login, forRepo: r.repo.id)
+                    await services.lastApprover.record(approver.login, forRepo: r.repo.id, author: r.pr.authorLogin)
                     await services.refreshNow()
                     return nil
                 } catch { return error.localizedDescription }
@@ -519,7 +522,7 @@ struct MainShell: View {
                     // only lifts a changes-requested block when the SAME
                     // collaborator approves later, so the next review on this
                     // repo must default to this account or the PR stays stuck.
-                    await services.lastApprover.record(approver.login, forRepo: r.repo.id)
+                    await services.lastApprover.record(approver.login, forRepo: r.repo.id, author: r.pr.authorLogin)
                     await services.refreshNow()
                     return nil
                 } catch { return error.localizedDescription }

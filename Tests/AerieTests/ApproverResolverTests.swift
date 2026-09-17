@@ -62,7 +62,7 @@ final class ApproverResolverTests: XCTestCase {
         XCTAssertFalse(r.needsPicker)
     }
 
-    // MARK: - preferredLogin (per-repo last-approver memory)
+    // MARK: - preferredLogins (per-repo+author, then per-repo memory)
 
     func test_preferredLogin_eligible_winsOverBound() {
         let boundId = UUID()
@@ -70,7 +70,7 @@ final class ApproverResolverTests: XCTestCase {
         let accounts = [acc("reviewer", boundId), teammate, acc("third")]
         let r = ApproverResolver.resolve(
             accounts: accounts, boundAccountId: boundId, authorLogin: "octocat",
-            preferredLogin: "teammate")
+            preferredLogins: ["teammate"])
         XCTAssertEqual(r.defaultApprover?.id, teammate.id)
     }
 
@@ -80,7 +80,7 @@ final class ApproverResolverTests: XCTestCase {
         let accounts = [acc("reviewer", boundId), teammate]
         let r = ApproverResolver.resolve(
             accounts: accounts, boundAccountId: boundId, authorLogin: "octocat",
-            preferredLogin: "teammate")
+            preferredLogins: ["teammate"])
         XCTAssertEqual(r.defaultApprover?.id, teammate.id)
     }
 
@@ -89,7 +89,7 @@ final class ApproverResolverTests: XCTestCase {
         let accounts = [acc("reviewer", boundId), acc("teammate")]
         let r = ApproverResolver.resolve(
             accounts: accounts, boundAccountId: boundId, authorLogin: "echoulen",
-            preferredLogin: "echoulen")
+            preferredLogins: ["echoulen"])
         XCTAssertEqual(r.defaultApprover?.id, boundId)
     }
 
@@ -98,7 +98,7 @@ final class ApproverResolverTests: XCTestCase {
         let accounts = [acc("reviewer", boundId), acc("teammate")]
         let r = ApproverResolver.resolve(
             accounts: accounts, boundAccountId: boundId, authorLogin: "octocat",
-            preferredLogin: "ghost")
+            preferredLogins: ["ghost"])
         XCTAssertEqual(r.defaultApprover?.id, boundId)
     }
 
@@ -107,7 +107,29 @@ final class ApproverResolverTests: XCTestCase {
         let accounts = [acc("reviewer", boundId), acc("teammate")]
         let r = ApproverResolver.resolve(
             accounts: accounts, boundAccountId: boundId, authorLogin: "octocat",
-            preferredLogin: nil)
+            preferredLogins: [])
         XCTAssertEqual(r.defaultApprover?.id, boundId)
+    }
+
+    func test_preferredLogins_firstEligibleWins() {
+        let boundId = UUID()
+        let jarvis = acc("Jarvis-E")
+        let accounts = [acc("echoulen", boundId), acc("Nextdrive-CarlosLi"), jarvis]
+        let r = ApproverResolver.resolve(
+            accounts: accounts, boundAccountId: boundId, authorLogin: "octocat",
+            preferredLogins: ["Jarvis-E", "echoulen"])
+        XCTAssertEqual(r.defaultApprover?.id, jarvis.id)
+    }
+
+    // Own PR in a repo bound to (and last approved as) the author: the
+    // author-scoped memory must win instead of falling to the global first.
+    func test_preferredLogins_authorScopedSkipsAuthorRepoMemory() {
+        let boundId = UUID()
+        let jarvis = acc("Jarvis-E")
+        let accounts = [acc("Nextdrive-CarlosLi"), acc("echoulen", boundId), jarvis]
+        let r = ApproverResolver.resolve(
+            accounts: accounts, boundAccountId: boundId, authorLogin: "echoulen",
+            preferredLogins: ["Jarvis-E", "echoulen"])
+        XCTAssertEqual(r.defaultApprover?.id, jarvis.id)
     }
 }

@@ -38,7 +38,7 @@ struct ApprovePRTool: MCPTool {
             accounts: await accounts(),
             boundAccountId: repo.primaryAccountId,
             authorLogin: pr.authorLogin,
-            preferredLogin: await lastApprover.login(forRepo: repoId)
+            preferredLogins: await lastApprover.logins(forRepo: repoId, author: pr.authorLogin)
         )
         guard let approver = resolution.defaultApprover else {
             throw JSONRPCError(
@@ -52,7 +52,7 @@ struct ApprovePRTool: MCPTool {
                 owner: repo.githubOwner, repo: repo.githubRepo,
                 number: num, body: body, accountId: approver.id
             )
-            await lastApprover.record(approver.login, forRepo: repoId)
+            await lastApprover.record(approver.login, forRepo: repoId, author: pr.authorLogin)
             Task { await refresh(repoId) }
             return .object([
                 "approved": .bool(true),

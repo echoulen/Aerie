@@ -93,7 +93,7 @@ final class AppServices {
     let discovery: DiscoveryFileWriter
     let configWriter: ClaudeCodeConfigWriter
 
-    /// Per-repo memory of the account the last approval was submitted as. Used to
+    /// Per-repo (and per-repo + author) memory of the account the last approval was submitted as. Used to
     /// default the approver picker (manual + AI Review) to the user's last choice.
     var lastApprover: LastApproverStore { LastApproverStore(settings: db.settings) }
 

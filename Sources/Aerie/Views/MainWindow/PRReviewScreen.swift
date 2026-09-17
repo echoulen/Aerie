@@ -27,7 +27,7 @@ struct PRReviewScreen: View {
         actionStore: PRActionStore,
         loadFiles: @escaping (PRRow) async throws -> [PRFileChange],
         accountsProvider: @escaping () async -> [GitHubAccount],
-        lastApproverProvider: @escaping (UUID) async -> String? = { _ in nil },
+        lastApproverProvider: @escaping (PRRow) async -> [String] = { _ in [] },
         highlighter: CodeHighlighter = SplashCodeHighlighter(),
         onBack: @escaping () -> Void = {},
         onApproveConfirmed: @escaping (PRRow, GitHubAccount, String?) async -> String? = { _, _, _ in nil }
