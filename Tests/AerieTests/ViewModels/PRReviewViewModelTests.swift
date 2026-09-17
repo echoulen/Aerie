@@ -88,7 +88,7 @@ final class PRReviewViewModelTests: XCTestCase {
             accountsProvider: {
                 [GitHubAccount(id: self.boundId, login: "reviewer", host: "github.com"), remembered]
             },
-            lastApproverProvider: { _ in "teammate" })
+            lastApproverProvider: { _ in ["teammate"] })
         await vm.load()
         XCTAssertEqual(vm.resolution.defaultApprover?.id, remembered.id)
     }

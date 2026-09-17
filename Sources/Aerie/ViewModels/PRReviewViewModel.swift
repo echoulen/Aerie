@@ -23,13 +23,13 @@ final class PRReviewViewModel {
 
     private let loadFiles: (PRRow) async throws -> [PRFileChange]
     private let accountsProvider: () async -> [GitHubAccount]
-    private let lastApproverProvider: (UUID) async -> String?
+    private let lastApproverProvider: (PRRow) async -> [String]
 
     init(
         row: PRRow,
         loadFiles: @escaping (PRRow) async throws -> [PRFileChange],
         accountsProvider: @escaping () async -> [GitHubAccount],
-        lastApproverProvider: @escaping (UUID) async -> String? = { _ in nil }
+        lastApproverProvider: @escaping (PRRow) async -> [String] = { _ in [] }
     ) {
         self.row = row
         self.loadFiles = loadFiles
@@ -40,12 +40,12 @@ final class PRReviewViewModel {
     func load() async {
         state = .loading
         let accounts = await accountsProvider()
-        let preferredLogin = await lastApproverProvider(row.repo.id)
+        let preferredLogins = await lastApproverProvider(row)
         resolution = ApproverResolver.resolve(
             accounts: accounts,
             boundAccountId: row.repo.primaryAccountId,
             authorLogin: row.pr.authorLogin,
-            preferredLogin: preferredLogin
+            preferredLogins: preferredLogins
         )
         do {
             let files = try await loadFiles(row)

@@ -77,11 +77,13 @@ struct DialogApprove: View {
         .dialogInset(fill: Color.black.opacity(0.30))
     }
 
+    // Eyebrow note over the picker (same shape as `commentField`) rather than
+    // one row: a long login would otherwise push the row past the fixed-width
+    // card. The label truncates in the middle as a last resort.
     private var approverPicker: some View {
-        HStack(spacing: 10) {
-            Text("approve as")
-                .aerieFont(AerieFont.custom(.sans, size: 12))
-                .foregroundStyle(AerieColor.text3)
+        VStack(alignment: .leading, spacing: 6) {
+            // Eligible approvers exclude the PR author.
+            HudNote(text: "approve as · author can’t self-approve", truncates: true)
             Menu {
                 ForEach(context.resolution.eligible) { acc in
                     Button("\(acc.login) · \(acc.host)") { selected = acc }
@@ -91,6 +93,8 @@ struct DialogApprove: View {
                     Text("\(selected.login) · \(selected.host)")
                         .aerieFont(AerieFont.code(12))
                         .foregroundStyle(AerieColor.text1)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(AerieColor.text3)
@@ -98,14 +102,12 @@ struct DialogApprove: View {
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
-            .fixedSize()
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .dialogInset(fill: AerieColor.glass2)
-            // Eligible approvers exclude the PR author.
-            HudNote(text: "author can’t self-approve")
-            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var commentField: some View {
