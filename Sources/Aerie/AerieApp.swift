@@ -579,7 +579,9 @@ struct MainShell: View {
             },
             onShowUpdateFailure: {
                 guard case .failed(let message) = services.updates.phase else { return }
-                UpdatePresenter.present(UpdateAlertContent(outcome: .failed(message)))
+                UpdatePresenter.present(services.updates.failureIsInstall
+                    ? UpdateAlertContent(installFailure: message)
+                    : UpdateAlertContent(outcome: .failed(message)))
                 services.updates.dismissFailure()
             },
             // The review screen replaces the tab lists, so it hides the

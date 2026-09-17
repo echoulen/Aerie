@@ -39,6 +39,19 @@ struct UpdateAlertContent: Equatable {
             downloadURL = nil
         }
     }
+
+    /// The titlebar pill's "Update failed" after the installer itself failed
+    /// (as opposed to the update *check* failing).
+    init(installFailure message: String) {
+        title = "Update Failed"
+        informative = """
+        \(message)
+
+        Details are in \(AppUpdater.logPath).
+        """
+        buttons = ["OK"]
+        downloadURL = nil
+    }
 }
 
 /// Thin `@MainActor` driver: run the check, then show the alert and, on the

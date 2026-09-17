@@ -8,9 +8,55 @@ final class UpdateStoreTests: XCTestCase {
     private func makeStore(
         outcome: UpdateOutcome,
         install: @escaping () throws -> Void = {},
+        watchInstall: @escaping () async -> String? = { nil },
         canSelfUpdate: Bool = true
     ) -> UpdateStore {
-        UpdateStore(check: { outcome }, install: install, canSelfUpdate: canSelfUpdate)
+        UpdateStore(check: { outcome }, install: install, watchInstall: watchInstall,
+                    canSelfUpdate: canSelfUpdate)
+    }
+
+    /// Polls until `phase` leaves `.installing`, bounded.
+    private func settle(_ store: UpdateStore) async {
+        for _ in 0..<200 where store.phase == .installing {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    /// The installer failing (a 404, a stalled download that timed out) used to
+    /// leave the pill spinning "Updating…" forever.
+    func test_startInstall_installerFailure_surfacesTheError() async {
+        let store = makeStore(
+            outcome: .updateAvailable(current: "0.3.1", latest: "0.4.0", url: releaseURL),
+            watchInstall: { "Couldn't download the update" }
+        )
+        await store.refresh()
+        store.startInstall()
+        await settle(store)
+        XCTAssertEqual(store.phase, .failed("Couldn't download the update"))
+    }
+
+    func test_startInstall_installerStillRunning_staysInstalling() async {
+        let store = makeStore(
+            outcome: .updateAvailable(current: "0.3.1", latest: "0.4.0", url: releaseURL),
+            watchInstall: { nil }
+        )
+        await store.refresh()
+        store.startInstall()
+        await settle(store)
+        XCTAssertEqual(store.phase, .installing)
+    }
+
+    /// After reading why the install failed, the user can try again right away.
+    func test_dismissFailure_afterAFailedInstall_offersTheUpdateAgain() async {
+        let store = makeStore(
+            outcome: .updateAvailable(current: "0.3.1", latest: "0.4.0", url: releaseURL),
+            watchInstall: { "boom" }
+        )
+        await store.refresh()
+        store.startInstall()
+        await settle(store)
+        store.dismissFailure()
+        XCTAssertEqual(store.phase, .available(current: "0.3.1", latest: "0.4.0"))
     }
 
     func test_refresh_newerRelease_offersTheUpdate() async {

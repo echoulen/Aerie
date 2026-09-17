@@ -31,4 +31,35 @@ final class UpdateAlertContentTests: XCTestCase {
         XCTAssertEqual(c.buttons, ["OK"])
         XCTAssertNil(c.downloadURL)
     }
+
+    /// A failed install is not a failed check — the alert must say so.
+    func test_installFailed_isTitledAsAFailedUpdate() {
+        let c = UpdateAlertContent(installFailure: "Couldn't download https://x")
+        XCTAssertEqual(c.title, "Update Failed")
+        XCTAssertTrue(c.informative.contains("Couldn't download"))
+        XCTAssertTrue(c.informative.contains(AppUpdater.logPath))
+        XCTAssertEqual(c.buttons, ["OK"])
+        XCTAssertNil(c.downloadURL)
+    }
+
+    func test_store_distinguishesInstallFailuresFromCheckFailures() async {
+        let url = self.url
+        let installing = await MainActor.run {
+            UpdateStore(check: { .updateAvailable(current: "0.3.1", latest: "0.4.0", url: url) },
+                        install: {}, watchInstall: { "boom" })
+        }
+        await installing.refresh()
+        await MainActor.run { installing.startInstall() }
+        for _ in 0..<200 {
+            if await MainActor.run(body: { installing.phase != .installing }) { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        let installFailed = await MainActor.run { installing.failureIsInstall }
+        XCTAssertTrue(installFailed)
+
+        let checking = await MainActor.run { UpdateStore(check: { .failed("offline") }, install: {}) }
+        await checking.checkNow()
+        let checkFailed = await MainActor.run { checking.failureIsInstall }
+        XCTAssertFalse(checkFailed)
+    }
 }

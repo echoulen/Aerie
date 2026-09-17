@@ -23,6 +23,11 @@ final class UpdateStore {
 
     private let check: () async -> UpdateOutcome
     private let install: () throws -> Void
+    private let watchInstall: () async -> String?
+    /// The offer that was being installed, restored when a failure is
+    /// dismissed so the user can retry straight away.
+    private var lastOffer: UpdatePhase?
+    private var installWatch: Task<Void, Never>?
     private let canSelfUpdate: Bool
     private let recheckNanos: UInt64
     private let focusThrottle: TimeInterval
@@ -35,6 +40,7 @@ final class UpdateStore {
     init(
         check: @escaping () async -> UpdateOutcome = { await UpdateChecker().check() },
         install: @escaping () throws -> Void = { try AppUpdater.run() },
+        watchInstall: @escaping () async -> String? = { await AppUpdater.waitForFailure() },
         canSelfUpdate: Bool = UpdateStore.isInstalledInApplications,
         recheckInterval: TimeInterval = 6 * 60 * 60,
         focusThrottle: TimeInterval = 30 * 60,
@@ -42,6 +48,7 @@ final class UpdateStore {
     ) {
         self.check = check
         self.install = install
+        self.watchInstall = watchInstall
         self.canSelfUpdate = canSelfUpdate
         self.recheckNanos = UInt64(recheckInterval * 1_000_000_000)
         self.focusThrottle = focusThrottle
@@ -90,19 +97,44 @@ final class UpdateStore {
     }
 
     /// Spawns the installer. Only valid from `.available`; the phase then stays
-    /// `.installing` until the installer quits the app.
+    /// `.installing` until the installer quits the app — or reports that it
+    /// failed / timed out, which turns the pill into "Update failed".
     func startInstall() {
         guard case .available = phase else { return }
+        lastOffer = phase
         phase = .installing
         do {
             try install()
         } catch {
             phase = .failed(error.localizedDescription)
+            return
+        }
+        let watch = watchInstall
+        installWatch?.cancel()
+        installWatch = Task { [weak self] in
+            guard let message = await watch(), !Task.isCancelled else { return }
+            self?.installFailed(message)
         }
     }
 
+    /// Whether the current `.failed` phase came from an install (so the alert
+    /// can say "Update Failed" rather than "Couldn't Check for Updates").
+    var failureIsInstall: Bool {
+        if case .failed = phase { return lastOffer != nil }
+        return false
+    }
+
+    private func installFailed(_ message: String) {
+        guard phase == .installing else { return }
+        phase = .failed(message)
+    }
+
+    /// Clears a failure. After a failed install the offer comes back so the
+    /// update can be retried; a failed check just returns to idle.
     func dismissFailure() {
-        if case .failed = phase { phase = .idle }
+        guard case .failed = phase else { return }
+        phase = lastOffer ?? .idle
+        lastOffer = nil
     }
 
     /// Starts the periodic check loop (idempotent — repeat calls are no-ops).
@@ -125,6 +157,7 @@ final class UpdateStore {
     /// repaint.
     private func apply(_ outcome: UpdateOutcome, silentFailure: Bool) {
         guard phase != .installing else { return }
+        lastOffer = nil
         switch outcome {
         case .updateAvailable(let current, let latest, _):
             // Not installable from here → stay quiet in the titlebar. The menu
