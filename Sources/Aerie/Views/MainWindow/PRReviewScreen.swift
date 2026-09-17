@@ -22,8 +22,8 @@ struct PRReviewScreen: View {
     var onApproveConfirmed: (PRRow, GitHubAccount, String?) async -> String? = { _, _, _ in nil }
 
     /// The live row, re-passed on every refresh. `vm.row` is the row the
-    /// screen opened with (the `@State` model is built once), so status shown
-    /// in the header must read from here.
+    /// screen opened with (the `@State` model is built once), so everything
+    /// here — header status and the AI Review / Approve actions — reads this.
     let row: PRRow
 
     init(
@@ -50,7 +50,7 @@ struct PRReviewScreen: View {
 
     private var pr: PullRequest { row.pr }
     private var repo: Repository { row.repo }
-    private var aiPhase: AIReviewPhase { store.phase(for: vm.row) }
+    private var aiPhase: AIReviewPhase { store.phase(for: row) }
 
     @Environment(\.widthClass) private var widthClass
 
@@ -86,7 +86,7 @@ struct PRReviewScreen: View {
         case .idle:
             EmptyView()
         case .running(let lines):
-            AIReviewConsole(lines: lines, onStop: { store.stop(row: vm.row) })
+            AIReviewConsole(lines: lines, onStop: { store.stop(row: row) })
                 .padding(.horizontal, gutter).padding(.top, widthClass == .compact ? 12 : 16)
         case .done(let review, let actedAs):
             AIReviewCard(review: review, actedAs: actedAs)
@@ -95,7 +95,7 @@ struct PRReviewScreen: View {
             AIReviewFailureCard(
                 title: "AI Review failed",
                 message: message,
-                onRetry: canStartAIReview ? { store.start(row: vm.row) } : nil)
+                onRetry: canStartAIReview ? { store.start(row: row) } : nil)
                 .padding(.horizontal, gutter).padding(.top, widthClass == .compact ? 12 : 16)
         }
     }
@@ -104,11 +104,11 @@ struct PRReviewScreen: View {
     private var approveFailureBanner: some View {
         // `message` already reads "Approve failed: …" (the
         // `onApproveConfirmed` closure's error string) — display it as-is.
-        if case .failed(let message) = actionStore.phase(.approve, for: vm.row) {
+        if case .failed(let message) = actionStore.phase(.approve, for: row) {
             AIReviewFailureCard(
                 title: "Approve failed",
                 message: message,
-                onRetry: { actionStore.retry(.approve, row: vm.row) })
+                onRetry: { actionStore.retry(.approve, row: row) })
                 .padding(.horizontal, gutter).padding(.top, widthClass == .compact ? 12 : 16)
         }
     }
@@ -148,9 +148,9 @@ struct PRReviewScreen: View {
             phase: aiPhase,
             isDraft: pr.isDraftPR,
             resolution: vm.resolution,
-            selectedApproverId: store.selectedApproverId(for: vm.row),
-            onSelectApprover: { store.selectApprover($0, for: vm.row) },
-            onStart: { store.start(row: vm.row) },
+            selectedApproverId: store.selectedApproverId(for: row),
+            onSelectApprover: { store.selectApprover($0, for: row) },
+            onStart: { store.start(row: row) },
             fills: fills
         )
     }
