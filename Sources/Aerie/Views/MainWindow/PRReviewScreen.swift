@@ -21,6 +21,11 @@ struct PRReviewScreen: View {
     /// Returns an error message on failure, nil on success.
     var onApproveConfirmed: (PRRow, GitHubAccount, String?) async -> String? = { _, _, _ in nil }
 
+    /// The live row, re-passed on every refresh. `vm.row` is the row the
+    /// screen opened with (the `@State` model is built once), so status shown
+    /// in the header must read from here.
+    let row: PRRow
+
     init(
         row: PRRow,
         store: AIReviewStore,
@@ -32,6 +37,7 @@ struct PRReviewScreen: View {
         onBack: @escaping () -> Void = {},
         onApproveConfirmed: @escaping (PRRow, GitHubAccount, String?) async -> String? = { _, _, _ in nil }
     ) {
+        self.row = row
         _vm = State(initialValue: PRReviewViewModel(
             row: row, loadFiles: loadFiles, accountsProvider: accountsProvider,
             lastApproverProvider: lastApproverProvider))
@@ -42,8 +48,8 @@ struct PRReviewScreen: View {
         self.onApproveConfirmed = onApproveConfirmed
     }
 
-    private var pr: PullRequest { vm.row.pr }
-    private var repo: Repository { vm.row.repo }
+    private var pr: PullRequest { row.pr }
+    private var repo: Repository { row.repo }
     private var aiPhase: AIReviewPhase { store.phase(for: vm.row) }
 
     @Environment(\.widthClass) private var widthClass
@@ -151,7 +157,7 @@ struct PRReviewScreen: View {
 
     private func approveButton(fills: Bool = false) -> some View {
         ApproveButton(
-            row: vm.row,
+            row: row,
             resolution: vm.resolution,
             actionStore: actionStore,
             onApproveConfirmed: onApproveConfirmed,

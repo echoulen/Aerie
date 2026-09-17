@@ -174,4 +174,22 @@ final class PRsViewModelTests: XCTestCase {
         XCTAssertEqual(rows[0].pr.number, 1)
         XCTAssertEqual(rows[0].repo.id, visible.id)
     }
+
+    // The review screen re-reads its PR through this after a refresh, so a
+    // fresh fetch (new `PullRequest.id`) must still match by repo + number.
+    func test_row_findsRefreshedRowByRepoAndNumber() async throws {
+        let db = try makeDB()
+        let acct = try insertAccount(db)
+        let repo = try await insertRepo(db, accountId: acct, name: "Alpha")
+        try await db.prCache.upsert([makePR(repoId: repo.id, number: 7, title: "before")], for: repo.id)
+        let vm = PRsViewModel(db: db)
+        await vm.refresh()
+
+        try await db.prCache.upsert([makePR(repoId: repo.id, number: 7, title: "after")], for: repo.id)
+        await vm.refresh()
+
+        XCTAssertEqual(vm.row(repoId: repo.id, number: 7)?.pr.title, "after")
+        XCTAssertNil(vm.row(repoId: repo.id, number: 8))
+        XCTAssertNil(vm.row(repoId: UUID(), number: 7))
+    }
 }

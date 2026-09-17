@@ -35,6 +35,13 @@ final class PRsViewModel {
         self.db = db
     }
 
+    /// The current row for a PR, matched by repo + number — `PullRequest.id` is
+    /// a fresh UUID on every fetch, so a held row can't be re-found by id.
+    func row(repoId: UUID, number: Int) -> PRRow? {
+        guard case .ready(let rows) = state else { return nil }
+        return rows.first { $0.repo.id == repoId && $0.pr.number == number }
+    }
+
     /// Re-reads repos + cached PRs + cached local state from the database and
     /// projects them into `state`. Excludes hidden repos.
     func refresh() async {

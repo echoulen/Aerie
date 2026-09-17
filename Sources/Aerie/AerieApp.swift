@@ -250,9 +250,13 @@ struct MainShell: View {
     // time" limit.
     @ViewBuilder
     private var tabContent: some View {
-        if let row = reviewing {
-            // Code review (diff) screen replaces the tab list while open. Keyed
-            // on the PR id so switching PRs rebuilds the screen + its fetch.
+        if let opened = reviewing {
+            // Code review (diff) screen replaces the tab list while open. Reads
+            // the live row so a refresh (e.g. after an AI approve) updates the
+            // header chips; falls back to the opened row if it left the cache.
+            // Keyed on repo + number, not the per-fetch PR id, so switching PRs
+            // rebuilds the screen + its fetch but a refresh doesn't.
+            let row = prsVM.row(repoId: opened.repo.id, number: opened.pr.number) ?? opened
             PRReviewScreen(
                 row: row,
                 store: aiReviewStore,
@@ -288,7 +292,7 @@ struct MainShell: View {
                     }
                 }
             )
-            .id(row.id)
+            .id("\(row.repo.id.uuidString)#\(row.pr.number)")
         } else {
             tabSwitcher
         }
