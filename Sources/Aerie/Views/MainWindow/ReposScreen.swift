@@ -39,12 +39,6 @@ struct ReposScreen: View {
     var onDiscardWorktreeConfirmed: (RepoRow, WorktreeRow) async -> String? = { _, _ in nil }
     /// Asks the shell to delete the specified worktree for `row`.
     var onDeleteWorktreeConfirmed: (RepoRow, WorktreeRow) async -> String? = { _, _ in nil }
-    /// The repo's PR-publish phase, looked up in the shell-owned
-    /// `PRCreateStore`. Defaulted to idle for previews / snapshot tests.
-    var createPhase: (RepoRow) -> PRCreatePhase = { _ in .idle }
-    /// Starts a claude-driven PR publish for `row` (lives in `MainShell`,
-    /// like the other repo actions — the screen stays state-free).
-    var onCreatePR: (RepoRow) -> Void = { _ in }
     /// Pauses or resumes `row`'s GitHub API sync (lives in `MainShell`, like
     /// the other repo actions — the screen stays state-free).
     var onToggleApiSync: (RepoRow) -> Void = { _ in }
@@ -159,8 +153,6 @@ struct ReposScreen: View {
                         onMergeWorktree: { await onMergeWorktree(row, $0) },
                         onDiscardWorktreeConfirmed: { await onDiscardWorktreeConfirmed(row, $0) },
                         onDeleteWorktreeConfirmed: { await onDeleteWorktreeConfirmed(row, $0) },
-                        createPhase: createPhase(row),
-                        onCreatePR: { onCreatePR(row) },
                         onToggleApiSync: { onToggleApiSync(row) },
                         onRemove: { Task { await viewModel.remove(id: row.repo.id) } }
                     )

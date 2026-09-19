@@ -7,7 +7,7 @@ import AppKit
 /// Visual contract: `docs/superpowers/design/v2/app.jsx` `PRCard`:
 ///   ┌───────────────────────────────────────────────────────────────┐
 ///   │ <repo> · #N · <author> · [yours] · <updated ago>             │
-///   │ <title>                                       [Open ↗][Merge]  │
+///   │ <title>                                     [Review][Merge]  │
 ///   │ <CI pill>  <Review pill>  <Local-state pill>                  │
 ///   └───────────────────────────────────────────────────────────────┘
 ///
@@ -20,7 +20,7 @@ import AppKit
 /// menu holding every action, and keep the failure strips underneath.
 struct PRCard: View {
     let row: PRRow
-    /// Background store for Merge/Approve/Force-checkout. Defaulted so
+    /// Background store for Merge/Approve. Defaulted so
     /// previews / snapshot tests can omit it.
     var prActionStore: PRActionStore = PRActionStore()
     /// Resolves the GitHub account the merge confirmation should display as
@@ -33,11 +33,6 @@ struct PRCard: View {
     /// now owned by the caller and invoked from `PRActionStore.start`).
     /// Returns an error message on failure, nil on success.
     var onMergeConfirmed: (PRRow) async -> String? = { _ in nil }
-    var onOpen: () -> Void
-    /// Runs the actual force-checkout (the old `checkoutDialog`'s `onConfirm`
-    /// body, now owned by the caller and invoked from `PRActionStore.start`).
-    /// Returns an error message on failure, nil on success.
-    var onCheckoutConfirmed: (PRRow) async -> String? = { _ in nil }
     /// Opens the code review screen for this PR. Defaulted to a no-op for
     /// snapshot tests and previews.
     var onReview: () -> Void = {}
@@ -67,11 +62,6 @@ struct PRCard: View {
     var now: Date = Date()
 
     @State private var showMergeConfirm = false
-    @State private var showCheckoutConfirm = false
-    /// Where a narrow row's keys + ⋯ menu sit, in the row's coordinate space.
-    /// Clicks inside it must not open the PR (see `adaptiveRow`).
-    @State private var narrowActionsFrame: CGRect = .zero
-    fileprivate static let rowSpace = "PRCardRow"
 
     // MARK: - Derived presentation bits
 
@@ -91,13 +81,6 @@ struct PRCard: View {
 
     private var mergeFailure: String? {
         if case .failed(let message) = prActionStore.phase(.merge, for: row) { return message }
-        return nil
-    }
-
-    private var isCheckingOut: Bool { prActionStore.isRunning(.checkout, for: row) }
-
-    private var checkoutFailure: String? {
-        if case .failed(let message) = prActionStore.phase(.checkout, for: row) { return message }
         return nil
     }
 
@@ -181,24 +164,18 @@ struct PRCard: View {
     }
 
     private var hasFailures: Bool {
-        mergeFailure != nil || checkoutFailure != nil || aiReviewFailure != nil
+        mergeFailure != nil || aiReviewFailure != nil
     }
 
     private var failureStrips: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Both failure strings are already fully-formed ("Merge
-            // failed: …" / "Checkout failed: …") — pass them through as-is.
+            // The merge failure string is already fully-formed ("Merge
+            // failed: …") — pass it through as-is.
             if let mergeFailure {
                 ActionErrorStrip(
                     message: mergeFailure,
                     onRetry: { prActionStore.retry(.merge, row: row) },
                     onDismiss: { prActionStore.dismiss(.merge, row: row) })
-            }
-            if let checkoutFailure {
-                ActionErrorStrip(
-                    message: checkoutFailure,
-                    onRetry: { prActionStore.retry(.checkout, row: row) },
-                    onDismiss: { prActionStore.dismiss(.checkout, row: row) })
             }
             if let aiReviewFailure {
                 ActionErrorStrip(
@@ -224,25 +201,13 @@ struct PRCard: View {
             }
         }
         .adaptiveRowPlate(widthClass)
-        .coordinateSpace(name: Self.rowSpace)
-        // Clicking the row body opens the PR on GitHub. SwiftUI buttons win
-        // over this gesture, but the ⋯ menu is an AppKit pop-up button that
-        // doesn't swallow the click — opening it also opened the PR. Ignore
-        // clicks that land on the action cluster.
-        .contentShape(Rectangle())
-        .onTapGesture(coordinateSpace: .named(Self.rowSpace)) { location in
-            guard !narrowActionsFrame.insetBy(dx: -4, dy: -4).contains(location) else { return }
-            onOpen()
-        }
-        .help("Open \(row.repo.name) #\(row.pr.number) on GitHub")
         .popover(isPresented: $showMergeConfirm) { mergeDialog }
-        .background(Color.clear.popover(isPresented: $showCheckoutConfirm) { checkoutDialog })
     }
 
     /// `MediumPRRow` — two lines that keep the regular card's telemetry:
     ///   1. CI dot · repo · #N · YOURS/DRAFT · title (truncates) · updated
     ///   2. branch chip · CI + review pills · +/− · LOCAL/DIRTY · ↓↑ ·
-    ///      [Update] [Checkout | Open ↗] [Review] ⋯
+    ///      [Update] [AI Review] ⋯
     /// The ⋯ menu keeps Merge, AI Review and Copy Link reachable — the actions
     /// the row has no key for.
     private var mediumLine: some View {
@@ -303,8 +268,7 @@ struct PRCard: View {
     }
 
     /// Narrow rows keep one primary key — AI Review — plus Update when the
-    /// branch is behind. Review, Checkout, Merge and the rest live in the ⋯
-    /// menu; the row body itself opens the PR.
+    /// branch is behind. Review, Merge and the rest live in the ⋯ menu.
     private var mediumActions: some View {
         HStack(spacing: 7) {
             runningSpinner
@@ -315,7 +279,6 @@ struct PRCard: View {
             overflowMenu
         }
         .fixedSize()
-        .modifier(TracksNarrowActionsFrame(frame: $narrowActionsFrame))
     }
 
     /// The narrow rows' primary key: gold `.btn.amber.sm` "AI Review", arc
@@ -372,7 +335,6 @@ struct PRCard: View {
                     narrowAIReviewKey
                     overflowMenu
                 }
-                .modifier(TracksNarrowActionsFrame(frame: $narrowActionsFrame))
             }
             Text(row.pr.title)
                 .aerieFont(AerieFont.custom(.sans, size: 13.5))
@@ -447,9 +409,9 @@ struct PRCard: View {
 
     @ViewBuilder
     private var runningSpinner: some View {
-        // Merge / checkout run from the ⋯ menu, so the row shows they're in
-        // flight here; AI Review shows its own state on its key.
-        if isMerging || isCheckingOut {
+        // Merge runs from the ⋯ menu, so the row shows it's in flight here;
+        // AI Review shows its own state on its key.
+        if isMerging {
             CardArcSpinner(size: 11)
         }
     }
@@ -467,13 +429,10 @@ struct PRCard: View {
             Divider()
             Button(isMerging ? "Merging…" : "Merge…") { showMergeConfirm = true }
                 .disabled(!mergeable || isMerging)
-            Button(isCheckingOut ? "Checking Out…" : "Checkout…") { showCheckoutConfirm = true }
-                .disabled(isCheckingOut)
             if Self.shouldShowUpdateBranch(row.pr, row.localState) {
                 Button("Update Branch") { Task { await onUpdateBranch() } }
             }
             Divider()
-            Button("Open on GitHub", action: onOpen)
             Button("Copy Link") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(row.pr.htmlUrl.absoluteString, forType: .string)
@@ -497,43 +456,24 @@ struct PRCard: View {
         )
     }
 
-    private var checkoutDialog: some View {
-        DialogCheckout(
-            repo: row.repo, pr: row.pr, local: row.localState,
-            onConfirm: {
-                showCheckoutConfirm = false
-                prActionStore.start(.checkout, row: row) { await onCheckoutConfirmed(row) }
-            },
-            onCancel: { showCheckoutConfirm = false }
-        )
-    }
-
     // MARK: - Actions column
     //
-    // Open · Merge · Checkout stacked top→bottom, equal width and centred — the
-    // design's `PRCard` right column (`v2/app.jsx`: "actions, stacked top →
-    // bottom"). All are MARK III `.btn.sm` bevelled keys (`HudButtonStyle`); Open
-    // is ghost (borderless), Merge/Checkout carry the glass/gold `.btn` chrome. A fixed column width
-    // keeps the three equal and the cards' action columns aligned down the list.
-    //
-    // Open shares its top row with a small ``CopyLinkButton`` (`v2/app.jsx`: the
-    // Open `flex:1` button paired with the fixed 30pt copy icon). The pair sits
-    // above Merge/Checkout so the copy affordance never crowds them. The column
-    // widens to 132 to match the design's `minWidth: 132` and give Open room
-    // beside the copy icon.
+    // Review · AI Review · Merge stacked top→bottom, equal width and centred —
+    // the design's `PRCard` right column (`v2/app.jsx`: "actions, stacked top →
+    // bottom"). All are MARK III `.btn.sm` bevelled keys (`HudButtonStyle`). A
+    // fixed column width keeps them equal and the cards' action columns aligned
+    // down the list. Review shares its top row with a small ``CopyLinkButton``.
 
     private static let actionColumnWidth: CGFloat = 132
 
     private var actionColumn: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                openButton
+                reviewButton
                 CopyLinkButton(url: row.pr.htmlUrl)
             }
-            reviewButton
             aiReviewButton
             mergeButton
-            checkoutButton
         }
         .frame(width: Self.actionColumnWidth)
     }
@@ -617,44 +557,6 @@ struct PRCard: View {
         }
     }
 
-    private var openButton: some View {
-        Button(action: onOpen) {
-            Text("Open ↗")
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.hud(.ghost, size: .small))
-    }
-
-    private var checkoutButton: some View {
-        let plan = CheckoutPlan.make(for: row.localState)
-        // Destructive checkouts hint with crimson label text (design: `color:
-        // destructive ? red : text-1`); the nuance otherwise lives in the dialog.
-        // A running checkout turns the key arc cyan.
-        let tint = isCheckingOut ? AerieColor.arc : (plan.destructive ? AerieColor.dangerText : AerieColor.text1)
-        return Button {
-            guard !isCheckingOut else { return }
-            showCheckoutConfirm = true
-        } label: {
-            HStack(spacing: 6) {
-                if isCheckingOut {
-                    CardArcSpinner(size: 10)
-                } else {
-                    CheckoutGlyphShape()
-                        .stroke(tint, style: StrokeStyle(lineWidth: 1.6 * 11 / 16, lineCap: .round, lineJoin: .round))
-                        .frame(width: 11, height: 11)
-                }
-                Text(isCheckingOut ? "Checking out…" : "Checkout")
-            }
-            .foregroundStyle(tint)
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.hud(isCheckingOut ? .arc : .standard, size: .small))
-        .help(plan.current
-            ? "Local repo is already on origin/\(row.pr.sourceBranch)"
-            : "Force checkout \(row.repo.name) to origin/\(row.pr.sourceBranch)")
-        .popover(isPresented: $showCheckoutConfirm) { checkoutDialog }
-    }
-
     // MARK: - Local state → one sentence pill
 
     /// Mirrors the design's `localState` branch in `app.jsx`: a single tone +
@@ -702,19 +604,6 @@ struct PRCard: View {
     }
 }
 
-/// Records a narrow row's action cluster frame in the row's coordinate space.
-private struct TracksNarrowActionsFrame: ViewModifier {
-    @Binding var frame: CGRect
-
-    func body(content: Content) -> some View {
-        content.onGeometryChange(for: CGRect.self) { proxy in
-            proxy.frame(in: .named(PRCard.rowSpace))
-        } action: { newFrame in
-            frame = newFrame
-        }
-    }
-}
-
 /// The gold "Update branch" control on a PR card's status row. Mirrors the
 /// design's `UpdateBranchButton` (`.update-branch-btn` in `styles.css`): a small
 /// radius-2 box in button vocabulary — deliberately *not* a status pill — gold
@@ -722,7 +611,7 @@ private struct TracksNarrowActionsFrame: ViewModifier {
 /// the local-status chip and appears only when the branch is behind its base.
 ///
 /// It lives in the **status row, never the actions column**, so the trailing
-/// `Open ↗` / `Merge` controls stay uniform and the Merge buttons line up down
+/// Review / Merge controls stay uniform and the Merge buttons line up down
 /// the list (a deliberate design decision — a conditional third action button
 /// made the column width vary per row and broke that alignment).
 ///
@@ -826,7 +715,7 @@ struct UpdateBranchButton: View {
     }
 }
 
-/// The quiet "copy link" icon button that pairs with `Open ↗` on a PR card.
+/// The quiet "copy link" icon button that pairs with Review on a PR card.
 /// Mirrors the design's `CopyLinkButton` (`.copy-link-btn` in `v2/styles.css`):
 /// a fixed 30×26 `.btn.ghost.sm` bevelled key that's grey at rest, hints gold on hover,
 /// and — once the PR's GitHub URL is on the clipboard — flips to a green

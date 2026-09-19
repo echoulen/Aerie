@@ -63,7 +63,7 @@ final class PRCardTests: XCTestCase {
     private func host(_ row: PRRow) -> NSHostingView<some View> {
         let view = ZStack {
             Backdrop(showsPlanets: false)
-            PRCard(row: row, onOpen: {}, now: fixedNow)
+            PRCard(row: row, now: fixedNow)
                 .padding(20)
         }
         .frame(width: 980, height: 280)
@@ -456,7 +456,7 @@ final class PRCardTests: XCTestCase {
         let width: CGFloat = 596   // 640 − 2 × 22 gutter
         let view = ZStack {
             Backdrop(showsPlanets: false)
-            PRCard(row: row, onOpen: {}, now: fixedNow)
+            PRCard(row: row, now: fixedNow)
                 .environment(\.widthClass, .medium)
                 .frame(width: width)
         }

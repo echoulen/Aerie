@@ -5,15 +5,7 @@ import SnapshotTesting
 
 final class SettingsSidebarTests: XCTestCase {
     func test_sidebarSnapshot_accountsSelected() {
-        let view = SettingsSidebar(selection: .constant(.accounts), mcpRunning: false)
-            .frame(width: 220, height: 760)
-            .background(AerieColor.backdrop1)
-        assertSnapshot(of: NSHostingView(rootView: view),
-                       as: .image(size: CGSize(width: 220, height: 760)))
-    }
-
-    func test_sidebarSnapshot_mcpSelectedAndRunning() {
-        let view = SettingsSidebar(selection: .constant(.mcp), mcpRunning: true)
+        let view = SettingsSidebar(selection: .constant(.accounts))
             .frame(width: 220, height: 760)
             .background(AerieColor.backdrop1)
         assertSnapshot(of: NSHostingView(rootView: view),
@@ -21,7 +13,7 @@ final class SettingsSidebarTests: XCTestCase {
     }
 
     func test_sidebarSnapshot_appearanceSelected() {
-        let view = SettingsSidebar(selection: .constant(.appearance), mcpRunning: false)
+        let view = SettingsSidebar(selection: .constant(.appearance))
             .frame(width: 220, height: 760)
             .background(AerieColor.backdrop1)
         assertSnapshot(of: NSHostingView(rootView: view),
@@ -29,7 +21,7 @@ final class SettingsSidebarTests: XCTestCase {
     }
 
     func test_sidebarSnapshot_aboutAtBottom() {
-        let view = SettingsSidebar(selection: .constant(.about), mcpRunning: false)
+        let view = SettingsSidebar(selection: .constant(.about))
             .frame(width: 220, height: 760)
             .background(AerieColor.backdrop1)
         assertSnapshot(of: NSHostingView(rootView: view),
@@ -42,7 +34,7 @@ final class SettingsSidebarTests: XCTestCase {
     /// `scale`. A label that wraps adds a line, so it shows up as extra height.
     @MainActor
     private func idealHeight(scale: CGFloat, repositoriesCount: Int?, aiModelName: String?) -> CGFloat {
-        let view = SettingsSidebar(selection: .constant(.repositories), mcpRunning: true,
+        let view = SettingsSidebar(selection: .constant(.repositories),
                                    accountsCount: 0, repositoriesCount: repositoriesCount,
                                    aiModelName: aiModelName)
             .environment(\.interfaceFontScale, scale)
@@ -63,7 +55,7 @@ final class SettingsSidebarTests: XCTestCase {
 
     @MainActor
     func test_sidebarKeepsItsDesignWidth_atDefaultZoom() {
-        let view = SettingsSidebar(selection: .constant(.repositories), mcpRunning: true,
+        let view = SettingsSidebar(selection: .constant(.repositories),
                                    accountsCount: 3, repositoriesCount: 17, aiModelName: "haiku")
             .environment(\.interfaceFontScale, 1)
         XCTAssertEqual(NSHostingView(rootView: view).fittingSize.width, 220, accuracy: 0.5)

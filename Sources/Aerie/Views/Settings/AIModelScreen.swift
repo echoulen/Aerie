@@ -30,14 +30,14 @@ struct AIModelScreen: View {
         SettingsPageHeader(
             eyebrow: "AI Model",
             title: "Model",
-            subtitle: "used by AI Review and Create Pull Request",
+            subtitle: "used by AI Review",
             subtitleSize: 12.5
         )
     }
 
     private var modelCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            (Text("Both features run the ")
+            (Text("AI Review runs the ")
                 + Text("claude").foregroundStyle(AerieColor.amber)
                 + Text(" CLI with ")
                 + Text("--model").foregroundStyle(AerieColor.amber)

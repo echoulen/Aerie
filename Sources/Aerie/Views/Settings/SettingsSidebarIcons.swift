@@ -5,7 +5,7 @@ import SwiftUI
 /// the requested point size, stroked at the design's 1.4 px weight with round
 /// caps/joins — matching the thin-line house style rather than SF Symbols.
 struct SidebarIcon: View {
-    enum Kind { case key, folder, pullRequest, cpu, plug, appearance, sliders, info }
+    enum Kind { case key, folder, cpu, appearance, sliders, info }
 
     let kind: Kind
     var size: CGFloat = 14
@@ -36,17 +36,6 @@ struct SidebarIcon: View {
                 stroke.addQuadCurve(to: P(2, 12), control: P(2, 13))
                 stroke.closeSubpath()
 
-            case .pullRequest:
-                // Git pull-request glyph: left rail (top commit → base commit),
-                // right rail branching off the top commit into the merge commit.
-                stroke.addEllipse(in: CGRect(x: 2.5 * s, y: 2.5 * s, width: 3.5 * s, height: 3.5 * s))
-                stroke.move(to: P(4.25, 6)); stroke.addLine(to: P(4.25, 10))
-                stroke.addEllipse(in: CGRect(x: 2.5 * s, y: 10 * s, width: 3.5 * s, height: 3.5 * s))
-                stroke.move(to: P(6, 4.25)); stroke.addLine(to: P(9, 4.25))
-                stroke.addQuadCurve(to: P(11.75, 7), control: P(11.75, 4.25))
-                stroke.addLine(to: P(11.75, 10))
-                stroke.addEllipse(in: CGRect(x: 10 * s, y: 10 * s, width: 3.5 * s, height: 3.5 * s))
-
             case .cpu:
                 // A small chip: square body + 4 pins per side, matching the
                 // thin-line house style of the other glyphs.
@@ -61,17 +50,6 @@ struct SidebarIcon: View {
                 stroke.move(to: P(5, 10)); stroke.addLine(to: P(3, 10))
                 stroke.move(to: P(11, 6));  stroke.addLine(to: P(13, 6))
                 stroke.move(to: P(11, 10)); stroke.addLine(to: P(13, 10))
-
-            case .plug:
-                stroke.move(to: P(5, 2));  stroke.addLine(to: P(5, 5))
-                stroke.move(to: P(11, 2)); stroke.addLine(to: P(11, 5))
-                stroke.move(to: P(3.5, 5))
-                stroke.addLine(to: P(12.5, 5))
-                stroke.addLine(to: P(12.5, 8))
-                stroke.addArc(center: P(8, 8), radius: 4.5 * s,
-                              startAngle: .degrees(0), endAngle: .degrees(180), clockwise: false)
-                stroke.addLine(to: P(3.5, 5))
-                stroke.move(to: P(8, 12.5)); stroke.addLine(to: P(8, 15))
 
             case .appearance:
                 // "Aa" — a large and a small letter A, the standard

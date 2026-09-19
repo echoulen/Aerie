@@ -37,11 +37,11 @@ final class AIModelScreenTests: XCTestCase {
         }
     }
 
-    func test_aiModelScreen_opus48Selected() async throws {
+    func test_aiModelScreen_opus5Selected() async throws {
         let db = try makeDB()
         let vm = AIModelViewModel(db: db)
-        await vm.setModel(.opus48)
-        XCTAssertEqual(vm.selected, .opus48)
+        await vm.setModel(.opus5)
+        XCTAssertEqual(vm.selected, .opus5)
 
         await MainActor.run {
             let view = ZStack {
