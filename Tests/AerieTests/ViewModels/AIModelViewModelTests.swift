@@ -30,10 +30,10 @@ final class AIModelViewModelTests: XCTestCase {
 
     func test_refresh_loadsPersistedModel() async throws {
         let db = try makeDB()
-        try await db.settings.setString(AIModelViewModel.settingsKey, ClaudeModel.opus48.rawValue)
+        try await db.settings.setString(AIModelViewModel.settingsKey, ClaudeModel.opus5.rawValue)
         let vm = makeVM(db)
         await vm.refresh()
-        XCTAssertEqual(vm.selected, .opus48)
+        XCTAssertEqual(vm.selected, .opus5)
     }
 
     func test_refresh_unknownPersistedValue_fallsBackToDefault() async throws {

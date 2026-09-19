@@ -120,18 +120,18 @@ final class ModelsTests: XCTestCase {
 
     func test_claudeModel_rawValuesAndDisplayNames() {
         XCTAssertEqual(ClaudeModel.sonnet5.rawValue, "claude-sonnet-5")
-        XCTAssertEqual(ClaudeModel.opus48.rawValue, "claude-opus-4-8")
+        XCTAssertEqual(ClaudeModel.opus5.rawValue, "claude-opus-5")
         XCTAssertEqual(ClaudeModel.haiku45.rawValue, "claude-haiku-4-5-20251001")
-        XCTAssertEqual(ClaudeModel.fable5.rawValue, "claude-fable-5")
+        XCTAssertEqual(ClaudeModel.fable51.rawValue, "claude-fable-5-1")
 
         XCTAssertEqual(ClaudeModel.sonnet5.displayName, "Sonnet 5")
-        XCTAssertEqual(ClaudeModel.opus48.displayName, "Opus 4.8")
+        XCTAssertEqual(ClaudeModel.opus5.displayName, "Opus 5")
         XCTAssertEqual(ClaudeModel.haiku45.displayName, "Haiku 4.5")
-        XCTAssertEqual(ClaudeModel.fable5.displayName, "Fable 5")
+        XCTAssertEqual(ClaudeModel.fable51.displayName, "Fable 5.1")
     }
 
     func test_claudeModel_allCases_hasExactlyFourInOrder() {
-        XCTAssertEqual(ClaudeModel.allCases, [.sonnet5, .opus48, .haiku45, .fable5])
+        XCTAssertEqual(ClaudeModel.allCases, [.sonnet5, .opus5, .haiku45, .fable51])
     }
 
     func test_claudeModel_default_isSonnet5() {
@@ -143,5 +143,13 @@ final class ModelsTests: XCTestCase {
             XCTAssertEqual(ClaudeModel(rawValue: model.rawValue), model)
         }
         XCTAssertNil(ClaudeModel(rawValue: "not-a-real-model"))
+    }
+
+    func test_claudeModel_resolve_carriesRetiredModelsToTheirSuccessor() {
+        XCTAssertEqual(ClaudeModel.resolve(stored: "claude-opus-4-8"), .opus5)
+        XCTAssertEqual(ClaudeModel.resolve(stored: "claude-fable-5"), .fable51)
+        XCTAssertEqual(ClaudeModel.resolve(stored: "claude-haiku-4-5-20251001"), .haiku45)
+        XCTAssertEqual(ClaudeModel.resolve(stored: "not-a-real-model"), .default)
+        XCTAssertEqual(ClaudeModel.resolve(stored: nil), .default)
     }
 }

@@ -3,10 +3,8 @@ import Observation
 
 /// View model for Settings → AI Model.
 ///
-/// Holds the Claude model used by both AI Review and Create Pull Request.
-/// Always resolves to a concrete `ClaudeModel` — there is no "unset" state;
-/// an absent or unrecognised stored value falls back to `ClaudeModel.default`
-/// (Sonnet 5). Persisted via `SettingsDAO` under `ai.model`.
+/// Holds the Claude model used by AI Review. Always resolves to a concrete
+/// `ClaudeModel` — there is no "unset" state; see `ClaudeModel.resolve(stored:)`. Persisted via `SettingsDAO` under `ai.model`.
 @MainActor
 @Observable
 final class AIModelViewModel {
@@ -20,11 +18,11 @@ final class AIModelViewModel {
         self.db = db
     }
 
-    /// Loads the persisted model. An absent or unrecognised value falls back
-    /// to `ClaudeModel.default`.
+    /// Loads the persisted model (retired models map to their successor; an
+    /// absent or unrecognised value falls back to `ClaudeModel.default`).
     func refresh() async {
         let stored = (try? await db.settings.getString(Self.settingsKey)) ?? nil
-        selected = stored.flatMap(ClaudeModel.init(rawValue:)) ?? .default
+        selected = ClaudeModel.resolve(stored: stored)
     }
 
     /// Selects a model and persists it immediately (no debounce — this is a

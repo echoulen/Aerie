@@ -477,7 +477,7 @@ struct MainShell: View {
                 // Read the model fresh on every run (not at store construction)
                 // so Settings edits apply to the next click.
                 let storedModel = (try? await services.db.settings.getString(AIModelViewModel.settingsKey)) ?? nil
-                let model = storedModel.flatMap(ClaudeModel.init(rawValue:)) ?? .default
+                let model = ClaudeModel.resolve(stored: storedModel)
                 return await claude.review(
                     owner: r.repo.githubOwner, repo: r.repo.githubRepo, number: r.pr.number,
                     title: r.pr.title, author: r.pr.authorLogin, sourceBranch: r.pr.sourceBranch,
