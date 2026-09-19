@@ -10,7 +10,7 @@ import SnapshotTesting
 final class DialogShellTests: XCTestCase {
     private func snapshot<V: View>(_ view: V) -> NSHostingView<some View> {
         let host = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             view
         }
         .frame(width: 1240, height: 880)

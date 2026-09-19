@@ -38,7 +38,7 @@ final class FirstRunRootTests: XCTestCase {
         // flaky in a headless test host.
         await MainActor.run {
             let view = ZStack {
-                Backdrop()
+                Backdrop(showsPlanets: false)
                 NoGhBody(onRecheck: { booter.recheckNow() })
                     .padding(48)
             }
@@ -59,7 +59,7 @@ final class FirstRunRootTests: XCTestCase {
 
         await MainActor.run {
             let view = ZStack {
-                Backdrop()
+                Backdrop(showsPlanets: false)
                 NoAuthBody(onRecheck: { booter.recheckNow() })
                     .padding(48)
             }

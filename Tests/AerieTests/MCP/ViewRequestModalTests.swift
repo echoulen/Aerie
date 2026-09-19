@@ -8,7 +8,7 @@ final class ViewRequestModalTests: XCTestCase {
         let request = #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"aerie_merge_pr","arguments":{"repo":"owner/repo","number":42}}}"#
         let response = #"{"jsonrpc":"2.0","id":1,"result":{"ok":true,"merged_at":"2026-05-29T01:23:45Z"}}"#
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             ViewRequestModal(
                 requestJSON: request,
                 responseJSON: response,

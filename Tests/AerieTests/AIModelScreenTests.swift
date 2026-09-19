@@ -28,7 +28,7 @@ final class AIModelScreenTests: XCTestCase {
 
         await MainActor.run {
             let view = ZStack {
-                Backdrop()
+                Backdrop(showsPlanets: false)
                 AIModelScreen(viewModel: vm)
             }
             .frame(width: 820, height: 760)
@@ -45,7 +45,7 @@ final class AIModelScreenTests: XCTestCase {
 
         await MainActor.run {
             let view = ZStack {
-                Backdrop()
+                Backdrop(showsPlanets: false)
                 AIModelScreen(viewModel: vm)
             }
             .frame(width: 820, height: 760)

@@ -6,7 +6,7 @@ import SnapshotTesting
 final class FirstRunViewsTests: XCTestCase {
     func test_noGhBody_snapshot() {
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             NoGhBody(onRecheck: { })
         }
         .frame(width: 800, height: 560)
@@ -17,7 +17,7 @@ final class FirstRunViewsTests: XCTestCase {
 
     func test_noAuthBody_snapshot() {
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             NoAuthBody(onRecheck: { })
         }
         .frame(width: 800, height: 560)

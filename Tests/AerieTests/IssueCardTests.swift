@@ -54,7 +54,7 @@ final class IssueCardTests: XCTestCase {
     private func host(_ issue: Issue) -> NSHostingView<some View> {
         let row = IssueRow(issue: issue, repo: makeRepo())
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             IssueCard(row: row, onOpen: {}, now: fixedNow)
                 .padding(20)
         }

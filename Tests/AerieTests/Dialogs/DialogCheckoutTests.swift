@@ -111,7 +111,7 @@ final class DialogCheckoutTests: XCTestCase {
 
     private func host<V: View>(_ view: V) -> NSHostingView<some View> {
         let frame = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             view
         }
         .frame(width: 1240, height: 880)

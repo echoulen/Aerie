@@ -6,7 +6,7 @@ import SnapshotTesting
 final class MCPConsentDialogTests: XCTestCase {
     func test_mcpConsentDialog_snapshot() {
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             MCPConsentDialog(
                 onAllow: { },
                 onDecline: { }

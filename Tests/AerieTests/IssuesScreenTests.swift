@@ -110,7 +110,7 @@ final class IssuesScreenTests: XCTestCase {
         let vm = try await seededViewModel()
         let fixedNow = Date(timeIntervalSince1970: 1_700_010_000)
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             IssuesScreen(viewModel: vm, now: fixedNow, tabSelection: .constant(.issues))
         }
         .environment(\.widthClass, widthClass)

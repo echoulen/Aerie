@@ -54,7 +54,7 @@ final class PRReviewScreenTests: XCTestCase {
             approve: { _, _, _ in nil },
             requestChanges: { _, _, _ in nil })
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             PRReviewScreen(
                 row: row(), store: store, actionStore: PRActionStore(),
                 loadFiles: { _ in files }, accountsProvider: { [] })
