@@ -140,7 +140,7 @@ final class ReposScreenTests: XCTestCase {
     ) async throws {
         let vm = try await seededViewModel()
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             ReposScreen(viewModel: vm, tabSelection: .constant(.repos))
         }
         .environment(\.widthClass, widthClass)

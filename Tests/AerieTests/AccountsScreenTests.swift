@@ -110,7 +110,7 @@ final class AccountsScreenTests: XCTestCase {
         XCTAssertNil(vm.error)
 
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             AccountsScreen(
                 viewModel: vm,
                 ghVersion: "gh version 2.74.0 (2025-05-29)",

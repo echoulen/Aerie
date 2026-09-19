@@ -21,7 +21,7 @@ final class AccountCardTests: XCTestCase {
 
     private func host(_ row: AccountRow) -> NSHostingView<some View> {
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             AccountCard(row: row, now: fixedNow)
                 .padding(20)
         }

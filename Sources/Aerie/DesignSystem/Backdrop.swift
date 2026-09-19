@@ -8,7 +8,8 @@ import AppKit
 ///   2. a space-2 → space-0 base radial,
 ///   3. a near starfield — bigger, brighter, twinkling — drifting up-left fastest,
 ///   4. a far starfield — finer, dimmer — crawling the same way, slower, for parallax,
-///   5. film-grain noise.
+///   5. three planets — Jupiter, Venus, Uranus — drifting slowest of all,
+///   6. film-grain noise.
 /// With Reduce Motion on, every layer holds still.
 struct Backdrop: View {
     // --- Half-transparent glass knobs ---
@@ -28,6 +29,9 @@ struct Backdrop: View {
     var dim: Double = 0.10
     /// Draw the starfield. Snapshot tests may turn this off.
     var showsStars: Bool = true
+    /// Draw the planets. Screen snapshot tests turn this off so their
+    /// baselines don't hinge on the backdrop art.
+    var showsPlanets: Bool = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -60,6 +64,10 @@ struct Backdrop: View {
 
                 if showsStars {
                     Starfield(animated: !reduceMotion)
+                }
+
+                if showsPlanets {
+                    PlanetField(animated: !reduceMotion)
                 }
 
                 Image("noise", bundle: .aerieResources)

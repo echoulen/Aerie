@@ -9,7 +9,7 @@ final class SegmentedToggleTests: XCTestCase {
 
     private func host(_ selection: MainTab) -> NSHostingView<some View> {
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             SegmentedToggle(selection: .constant(selection))
                 .padding(20)
         }

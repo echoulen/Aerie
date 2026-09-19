@@ -32,7 +32,7 @@ final class AppearanceScreenTests: XCTestCase {
 
         await MainActor.run {
             let view = ZStack {
-                Backdrop()
+                Backdrop(showsPlanets: false)
                 AppearanceScreen(viewModel: vm)
             }
             .frame(width: 820, height: 760)
@@ -49,7 +49,7 @@ final class AppearanceScreenTests: XCTestCase {
 
         await MainActor.run {
             let view = ZStack {
-                Backdrop()
+                Backdrop(showsPlanets: false)
                 AppearanceScreen(viewModel: vm)
             }
             .frame(width: 820, height: 760)

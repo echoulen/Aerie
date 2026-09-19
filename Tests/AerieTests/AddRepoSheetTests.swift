@@ -8,7 +8,7 @@ import SnapshotTesting
 final class AddRepoSheetTests: XCTestCase {
     private func host(_ vm: AddRepoSheetViewModel) -> NSHostingView<some View> {
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             AddRepoSheet(viewModel: vm, onCancel: { }, onAdd: { _, _ in })
         }
         .frame(width: 720, height: 600)

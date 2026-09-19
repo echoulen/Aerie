@@ -82,7 +82,7 @@ final class AdvancedScreenTests: XCTestCase {
         // `@Bindable` state that strict-concurrency considers main-only.
         await MainActor.run {
             let view = ZStack {
-                Backdrop()
+                Backdrop(showsPlanets: false)
                 AdvancedScreen(viewModel: vm)
             }
             .frame(width: 820, height: 760)

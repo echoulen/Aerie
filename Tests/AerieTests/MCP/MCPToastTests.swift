@@ -6,7 +6,7 @@ import SnapshotTesting
 final class MCPToastTests: XCTestCase {
     private func host<V: View>(_ view: V, size: CGSize) -> NSHostingView<some View> {
         let wrapper = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             view
         }
         .frame(width: size.width, height: size.height)

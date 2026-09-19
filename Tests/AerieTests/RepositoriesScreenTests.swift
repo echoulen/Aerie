@@ -105,7 +105,7 @@ final class RepositoriesScreenTests: XCTestCase {
         XCTAssertEqual(vm.accounts.count, 2)
 
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             RepositoriesScreen(
                 viewModel: vm,
                 onRefreshAll: { },

@@ -12,7 +12,7 @@ final class RepoSettingsRowTests: XCTestCase {
 
     private func host<V: View>(_ view: V) -> NSHostingView<some View> {
         let wrapped = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             view
         }
         .frame(width: 820, height: 80)

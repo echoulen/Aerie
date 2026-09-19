@@ -86,7 +86,7 @@ final class MCPSettingsScreenTests: XCTestCase {
         XCTAssertTrue(vm.autoRegisterOn)
 
         let view = ZStack {
-            Backdrop()
+            Backdrop(showsPlanets: false)
             MCPSettingsScreen(viewModel: vm)
         }
         .frame(width: 820, height: 760)

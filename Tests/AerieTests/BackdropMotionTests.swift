@@ -109,6 +109,67 @@ final class BackdropMotionTests: XCTestCase {
         }
     }
 
+    func test_planetField_paintsAndDriftsEachPlanet() {
+        let view = PlanetFieldView()
+        view.animated = true
+        let window = host(view)
+        defer { window.close() }
+
+        XCTAssertEqual(view.planetLayers.count, PlanetFieldView.planets.count)
+        for (layer, planet) in zip(view.planetLayers, PlanetFieldView.planets) {
+            XCTAssertNotNil(layer.contents, "each planet is painted into a bitmap")
+            XCTAssertEqual(layer.position, CGPoint(x: planet.centre.x * 800, y: planet.centre.y * 600))
+            let diameter = (planet.diameter * 600).rounded()
+            XCTAssertEqual(layer.bounds.width, diameter * PlanetArt.canvasRatio(planet.kind), accuracy: 0.001)
+            let drift = layer.animation(forKey: PlanetFieldView.driftKey) as? CABasicAnimation
+            XCTAssertEqual(drift?.keyPath, "position")
+            XCTAssertEqual(drift?.autoreverses, false, "planets cross and loop, not swing back")
+            XCTAssertEqual(drift?.repeatCount, .infinity)
+        }
+    }
+
+    func test_planetCrossing_entersAndLeavesWhollyOffScreenThroughHome() {
+        let size = CGSize(width: 1000, height: 600)
+        let home = CGPoint(x: 700, y: 400)
+        let c = BackdropGeometry.crossing(home: home, halfSide: 50, direction: CGSize(width: -2, height: -1),
+                                          speed: 10, gap: 20, in: size)
+        let view = CGRect(origin: .zero, size: size)
+        func box(_ p: CGPoint) -> CGRect { CGRect(x: p.x - 50, y: p.y - 50, width: 100, height: 100) }
+        XCTAssertFalse(box(c.from).intersects(view), "starts just outside the entry edge")
+        XCTAssertFalse(box(c.to).intersects(view), "ends outside the exit edge")
+        // Enters through the right edge: x = 1000 + 50.
+        XCTAssertEqual(c.from.x, 1050, accuracy: 0.001)
+        // Leaves 20s (200pt) past the point it clears the left edge.
+        let cleared = CGPoint(x: -50, y: 400 - 750 / 2)
+        XCTAssertEqual(hypot(c.to.x - cleared.x, c.to.y - cleared.y), 200, accuracy: 0.001)
+        let total = hypot(c.to.x - c.from.x, c.to.y - c.from.y)
+        XCTAssertEqual(c.duration, Double(total) / 10, accuracy: 0.0001)
+        // At `homeOffset` the planet is on its home point.
+        let atHome = CGFloat(c.homeOffset / c.duration)
+        XCTAssertEqual(c.from.x + (c.to.x - c.from.x) * atHome, home.x, accuracy: 0.001)
+        XCTAssertEqual(c.from.y + (c.to.y - c.from.y) * atHome, home.y, accuracy: 0.001)
+    }
+
+    func test_planetField_staysStillWhenNotAnimated() {
+        let view = PlanetFieldView()
+        view.animated = false
+        let window = host(view)
+        defer { window.close() }
+
+        XCTAssertFalse(view.planetLayers.isEmpty)
+        for layer in view.planetLayers {
+            XCTAssertNotNil(layer.contents)
+            XCTAssertNil(layer.animationKeys())
+        }
+    }
+
+    func test_planetArt_paintsEveryKind() {
+        for kind in PlanetArt.Kind.allCases {
+            let image = PlanetArt.image(kind, diameter: 40, scale: 2)
+            XCTAssertEqual(image?.width, Int((40 * PlanetArt.canvasRatio(kind) * 2).rounded(.up)))
+        }
+    }
+
     func test_nebulaField_staysStillWhenNotAnimated() {
         let view = NebulaFieldView()
         view.animated = false
