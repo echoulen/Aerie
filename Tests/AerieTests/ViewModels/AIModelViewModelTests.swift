@@ -1,8 +1,7 @@
 import XCTest
 @testable import Aerie
 
-/// Mirrors the temp-DB pattern used by `AppearanceViewModelTests` /
-/// `PRPublishViewModelTests`: each test spins up a throwaway SQLite file and
+/// Mirrors the temp-DB pattern used by `AppearanceViewModelTests`: each test spins up a throwaway SQLite file and
 /// exercises the real `SettingsDAO`.
 @MainActor
 final class AIModelViewModelTests: XCTestCase {

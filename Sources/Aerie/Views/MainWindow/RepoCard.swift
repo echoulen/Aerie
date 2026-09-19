@@ -16,7 +16,7 @@ import AppKit
 ///   with origin", or an "N ahead · M behind …" line.
 /// - Actions: a ghost "Open ↗" and a crimson `.btn.danger` "Reset to
 ///   origin/<b>", with Create PR / Discard below when relevant.
-/// - Footer: failure / publish / merged-branch strips, then the worktree rail.
+/// - Footer: failure / merged-branch strips, then the worktree rail.
 ///
 /// Below regular width the card follows `compact.jsx` `CompactRepoRow`: name
 /// and a `⋯` menu holding every action, then the branch chip with its tags and
@@ -37,11 +37,6 @@ struct RepoCard: View {
     var onMergeWorktree: (WorktreeRow) async -> String? = { _ in nil }
     var onDiscardWorktreeConfirmed: (WorktreeRow) async -> String? = { _ in nil }
     var onDeleteWorktreeConfirmed: (WorktreeRow) async -> String? = { _ in nil }
-    /// The repo's PR-publish phase (from `PRCreateStore`). Defaulted so
-    /// previews / snapshot tests can omit it.
-    var createPhase: PRCreatePhase = .idle
-    /// Starts (or retries) a claude-driven PR publish for this repo.
-    var onCreatePR: () -> Void = {}
     /// Pauses or resumes this repo's GitHub API sync (PRs, Issues,
     /// merged-branch check). Local git operations are unaffected either way.
     var onToggleApiSync: () -> Void = {}
@@ -58,16 +53,6 @@ struct RepoCard: View {
         status?.isDirty == true
     }
 
-    /// Whether "Create Pull Request" shows — only when there is something to
-    /// publish (dirty tree, commits ahead/unpushed, or an off-default branch).
-    /// Always hidden once the branch is merged: the right action there is
-    /// "Reset & delete branch", not another PR. `nil` status reads as clean.
-    static func shouldShowCreatePR(_ row: RepoRow) -> Bool {
-        guard row.mergedBranch == nil else { return false }
-        guard let s = row.status else { return false }
-        let offDefault = s.currentBranch != row.repo.defaultBranch
-        return s.isDirty || s.aheadOfDefault > 0 || s.unpushedCommits > 0 || offDefault
-    }
 
     /// The toggle button's SF Symbol name — swaps between "pause" (sync
     /// active, click to pause) and "play" (sync paused, click to resume) so
@@ -80,16 +65,6 @@ struct RepoCard: View {
     /// The toggle button's tooltip, mirroring `apiSyncToggleIcon`'s state split.
     static func apiSyncToggleHelp(_ row: RepoRow) -> String {
         row.repo.apiSyncDisabled ? "Resume API sync" : "Pause API sync (PR / Issue)"
-    }
-
-    private var isCreating: Bool {
-        if case .running = createPhase { return true }
-        return false
-    }
-
-    private var createFooterIsEmpty: Bool {
-        if case .idle = createPhase { return true }
-        return false
     }
 
     private var isResetting: Bool { repoActionStore.isRunning(.hardReset, for: .repo(row.repo)) }
@@ -258,8 +233,7 @@ struct RepoCard: View {
     }
 
     private var showsStatusStrips: Bool {
-        !createFooterIsEmpty || resetFailure != nil
-            || discardFailure != nil || (row.mergedBranch != nil && !isResetting)
+        resetFailure != nil || discardFailure != nil || (row.mergedBranch != nil && !isResetting)
     }
 
     private var showsFooter: Bool {
@@ -286,7 +260,7 @@ struct RepoCard: View {
         }
     }
 
-    /// Failure / merged-hint / publish strips — shown at every width.
+    /// Failure / merged-hint strips — shown at every width.
     @ViewBuilder
     private var statusStrips: some View {
         if let resetFailure {
@@ -307,9 +281,6 @@ struct RepoCard: View {
         }
         if let merged = row.mergedBranch, !isResetting {
             mergedHintStrip(merged)
-        }
-        if !createFooterIsEmpty {
-            createStatusFooter
         }
     }
 
@@ -394,7 +365,7 @@ struct RepoCard: View {
 
     @ViewBuilder
     private var runningSpinner: some View {
-        if isResetting || isDiscarding || isCreating {
+        if isResetting || isDiscarding {
             CardArcSpinner(size: 11)
         }
     }
@@ -403,17 +374,13 @@ struct RepoCard: View {
     private var overflowMenu: some View {
         RowOverflowMenu(help: "Actions for \(repoTitle)") {
             Button("Open in Finder", action: onOpen)
-            if Self.shouldShowCreatePR(row) || isCreating {
-                Button(isCreating ? "Creating Pull Request…" : "Create Pull Request", action: onCreatePR)
-                    .disabled(isCreating)
-            }
             Divider()
             if Self.shouldShowDiscard(row.status) {
                 Button(isDiscarding ? "Discarding…" : "Discard All Unstaged…") { showDiscardConfirm = true }
-                    .disabled(isCreating || isDiscarding)
+                    .disabled(isDiscarding)
             }
             Button(isResetting ? "Resetting…" : Self.resetTitle(row) + "…") { showResetConfirm = true }
-                .disabled(row.status == nil || isCreating || isResetting)
+                .disabled(row.status == nil || isResetting)
             Divider()
             Button(Self.apiSyncToggleHelp(row), action: onToggleApiSync)
             Divider()
@@ -455,16 +422,14 @@ struct RepoCard: View {
     }
 
     // The trailing action cluster: the uniform Open ↗ / Reset row stays on top
-    // so those line up across cards; the conditional second row holds the gold
-    // Create PR button and the quieter dirty-only Discard. Destructive actions
-    // are disabled while claude is running git — a hard reset mid-publish would
-    // corrupt the flow.
+    // so those line up across cards; the conditional second row holds the
+    // quieter dirty-only Discard.
     private var actionCluster: some View {
         VStack(alignment: .trailing, spacing: 8) {
             HStack(spacing: 8) {
                 actionButtons
             }
-            if Self.shouldShowCreatePR(row) || isCreating || Self.shouldShowDiscard(row.status) {
+            if Self.shouldShowDiscard(row.status) {
                 HStack(spacing: 8) {
                     secondaryActionButtons
                 }
@@ -488,10 +453,6 @@ struct RepoCard: View {
             // The merged-branch cleanup is the smaller `.btn.danger.sm`.
             isSmall: row.mergedBranch != nil
         )
-        // Blocked (and dimmed by the HUD style) while a publish runs. A running
-        // reset stays enabled so its arc key isn't dimmed — the action's
-        // `!isResetting` guard already ignores taps.
-        .disabled(isCreating && !isResetting)
         .popover(isPresented: $showResetConfirm) { resetDialog }
     }
 
@@ -504,14 +465,8 @@ struct RepoCard: View {
 
     @ViewBuilder
     private var secondaryActionButtons: some View {
-        if Self.shouldShowCreatePR(row) || isCreating {
-            CreatePRButton(isCreating: isCreating, action: onCreatePR)
-        }
         if Self.shouldShowDiscard(row.status) {
             DiscardButton(isRunning: isDiscarding, action: { if !isDiscarding { showDiscardConfirm = true } })
-                .disabled(isCreating || isDiscarding)
-                // Only the publish block dims; a running discard shows arc cyan.
-                .opacity((isCreating && !isDiscarding) ? 0.45 : 1)
                 .popover(isPresented: $showDiscardConfirm) { discardDialog }
         }
     }
@@ -560,73 +515,11 @@ struct RepoCard: View {
             Spacer(minLength: 0)
         }
     }
-
-    /// PR-publish status in the card footer (`publish.jsx`): a streaming
-    /// `.console` while claude runs, then an ok "Published" strip, a crimson
-    /// failure strip with Retry, or a transient "nothing to publish" strip.
-    @ViewBuilder
-    private var createStatusFooter: some View {
-        switch createPhase {
-        case .idle:
-            EmptyView()
-        case .running(let lines):
-            CardConsole(lines: lines.isEmpty ? ["Starting claude…"] : lines, maxHeight: 150)
-        case .done(let n, let url):
-            RepoFooterStrip(fill: AerieColor.ok.opacity(0.10), line: AerieColor.ok.opacity(0.38)) {
-                Circle()
-                    .fill(AerieColor.ok)
-                    .frame(width: 7, height: 7)
-                    .shadow(color: AerieColor.ok.opacity(0.85), radius: 5)
-                Text("Published")
-                    .aerieFont(AerieFont.custom(.sans, size: 12.5))
-                    .foregroundStyle(AerieColor.text2)
-                    .fixedSize()
-                StatusPill(text: "#\(n) opened", tone: .ok)
-                Text(url.absoluteString)
-                    .aerieFont(AerieFont.code(11))
-                    .foregroundStyle(AerieColor.text4)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 8)
-                Button("Open PR") { NSWorkspace.shared.open(url) }
-                    .buttonStyle(.hud(.standard, size: .small))
-                    .fixedSize()
-                    .help("Open PR #\(n)")
-            }
-        case .failed(let message):
-            RepoFooterStrip(fill: AerieColor.crimsonSoft, line: AerieColor.crimsonLine) {
-                Text("⊗")
-                    .aerieFont(AerieFont.custom(.sans, size: 13))
-                    .foregroundStyle(AerieColor.crimsonHot)
-                (Text("Publish failed  ").fontWeight(.bold).foregroundColor(AerieColor.crimsonHot)
-                 + Text(message).foregroundColor(AerieColor.text2))
-                    .aerieFont(AerieFont.custom(.sans, size: 12.5))
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Button("Retry", action: onCreatePR)
-                    .buttonStyle(.hud(.danger, size: .small))
-                    .fixedSize()
-            }
-        case .nothingToDo:
-            RepoFooterStrip(fill: Color.black.opacity(0.28), line: AerieColor.glassLine) {
-                Circle()
-                    .fill(AerieColor.text4)
-                    .frame(width: 7, height: 7)
-                Text("沒有可發佈的變更")
-                    .aerieFont(AerieFont.custom(.sans, size: 12.5))
-                    .foregroundStyle(AerieColor.text3)
-                Spacer(minLength: 8)
-                HudNote(text: "clears in 4s")
-            }
-        }
-    }
 }
 
 // MARK: - Footer strips + meta tags
 
-/// A radius-2 status strip in the repo card footer (publish result, merged
-/// hint): 9×12 padding, tone wash + 1px tone border, row gap 10.
+/// A radius-2 status strip in the repo card footer (merged hint): 9×12 padding, tone wash + 1px tone border, row gap 10.
 private struct RepoFooterStrip<Content: View>: View {
     let fill: Color
     let line: Color
@@ -810,42 +703,6 @@ private struct ApiSyncToggleButton: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help(help)
-    }
-}
-
-/// The "Create Pull Request" action (`publish.jsx`). Idle: a regular `.btn`
-/// bevelled key with gold text on an `amberSoft` wash and `amberLine` rim, so
-/// it reads constructive next to the crimson danger key and grey ghosts.
-/// Running: a cut-9 arc block (arc text, `arcSoft`, `arcLine` + glow) with a
-/// 13pt spinner and "CREATING PR…" — the live console streams below in the
-/// card footer.
-private struct CreatePRButton: View {
-    let isCreating: Bool
-    let action: () -> Void
-
-    private static let shape = HudKeyShape(cut: 9)
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                if isCreating {
-                    CardArcSpinner(size: 13)
-                }
-                Text(isCreating ? "CREATING PR…" : "Create Pull Request")
-                    .aerieFont(AerieFont.custom(.sans, size: 12.5).weight(isCreating ? .semibold : .medium))
-                    .tracking(0.75) // 0.06em @ 12.5px
-            }
-            .foregroundStyle(isCreating ? AerieColor.arc : AerieColor.amber)
-            .padding(.horizontal, 15)
-            .padding(.vertical, 8)
-            .background(Self.shape.fill(isCreating ? AerieColor.arcSoft : AerieColor.amberSoft))
-            .overlay(Self.shape.strokeBorder(isCreating ? AerieColor.arcLine : AerieColor.amberLine, lineWidth: 1))
-            .shadow(color: isCreating ? AerieColor.arcGlow.opacity(0.35) : .clear, radius: isCreating ? 8 : 0)
-            .contentShape(Self.shape)
-        }
-        .buttonStyle(.plain)
-        .disabled(isCreating)
-        .help("用本地 claude 依 Settings 的 PR 發布模板建立 pull request")
     }
 }
 

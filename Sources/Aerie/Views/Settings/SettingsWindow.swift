@@ -16,7 +16,6 @@ struct SettingsWindow: View {
     @State private var advancedVM: AdvancedViewModel
     @State private var appearanceVM: AppearanceViewModel
     @State private var mcpVM: MCPSettingsViewModel
-    @State private var prPublishVM: PRPublishViewModel
     @State private var aiModelVM: AIModelViewModel
     @State private var showAddRepo: Bool = false
     @State private var addRepoVM = AddRepoSheetViewModel()
@@ -77,7 +76,6 @@ struct SettingsWindow: View {
             },
             runConfigRemove: { try? configWriter.removeAerie() }
         ))
-        _prPublishVM = State(initialValue: PRPublishViewModel(db: db))
         _aiModelVM = State(initialValue: AIModelViewModel(db: db))
     }
 
@@ -240,8 +238,6 @@ struct SettingsWindow: View {
                     showAddRepo = true
                 }
             )
-        case .pullRequests:
-            PRPublishScreen(viewModel: prPublishVM)
         case .aiModel:
             AIModelScreen(viewModel: aiModelVM)
         case .mcp:
@@ -259,7 +255,6 @@ struct SettingsWindow: View {
         switch route {
         case .accounts:     await accountsVM.refresh()
         case .repositories: await reposVM.refresh()
-        case .pullRequests: await prPublishVM.refresh()
         case .aiModel:      await aiModelVM.refresh()
         case .mcp:          await mcpVM.refresh()
         case .appearance:   await appearanceVM.refresh()

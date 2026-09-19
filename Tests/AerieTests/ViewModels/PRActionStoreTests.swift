@@ -62,11 +62,11 @@ final class PRActionStoreTests: XCTestCase {
         let store = PRActionStore()
         let row = prRow()
         store.start(.merge, row: row) { "merge failed" }
-        store.start(.checkout, row: row) { nil }
+        store.start(.approve, row: row) { nil }
         await settle(store, .merge, row)
-        await settle(store, .checkout, row)
+        await settle(store, .approve, row)
         XCTAssertEqual(store.phase(.merge, for: row), .failed("merge failed"))
-        XCTAssertEqual(store.phase(.checkout, for: row), .idle)
+        XCTAssertEqual(store.phase(.approve, for: row), .idle)
     }
 
     func test_retry_reinvokesTheSameCapturedWork() async {

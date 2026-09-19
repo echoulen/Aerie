@@ -1,7 +1,7 @@
 import Observation
 
-/// Lifecycle of one background row action (Merge, Approve, Force-checkout,
-/// Hard-reset, Discard, …). Mirrors `AIReviewPhase` but has no intermediate
+/// Lifecycle of one background row action (Merge, Approve, Hard-reset,
+/// Discard, …). Mirrors `AIReviewPhase` but has no intermediate
 /// progress payload — these actions don't stream.
 enum ActionPhase: Equatable {
     case idle
@@ -9,8 +9,8 @@ enum ActionPhase: Equatable {
     case failed(String)
 }
 
-/// Owns background execution + state for the 3 PR-scoped row actions (Merge,
-/// Approve, Force-checkout), keyed by a STABLE per-PR-per-kind key (repo id +
+/// Owns background execution + state for the PR-scoped row actions (Merge,
+/// Approve), keyed by a STABLE per-PR-per-kind key (repo id +
 /// PR number + kind), so a run survives the PR list re-fetching (which mints a
 /// fresh `PullRequest.id` every time — see `AIReviewStore`). Held by
 /// `MainShell`, not any per-screen view model, and its `Task`s are never tied
@@ -18,7 +18,7 @@ enum ActionPhase: Equatable {
 @MainActor
 @Observable
 final class PRActionStore {
-    enum Kind: String { case merge, approve, checkout }
+    enum Kind: String { case merge, approve }
 
     private(set) var phases: [String: ActionPhase] = [:]
     private var running: Set<String> = []

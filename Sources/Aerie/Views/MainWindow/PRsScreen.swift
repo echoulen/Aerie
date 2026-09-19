@@ -40,9 +40,6 @@ struct PRsScreen: View {
     /// branch" pill). Async so the pill can spin until the row re-syncs; the
     /// `GitService.updateBranchFromBase` call + refresh live in `MainShell`.
     var onUpdateBranch: (PRRow) async -> Void = { _ in }
-    /// Runs the actual force-checkout for a confirmed row. The
-    /// `GitService.forceCheckout` call + refresh live in `MainShell`.
-    var onCheckoutConfirmed: (PRRow) async -> String? = { _ in nil }
     /// Asks the shell to open the code review screen for `row`. The detail-page
     /// navigation state (`reviewing`) lives in `MainShell` (mirrors `onMerge`).
     var onReview: (PRRow) -> Void = { _ in }
@@ -161,8 +158,6 @@ struct PRsScreen: View {
                         prActionStore: prActionStore,
                         mergeAccount: mergeAccount,
                         onMergeConfirmed: onMergeConfirmed,
-                        onOpen: { handleOpen(row) },
-                        onCheckoutConfirmed: onCheckoutConfirmed,
                         onReview: { onReview(row) },
                         aiReviewPhase: aiReviewPhase(row),
                         onStartAIReview: { onStartAIReview(row) },
@@ -206,12 +201,6 @@ struct PRsScreen: View {
         case .compact:
             ListSubheader(summary: "\(open) open · \(mine) yours", onRefresh: onRefresh)
         }
-    }
-
-    // MARK: - Actions
-
-    private func handleOpen(_ row: PRRow) {
-        NSWorkspace.shared.open(row.pr.htmlUrl)
     }
 }
 

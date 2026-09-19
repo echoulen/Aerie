@@ -203,7 +203,6 @@ private struct AppRoot: View {
 struct MainShell: View {
     private let services = AppServices.shared
     @State private var aiReviewStore: AIReviewStore = MainShell.makeAIReviewStore()
-    @State private var prCreateStore: PRCreateStore = MainShell.makePRCreateStore()
     @State private var prActionStore = PRActionStore()
     @State private var repoActionStore = RepoActionStore()
     @Environment(\.openWindow) private var openWindow
@@ -351,20 +350,6 @@ struct MainShell: View {
                     }
                     await services.refreshNow()
                 },
-                onCheckoutConfirmed: { row in
-                    do {
-                        let token = await services.auth.token(for: row.repo.primaryAccountId)
-                        try await services.gitService.forceCheckout(
-                            repoAt: row.repo.localPath,
-                            branch: row.pr.sourceBranch,
-                            token: token
-                        )
-                        await services.refreshNow()
-                        return nil
-                    } catch {
-                        return "Checkout failed: \(error.localizedDescription)"
-                    }
-                },
                 onReview: { reviewing = $0 },
                 aiReviewPhase: { aiReviewStore.phase(for: $0) },
                 onStartAIReview: { aiReviewStore.start(row: $0) },
@@ -459,8 +444,6 @@ struct MainShell: View {
                         return "Delete failed: \(error.localizedDescription)"
                     }
                 },
-                createPhase: { prCreateStore.phase(for: $0) },
-                onCreatePR: { prCreateStore.start(row: $0) },
                 onToggleApiSync: { row in
                     Task {
                         try? await services.db.repos.setApiSyncDisabled(
@@ -530,38 +513,6 @@ struct MainShell: View {
                     await services.refreshNow()
                     return nil
                 } catch { return error.localizedDescription }
-            })
-    }
-
-    /// Builds the PR-publish store, wiring its closures to live services.
-    /// Static so it can seed the `@State` initial value without touching
-    /// `self` (same pattern as `makeAIReviewStore`).
-    @MainActor
-    private static func makePRCreateStore() -> PRCreateStore {
-        let services = AppServices.shared
-        let claude: PRCreateService = LivePRCreateService()
-        return PRCreateStore(
-            runCreate: { row, onLine in
-                // Read the template and model fresh on every run (not at store
-                // construction) so Settings edits apply to the next click.
-                let stored = (try? await services.db.settings.getString(PRPublishViewModel.settingsKey)) ?? nil
-                let storedModel = (try? await services.db.settings.getString(AIModelViewModel.settingsKey)) ?? nil
-                let model = storedModel.flatMap(ClaudeModel.init(rawValue:)) ?? .default
-                return await claude.createPR(
-                    template: DefaultPRPublishTemplate.resolve(stored: stored),
-                    owner: row.repo.githubOwner,
-                    repo: row.repo.githubRepo,
-                    defaultBranch: row.repo.defaultBranch,
-                    currentBranch: row.status?.currentBranch ?? row.repo.defaultBranch,
-                    statusSummary: PRCreatePrompt.statusSummary(row.status),
-                    localPath: row.repo.localPath,
-                    model: model,
-                    onLine: onLine)
-            },
-            onCreated: {
-                // Refresh PR cache + git status so the new PR appears in the
-                // PRs tab and the card settles back to clean.
-                await services.refreshNow()
             })
     }
 

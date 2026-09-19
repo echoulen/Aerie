@@ -31,27 +31,13 @@ final class SettingsRouteTests: XCTestCase {
         XCTAssertEqual(SettingsRoute.appearance.displayName, "Appearance")
     }
 
-    func test_pullRequests_sitsBetweenRepositoriesAndAIModel() {
+    func test_aiModel_sitsBetweenRepositoriesAndMCP() {
         let order = SettingsRoute.allCases
         let repositories = order.firstIndex(of: .repositories)
-        let pullRequests = order.firstIndex(of: .pullRequests)
-        let aiModel = order.firstIndex(of: .aiModel)
-        XCTAssertNotNil(pullRequests)
-        XCTAssertEqual(pullRequests, repositories.map { $0 + 1 })
-        XCTAssertEqual(aiModel, pullRequests.map { $0 + 1 })
-    }
-
-    func test_pullRequests_displayName() {
-        XCTAssertEqual(SettingsRoute.pullRequests.displayName, "Pull Requests")
-    }
-
-    func test_aiModel_sitsBetweenPullRequestsAndMCP() {
-        let order = SettingsRoute.allCases
-        let pullRequests = order.firstIndex(of: .pullRequests)
         let aiModel = order.firstIndex(of: .aiModel)
         let mcp = order.firstIndex(of: .mcp)
         XCTAssertNotNil(aiModel)
-        XCTAssertEqual(aiModel, pullRequests.map { $0 + 1 })
+        XCTAssertEqual(aiModel, repositories.map { $0 + 1 })
         XCTAssertEqual(mcp, aiModel.map { $0 + 1 })
     }
 
