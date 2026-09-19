@@ -15,7 +15,6 @@ struct SettingsWindow: View {
     @State private var reposVM: RepositoriesViewModel
     @State private var advancedVM: AdvancedViewModel
     @State private var appearanceVM: AppearanceViewModel
-    @State private var mcpVM: MCPSettingsViewModel
     @State private var aiModelVM: AIModelViewModel
     @State private var showAddRepo: Bool = false
     @State private var addRepoVM = AddRepoSheetViewModel()
@@ -32,8 +31,6 @@ struct SettingsWindow: View {
         let svc = AppServices.shared
         let db = svc.db
         let multiApi = svc.multiApi
-        let server = svc.mcpServer
-        let configWriter = svc.configWriter
         let scheduler = svc.scheduler
 
         let auth = svc.auth
@@ -55,27 +52,6 @@ struct SettingsWindow: View {
                 await multiApi.rateLimit(forAccount: accountId)
             }
         ))
-        _mcpVM = State(initialValue: MCPSettingsViewModel(
-            db: db,
-            serverStatus: {
-                let running = await server.token != nil
-                let endpoint = await server.endpoint
-                return .init(
-                    running: running,
-                    pid: Int(ProcessInfo.processInfo.processIdentifier),
-                    uptimeSeconds: nil,
-                    endpoint: endpoint
-                )
-            },
-            tokenProvider: { (await server.token) ?? "" },
-            rotateToken: { _ = await server.rotateToken() },
-            runConfigUpsert: {
-                guard let endpoint = await server.endpoint,
-                      let token = await server.token else { return }
-                try? configWriter.upsertAerie(endpoint: endpoint.absoluteString, token: token)
-            },
-            runConfigRemove: { try? configWriter.removeAerie() }
-        ))
         _aiModelVM = State(initialValue: AIModelViewModel(db: db))
     }
 
@@ -92,7 +68,6 @@ struct SettingsWindow: View {
                     HStack(spacing: 0) {
                         SettingsSidebar(
                             selection: route,
-                            mcpRunning: mcpVM.status.running,
                             accountsCount: accountsVM.rows.count,
                             repositoriesCount: reposVM.repos.count,
                             aiModelName: aiModelVM.selected.displayName
@@ -240,8 +215,6 @@ struct SettingsWindow: View {
             )
         case .aiModel:
             AIModelScreen(viewModel: aiModelVM)
-        case .mcp:
-            MCPSettingsScreen(viewModel: mcpVM)
         case .appearance:
             AppearanceScreen(viewModel: appearanceVM)
         case .advanced:
@@ -256,7 +229,6 @@ struct SettingsWindow: View {
         case .accounts:     await accountsVM.refresh()
         case .repositories: await reposVM.refresh()
         case .aiModel:      await aiModelVM.refresh()
-        case .mcp:          await mcpVM.refresh()
         case .appearance:   await appearanceVM.refresh()
         case .advanced:     await advancedVM.refresh()
         case .about:        break

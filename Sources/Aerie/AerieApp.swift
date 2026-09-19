@@ -20,7 +20,7 @@ struct AerieApp: App {
     var body: some Scene {
         WindowGroup("Aerie") {
             InterfaceZoom(appearance: appearance) {
-                AppRoot(bootstrapper: bootstrapper, onAuthOK: startMCPServer)
+                AppRoot(bootstrapper: bootstrapper)
                     .frame(minWidth: AerieMetric.mainWindowW, minHeight: AerieMetric.mainWindowH)
             }
             .task { await appearance.refresh() }
@@ -44,78 +44,6 @@ struct AerieApp: App {
         .windowResizability(.contentSize)
     }
 
-    /// Called by ``AppRoot`` exactly once when the auth state first transitions
-    /// to `.ok`. Starts the MCP server, hands it to the app delegate so
-    /// `applicationWillTerminate` can stop it, and writes the discovery file.
-    private func startMCPServer() {
-        let server = services.mcpServer
-        let discovery = services.discovery
-        let delegate = appDelegate
-        // Snapshot the services the wiring needs — the Task below is @Sendable
-        // and must not capture the @MainActor `services`/`self`.
-        let registry = services.mcpRegistry
-        let router = services.mcpRouter
-        let db = services.db
-        let git = services.gitService
-        let api = services.multiApi
-        let scheduler = services.scheduler
-        let auth = services.auth
-        let configWriter = services.configWriter
-        Task {
-            do {
-                // Wire the MCP protocol methods + tool roster BEFORE the listener
-                // accepts requests — without handlers, every call (including the
-                // `initialize` handshake) is -32601 and clients can't connect.
-                await MCPToolset.registerAll(
-                    into: registry,
-                    db: db,
-                    git: git,
-                    api: api,
-                    accounts: { await auth.allAccounts() },
-                    refresh: { repoId in
-                        await scheduler.refreshNow(repoIds: [repoId], now: Date())
-                    },
-                    accountToken: { accountId in await auth.token(for: accountId) }
-                )
-                let appVersion = Bundle.main
-                    .infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
-                await MCPMethods.install(
-                    on: router,
-                    registry: registry,
-                    serverInfo: .init(name: "Aerie", version: appVersion)
-                )
-
-                try await server.start()
-                guard let endpoint = await server.endpoint,
-                      let token = await server.token
-                else {
-                    NSLog("MCP server started but endpoint/token unavailable")
-                    return
-                }
-                // Hand-off to the @MainActor delegate must happen on the main
-                // actor — we use MainActor.run rather than a method `await`
-                // because attach() is a synchronous setter and Swift won't
-                // insert the actor hop otherwise.
-                await MainActor.run {
-                    delegate.attach(server: server, discovery: discovery)
-                }
-                try discovery.write(endpoint: endpoint.absoluteString, token: token)
-                // Keep Claude Code's ~/.claude.json entry pointed at THIS launch's
-                // endpoint/token when auto-register is on (both are fresh each
-                // launch). The writer's no-op guard makes a repeat call cheap.
-                let autoOn = (try? await db.settings.getBool("mcp.auto_register_claude_code")) ?? nil
-                if autoOn == true {
-                    try? configWriter.upsertAerie(
-                        endpoint: endpoint.absoluteString, token: token
-                    )
-                }
-            } catch {
-                // Phase 20 will surface this in the MCP settings card. For now
-                // log it — the rest of the app still works without MCP.
-                NSLog("MCP start failed: \(error)")
-            }
-        }
-    }
 }
 
 private struct UpdateCommand: View {
@@ -152,16 +80,12 @@ private struct InterfaceZoom<Content: View>: View {
 }
 
 /// Branches between the first-run flow and the main shell based on the
-/// bootstrapper's current ``AuthBootstrapResult``. Calls ``onAuthOK`` exactly
-/// once when state first transitions to `.ok` — used to kick off the MCP
-/// server lifecycle from ``AerieApp``.
+/// bootstrapper's current ``AuthBootstrapResult``.
 private struct AppRoot: View {
     let bootstrapper: GhBootstrapper
-    var onAuthOK: () -> Void = {}
 
     @State private var current: AuthBootstrapResult? = nil
     @State private var sub: AnyCancellable? = nil
-    @State private var didFireOnAuthOK = false
 
     var body: some View {
         Group {
@@ -183,10 +107,6 @@ private struct AppRoot: View {
         .onAppear {
             sub = bootstrapper.state.sink { value in
                 current = value
-                if case .ok = value, !didFireOnAuthOK {
-                    didFireOnAuthOK = true
-                    onAuthOK()
-                }
             }
             bootstrapper.start()
         }
@@ -592,40 +512,12 @@ struct MainShell: View {
 
 // MARK: - App delegate
 
-/// Hooks NSApplication lifecycle so we can stop the MCP server and clear the
-/// discovery file before the process exits.
-///
-/// Marked `final class` + `@MainActor` because `NSApplicationDelegateAdaptor`
-/// requires the delegate to be on the main actor. The MCP server is an actor,
-/// so we hop off via a Task and wait with a bounded `DispatchSemaphore` —
-/// `applicationWillTerminate` is synchronous and we mustn't block AppKit
-/// indefinitely.
+/// Hooks NSApplication lifecycle. At launch it sweeps the MCP advertisements
+/// older builds left on the user's machine (see ``LegacyMCPCleanup``) — off
+/// the main thread, since `~/.claude.json` can be large.
 @MainActor
 final class AerieAppDelegate: NSObject, NSApplicationDelegate {
-    private var mcpServer: MCPServer?
-    private var discovery: DiscoveryFileWriter?
-
-    func attach(server: MCPServer, discovery: DiscoveryFileWriter) {
-        self.mcpServer = server
-        self.discovery = discovery
-    }
-
-    nonisolated func applicationWillTerminate(_ notification: Notification) {
-        // Snapshot the server/discovery on the main actor, then do the
-        // shutdown work asynchronously with a bounded wait.
-        let sema = DispatchSemaphore(value: 0)
-        Task { @MainActor in
-            let server = self.mcpServer
-            let discovery = self.discovery
-            // Don't hold the main actor while stopping — let stop() drive
-            // the actor hop itself.
-            Task.detached {
-                if let server { await server.stop() }
-                if let discovery { try? discovery.clear() }
-                sema.signal()
-            }
-        }
-        // Cap the wait so a hung shutdown doesn't keep AppKit from exiting.
-        _ = sema.wait(timeout: .now() + 2.0)
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task.detached(priority: .utility) { LegacyMCPCleanup().run() }
     }
 }

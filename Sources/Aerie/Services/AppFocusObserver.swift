@@ -56,8 +56,7 @@ extension PollingScheduler {
     ///
     /// On each `true` (foreground) signal the loop is restarted with a fresh
     /// `repoIds` snapshot — this both ticks immediately (so returning to the
-    /// app feels live) and picks up any repo added/removed while backgrounded
-    /// (e.g. via an MCP tool call).
+    /// app feels live) and picks up any repo added/removed while backgrounded.
     ///
     /// Returns an `AnyCancellable` so callers can detach the subscription —
     /// keep it alive for as long as the scheduler should follow focus.

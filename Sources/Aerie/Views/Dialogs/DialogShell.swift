@@ -241,7 +241,7 @@ struct DialogCard<Content: View>: View {
 }
 
 /// Modal dialog scaffold used by Aerie's confirmation dialogs (sign-out,
-/// remove-repo, MCP request). Renders a 0.45 black scrim with the shared
+/// remove-repo). Renders a 0.45 black scrim with the shared
 /// `DialogCard` centred on top.
 struct DialogShell<Content: View>: View {
     let tone: DialogTone

@@ -52,11 +52,7 @@ final class SettingsNavigator {
 ///
 /// Polling orchestration is wired here: the scheduler's single per-repo refresh
 /// closure drives BOTH `PRSyncService` (PRs tab) and `GitStatusRefresher`
-/// (Repos tab) for each repo, and `startPolling()` follows app focus. The
-/// remaining integration wiring (MCP consent gating, `.claude/.mcp.json`
-/// upsert) is intentionally minimal — it covers what the shipped views need to
-/// render without crashing, and can hook in here later without rippling through
-/// every view.
+/// (Repos tab) for each repo, and `startPolling()` follows app focus.
 @MainActor
 final class AppServices {
     static let shared: AppServices = {
@@ -86,12 +82,6 @@ final class AppServices {
     /// item). Lives here so both scenes read one state and the periodic check
     /// outlives any single window.
     let updates = UpdateStore()
-    let mcpRouter: JSONRPCRouter
-    let mcpRegistry: MCPToolRegistry
-    let mcpLogger: ActivityLogger
-    let mcpServer: MCPServer
-    let discovery: DiscoveryFileWriter
-    let configWriter: ClaudeCodeConfigWriter
 
     /// Per-repo (and per-repo + author) memory of the account the last approval was submitted as. Used to
     /// default the approver picker (manual + AI Review) to the user's last choice.
@@ -180,11 +170,6 @@ final class AppServices {
         )
         let focusObserver = LiveAppFocusObserver()
 
-        let router = JSONRPCRouter()
-        let registry = MCPToolRegistry()
-        let logger = ActivityLogger(db: db)
-        let server = MCPServer(router: router, registry: registry, logger: logger)
-
         self.db = db
         self.auth = auth
         self.apiClient = client
@@ -196,12 +181,6 @@ final class AppServices {
         self.scheduler = scheduler
         self.focusObserver = focusObserver
         self.gitStatusDidChange = statusSubject
-        self.mcpRouter = router
-        self.mcpRegistry = registry
-        self.mcpLogger = logger
-        self.mcpServer = server
-        self.discovery = DiscoveryFileWriter()
-        self.configWriter = ClaudeCodeConfigWriter()
     }
 
     /// Starts focus-driven polling: the scheduler runs continuously and slows

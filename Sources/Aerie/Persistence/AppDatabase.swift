@@ -11,7 +11,6 @@ actor AppDatabase {
     nonisolated var prLocalStateCache: PRLocalStateCacheDAO { PRLocalStateCacheDAO(dbQueue: dbQueue) }
     nonisolated var gitStatusCache: GitStatusCacheDAO { GitStatusCacheDAO(dbQueue: dbQueue) }
     nonisolated var mergedBranchCache: MergedBranchCacheDAO { MergedBranchCacheDAO(dbQueue: dbQueue) }
-    nonisolated var mcpActivity: MCPActivityDAO { MCPActivityDAO(dbQueue: dbQueue) }
     nonisolated var settings: SettingsDAO { SettingsDAO(dbQueue: dbQueue) }
 
     static func defaultURL() -> URL {
@@ -41,6 +40,9 @@ actor AppDatabase {
         }
         m.registerMigration("v4") { db in
             try db.execute(sql: AppDatabase.schemaV4)
+        }
+        m.registerMigration("v5") { db in
+            try db.execute(sql: AppDatabase.schemaV5)
         }
         return m
     }
@@ -135,5 +137,12 @@ actor AppDatabase {
     /// see `PRSyncService`/`IssueSyncService`/`MergedBranchSync`.
     static let schemaV4: String = """
     ALTER TABLE repos ADD COLUMN api_sync_disabled INTEGER NOT NULL DEFAULT 0;
+    """
+
+    /// v5 — the MCP server is gone: drop its activity log and settings.
+    static let schemaV5: String = """
+    DROP INDEX IF EXISTS idx_mcp_activity_at;
+    DROP TABLE IF EXISTS mcp_activity;
+    DELETE FROM settings WHERE key LIKE 'mcp.%';
     """
 }

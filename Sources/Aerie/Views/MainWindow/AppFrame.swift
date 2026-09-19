@@ -15,11 +15,6 @@ import SwiftUI
 /// to satisfy that intent and do not stack a second glow layer.
 struct AppFrame<Content: View>: View {
     @Bindable var viewModel: AppViewModel
-    /// Optional toast manager. When non-nil, a `ToastsOverlay` is rendered
-    /// in the bottom-right of the window above the content. When nil (e.g.
-    /// in older snapshot tests), no overlay is added.
-    var toastManager: ToastManager? = nil
-    var onToastViewRequest: (ToastItem) -> Void = { _ in }
     /// When non-nil, renders the titlebar account avatar + dropdown in the
     /// top-right. Nil in tests / snapshots that don't exercise the menu.
     var accountMenu: AccountMenuViewModel? = nil
@@ -64,11 +59,6 @@ struct AppFrame<Content: View>: View {
         // titlebar starts at the window top and its 16 pt centre lines up with
         // the traffic lights.
         .ignoresSafeArea(.container, edges: .top)
-        .overlay(alignment: .bottomTrailing) {
-            if let toasts = toastManager {
-                ToastsOverlay(manager: toasts, onViewRequest: onToastViewRequest)
-            }
-        }
         // Update pill sits at the titlebar's left end — clear of the native
         // traffic lights (they own the first ~78 pt) and opposite the account
         // avatar. Same 11 pt top inset as the avatar, so both centre on the
