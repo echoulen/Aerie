@@ -16,6 +16,7 @@ struct SettingsWindow: View {
     @State private var advancedVM: AdvancedViewModel
     @State private var appearanceVM: AppearanceViewModel
     @State private var aiModelVM: AIModelViewModel
+    @State private var aiReviewVM: AIReviewGuidanceViewModel
     @State private var showAddRepo: Bool = false
     @State private var addRepoVM = AddRepoSheetViewModel()
     /// The account whose "Sign out…" confirmation dialog is showing, plus the
@@ -53,6 +54,7 @@ struct SettingsWindow: View {
             }
         ))
         _aiModelVM = State(initialValue: AIModelViewModel(db: db))
+        _aiReviewVM = State(initialValue: AIReviewGuidanceViewModel(db: db))
     }
 
     var body: some View {
@@ -215,6 +217,8 @@ struct SettingsWindow: View {
             )
         case .aiModel:
             AIModelScreen(viewModel: aiModelVM)
+        case .aiReview:
+            AIReviewScreen(viewModel: aiReviewVM)
         case .appearance:
             AppearanceScreen(viewModel: appearanceVM)
         case .advanced:
@@ -229,6 +233,7 @@ struct SettingsWindow: View {
         case .accounts:     await accountsVM.refresh()
         case .repositories: await reposVM.refresh()
         case .aiModel:      await aiModelVM.refresh()
+        case .aiReview:     await aiReviewVM.refresh()
         case .appearance:   await appearanceVM.refresh()
         case .advanced:     await advancedVM.refresh()
         case .about:        break

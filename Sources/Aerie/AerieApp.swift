@@ -394,14 +394,18 @@ struct MainShell: View {
                 return AIReviewFollowUp.from(conversation)
             },
             runReview: { r, diff, followUp, onLine in
-                // Read the model fresh on every run (not at store construction)
+                // Read the model and guidance fresh on every run (not at store construction)
                 // so Settings edits apply to the next click.
                 let storedModel = (try? await services.db.settings.getString(AIModelViewModel.settingsKey)) ?? nil
                 let model = ClaudeModel.resolve(stored: storedModel)
+                let guidance = AIReviewGuidance.resolve(
+                    firstPass: (try? await services.db.settings.getString(AIReviewGuidance.firstPassKey)) ?? nil,
+                    followUp: (try? await services.db.settings.getString(AIReviewGuidance.followUpKey)) ?? nil)
                 return await claude.review(
                     owner: r.repo.githubOwner, repo: r.repo.githubRepo, number: r.pr.number,
                     title: r.pr.title, author: r.pr.authorLogin, sourceBranch: r.pr.sourceBranch,
-                    diff: diff, followUp: followUp, localPath: r.repo.localPath, model: model, onLine: onLine)
+                    diff: diff, followUp: followUp, guidance: guidance,
+                    localPath: r.repo.localPath, model: model, onLine: onLine)
             },
             resolveApprover: { r in
                 let accounts = await services.auth.allAccounts()

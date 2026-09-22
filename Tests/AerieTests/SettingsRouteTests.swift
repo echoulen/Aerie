@@ -15,15 +15,17 @@ final class SettingsRouteTests: XCTestCase {
         }
     }
 
-    func test_appearance_sitsBetweenAIModelAndAdvanced() {
-        // The sidebar renders routes in `allCases` order; Appearance sits just
-        // above Advanced.
+    func test_aiReview_andAppearance_sitBetweenAIModelAndAdvanced() {
+        // The sidebar renders routes in `allCases` order (`settings.jsx`):
+        // AI Model, AI Review, Appearance, Advanced.
         let order = SettingsRoute.allCases
         let aiModel = order.firstIndex(of: .aiModel)
+        let aiReview = order.firstIndex(of: .aiReview)
         let appearance = order.firstIndex(of: .appearance)
         let advanced = order.firstIndex(of: .advanced)
-        XCTAssertNotNil(appearance)
-        XCTAssertEqual(appearance, aiModel.map { $0 + 1 })
+        XCTAssertNotNil(aiReview)
+        XCTAssertEqual(aiReview, aiModel.map { $0 + 1 })
+        XCTAssertEqual(appearance, aiReview.map { $0 + 1 })
         XCTAssertEqual(advanced, appearance.map { $0 + 1 })
     }
 
