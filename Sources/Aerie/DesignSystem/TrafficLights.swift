@@ -1,12 +1,18 @@
 import SwiftUI
 import AppKit
 
-/// macOS-style traffic light buttons (close / minimize / zoom).
+/// The window's close / minimize / zoom lights, drawn by the `Titlebar` in
+/// place of the native ones. The native buttons are pinned by AppKit at the
+/// window's top-left edge, crowding the hull's bevel; drawing our own lets them
+/// sit inset in the titlebar band like the MARK III design (and vision-claude's
+/// `ArmorWindowLights`). Attaching this view hides its host window's native
+/// buttons — windows without a `Titlebar` (first run) keep theirs.
+///
 /// Colors come from docs/superpowers/design/v2/styles.css:
 ///   `.r` #ff5f57, `.y` #febc2e, `.g` #28c840
-/// Clicking each circle invokes the corresponding action on the host `NSWindow`.
 /// Degrades gracefully when no window is attached (e.g. inside a snapshot host view).
 struct TrafficLights: View {
+    var compact: Bool = false
     @State private var hostWindow: NSWindow?
 
     private static let red    = Color(red: 0xff/255.0, green: 0x5f/255.0, blue: 0x57/255.0)
@@ -14,24 +20,32 @@ struct TrafficLights: View {
     private static let green  = Color(red: 0x28/255.0, green: 0xc8/255.0, blue: 0x40/255.0)
 
     var body: some View {
-        HStack(spacing: 8) {
-            trafficButton(color: Self.red)    { hostWindow?.performClose(nil) }
-            trafficButton(color: Self.yellow) { hostWindow?.miniaturize(nil) }
-            trafficButton(color: Self.green)  { hostWindow?.zoom(nil) }
+        HStack(spacing: compact ? 7 : 8) {
+            trafficButton(color: Self.red, help: "Close")        { hostWindow?.performClose(nil) }
+            trafficButton(color: Self.yellow, help: "Minimize")  { hostWindow?.miniaturize(nil) }
+            trafficButton(color: Self.green, help: "Full Screen") { hostWindow?.toggleFullScreen(nil) }
         }
-        .background(WindowAccessor { hostWindow = $0 })
+        .background(WindowAccessor { window in
+            hostWindow = window
+            // Re-applied on every update: AppKit can re-show the buttons when
+            // SwiftUI touches the title bar / style mask.
+            for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+                window?.standardWindowButton(kind)?.isHidden = true
+            }
+        })
     }
 
-    private func trafficButton(color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func trafficButton(color: Color, help: String, action: @escaping () -> Void) -> some View {
+        let size: CGFloat = compact ? 10 : 11
+        return Button(action: action) {
             Circle()
                 .fill(color)
-                .frame(width: 12, height: 12)
-                .overlay(
-                    Circle().strokeBorder(Color.black.opacity(0.15), lineWidth: 0.5)
-                )
+                .frame(width: size, height: size)
+                .shadow(color: color, radius: 3)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .help(help)
     }
 }
 

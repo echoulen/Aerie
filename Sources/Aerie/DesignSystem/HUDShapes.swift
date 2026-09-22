@@ -56,9 +56,8 @@ struct HudKeyShape: InsettableShape {
 /// The window hull — an asymmetric chassis outline (`--hull`): bevel top-left,
 /// notched step top-right, clipped bottom-right, small nick bottom-left.
 ///
-/// On macOS the native traffic lights sit in the top-left corner, so the
-/// window uses a smaller top-left bevel than the 40px artboard (`topLeftCut`)
-/// to keep them inside the hull.
+/// The window lights sit inset in the titlebar past the top-left bevel
+/// (`topLeftCut`); see `TrafficLights`.
 struct HullShape: InsettableShape {
     var topLeftCut: CGFloat = 40
     var notchInset: CGFloat = 132   // distance of the notch from the right edge
