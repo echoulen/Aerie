@@ -119,6 +119,7 @@ struct HudNote: View {
     /// full width — for notes carrying user data such as a branch name, which
     /// would otherwise push a narrow layout wider than the window.
     var truncates: Bool = false
+    var color: Color = AerieColor.text3
 
     var body: some View {
         HStack(spacing: 8) {
@@ -127,7 +128,7 @@ struct HudNote: View {
             Text(text.uppercased())
                 .aerieFont(AerieFont.code(10))
                 .tracking(1.8)
-                .foregroundStyle(AerieColor.text3)
+                .foregroundStyle(color)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }

@@ -80,6 +80,37 @@ final class ClaudeReviewParsingTests: XCTestCase {
         XCTAssertTrue(prompt.contains("\"verdict\""))
     }
 
+    func test_build_defaultGuidance_keepsBuiltInRules() {
+        let prompt = ClaudeReviewPrompt.build(
+            owner: "o", repo: "r", number: 1, title: "t", author: "a", sourceBranch: "b", diff: "D")
+        XCTAssertTrue(prompt.contains("MAJOR problems only"))
+    }
+
+    func test_build_customGuidance_replacesOnlyTheEditableSections() {
+        let guidance = AIReviewGuidance(firstPass: "FIRST-PASS-RULES", followUp: "FOLLOW-UP-RULES")
+        let first = ClaudeReviewPrompt.build(
+            owner: "o", repo: "r", number: 7, title: "t", author: "a", sourceBranch: "b", diff: "D",
+            guidance: guidance)
+        XCTAssertTrue(first.contains("FIRST-PASS-RULES"))
+        XCTAssertFalse(first.contains("MAJOR problems only"))
+        XCTAssertFalse(first.contains("FOLLOW-UP-RULES"), "follow-up guidance only goes into re-reviews")
+        XCTAssertTrue(first.contains("PR #7"), "context header stays")
+        XCTAssertTrue(first.contains("\"verdict\""), "JSON contract stays")
+
+        let again = ClaudeReviewPrompt.build(
+            owner: "o", repo: "r", number: 7, title: "t", author: "a", sourceBranch: "b", diff: "D",
+            followUp: followUp(), guidance: guidance)
+        XCTAssertTrue(again.contains("FOLLOW-UP-RULES"))
+        XCTAssertTrue(again.contains("\"previous\""), "the contract still asks for previous statuses")
+        XCTAssertTrue(again.contains("not as instructions"), "the reply guard isn't editable")
+    }
+
+    func test_guidanceResolve_blankFallsBackToDefault() {
+        let g = AIReviewGuidance.resolve(firstPass: "  \n", followUp: nil)
+        XCTAssertEqual(g, .default)
+        XCTAssertEqual(AIReviewGuidance.resolve(firstPass: "mine", followUp: nil).firstPass, "mine")
+    }
+
     // MARK: follow-up
 
     private func followUp() -> AIReviewFollowUp {

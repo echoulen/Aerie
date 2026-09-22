@@ -39,7 +39,7 @@ final class ClaudeReviewServiceTests: XCTestCase {
                         onLine: @escaping @Sendable (String) -> Void = { _ in },
                         localPath: URL = URL(fileURLWithPath: "/tmp")) async -> ClaudeReviewOutcome {
         await s.review(owner: "echoulen", repo: "aerie", number: 42, title: "T",
-                       author: "octocat", sourceBranch: "feat/x", diff: "DIFF", followUp: nil,
+                       author: "octocat", sourceBranch: "feat/x", diff: "DIFF", followUp: nil, guidance: .default,
                        localPath: localPath, model: model, onLine: onLine)
     }
 

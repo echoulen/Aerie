@@ -5,7 +5,7 @@ import SwiftUI
 /// the requested point size, stroked at the design's 1.4 px weight with round
 /// caps/joins — matching the thin-line house style rather than SF Symbols.
 struct SidebarIcon: View {
-    enum Kind { case key, folder, cpu, appearance, sliders, info }
+    enum Kind { case key, folder, cpu, spark, appearance, sliders, info }
 
     let kind: Kind
     var size: CGFloat = 14
@@ -51,6 +51,9 @@ struct SidebarIcon: View {
                 stroke.move(to: P(11, 6));  stroke.addLine(to: P(13, 6))
                 stroke.move(to: P(11, 10)); stroke.addLine(to: P(13, 10))
 
+            case .spark:
+                break   // filled, drawn below
+
             case .appearance:
                 // "Aa" — a large and a small letter A, the standard
                 // text-size glyph (design `settings.jsx` AppearanceIcon).
@@ -77,6 +80,22 @@ struct SidebarIcon: View {
                 with: .color(color),
                 style: StrokeStyle(lineWidth: 1.4 * s, lineCap: .round, lineJoin: .round)
             )
+
+            // The AI Review spark (`settings.jsx` SparkIcon) is filled: a
+            // four-point star plus a smaller one at 70% opacity.
+            if kind == .spark {
+                func star(_ pts: [(CGFloat, CGFloat)]) -> Path {
+                    var p = Path()
+                    p.move(to: P(pts[0].0, pts[0].1))
+                    for pt in pts.dropFirst() { p.addLine(to: P(pt.0, pt.1)) }
+                    p.closeSubpath()
+                    return p
+                }
+                ctx.fill(star([(8, 1.5), (9.15, 4.85), (12.5, 6), (9.15, 7.15), (8, 10.5), (6.85, 7.15), (3.5, 6), (6.85, 4.85)]),
+                         with: .color(color))
+                ctx.fill(star([(12.4, 10.2), (12.9, 11.6), (14.3, 12.1), (12.9, 12.6), (12.4, 14), (11.9, 12.6), (10.5, 12.1), (11.9, 11.6)]),
+                         with: .color(color.opacity(0.7)))
+            }
 
             // The info "i" dot is filled, not stroked.
             if kind == .info {
