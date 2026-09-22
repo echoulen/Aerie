@@ -8,13 +8,13 @@ import SwiftUI
 /// The window itself is transparent (`AerieWindowChrome`), so the clipped
 /// corners show the desktop through, reading as a cut-out chassis.
 struct HullModifier: ViewModifier {
-    /// Top-left bevel. The artboard uses 40px, but on macOS the native traffic
-    /// lights live in that corner, so the real window keeps it small enough
-    /// not to slice through them.
-    var topLeftCut: CGFloat = 14
-    /// `.window.compact` — smaller notch and bottom bevels so a narrow window
-    /// keeps its shape.
+    /// `.window.compact` — smaller notch and bevels so a narrow window keeps
+    /// its shape.
     var compact: Bool = false
+    /// Top-left bevel: the artboard's 40px. The `Titlebar` draws the window
+    /// lights inset past it (`TrafficLights`), so the bevel no longer has to
+    /// shrink around the native buttons.
+    private var topLeftCut: CGFloat { compact ? 26 : 40 }
 
     func body(content: Content) -> some View {
         let hull = compact
@@ -115,7 +115,7 @@ private struct TickRail: View {
 
 extension View {
     /// Clip to the MARK III hull and draw its emitted edge + furniture.
-    func aerieHull(topLeftCut: CGFloat = 14, compact: Bool = false) -> some View {
-        modifier(HullModifier(topLeftCut: topLeftCut, compact: compact))
+    func aerieHull(compact: Bool = false) -> some View {
+        modifier(HullModifier(compact: compact))
     }
 }

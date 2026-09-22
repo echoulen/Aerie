@@ -59,9 +59,9 @@ struct AppFrame<Content: View>: View {
         // titlebar starts at the window top and its 16 pt centre lines up with
         // the traffic lights.
         .ignoresSafeArea(.container, edges: .top)
-        // Update pill sits at the titlebar's left end — clear of the native
-        // traffic lights (they own the first ~78 pt) and opposite the account
-        // avatar. Same 11 pt top inset as the avatar, so both centre on the
+        // Update pill sits at the titlebar's left end — clear of the window
+        // lights (`Titlebar`'s `TrafficLights`: 44–93 pt, or 26–70 pt compact)
+        // and opposite the account avatar. Same 11 pt top inset as the avatar, so both centre on the
         // brand's line.
         .overlay(alignment: .topLeading) {
             UpdatePill(
@@ -70,7 +70,7 @@ struct AppFrame<Content: View>: View {
                 onShowFailure: onShowUpdateFailure
             )
             .padding(.top, 11)
-            .padding(.leading, 88)
+            .padding(.leading, widthClass == .compact ? 88 : 108)
             .ignoresSafeArea(.container, edges: .top)
         }
         // Account avatar/dropdown floats above the page content so the panel

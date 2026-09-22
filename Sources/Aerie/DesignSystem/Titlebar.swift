@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// Custom titlebar (`AerieMetric.titlebarHeight`) that sits flush under the
-/// native (transparent) title bar. The native macOS traffic lights stay at
-/// top-left; this view draws the centred MARK III brand cluster — the gold
+/// native (transparent) title bar. It draws the window lights (`TrafficLights`,
+/// replacing the native ones) inset at the leading edge, and the centred MARK
+/// III brand cluster — the gold
 /// `BrandMark` orb plus a letter-spaced, uppercase title (`styles.css .brand`)
 /// — over a faint warm wash, with a gold hairline along the bottom that fades
 /// out and slants away before the right end (`.titlebar::after`).
@@ -36,6 +37,11 @@ struct Titlebar<Center: View>: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: AerieMetric.titlebarHeight)
+        // Past the hull's top-left bevel: 44pt in, 26pt on the compact hull.
+        .overlay(alignment: .leading) {
+            TrafficLights(compact: markOnly)
+                .padding(.leading, markOnly ? 26 : 44)
+        }
         .background(
             LinearGradient(colors: [Color(red: 1, green: 198/255, blue: 130/255).opacity(0.07), .clear],
                            startPoint: .top, endPoint: .bottom)
