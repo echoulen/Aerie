@@ -6,7 +6,7 @@ import Foundation
 /// `--model`. See docs/superpowers/specs/2026-07-10-ai-model-setting-design.md.
 enum ClaudeModel: String, CaseIterable, Identifiable, Sendable, Equatable {
     case sonnet5 = "claude-sonnet-5"
-    case opus5 = "claude-opus-5"
+    case opus55 = "claude-opus-5-5"
     case haiku45 = "claude-haiku-4-5-20251001"
     case fable51 = "claude-fable-5-1"
 
@@ -15,7 +15,7 @@ enum ClaudeModel: String, CaseIterable, Identifiable, Sendable, Equatable {
     var displayName: String {
         switch self {
         case .sonnet5: return "Sonnet 5"
-        case .opus5: return "Opus 5"
+        case .opus55: return "Opus 5.5"
         case .haiku45: return "Haiku 4.5"
         case .fable51: return "Fable 5.1"
         }
@@ -32,7 +32,7 @@ enum ClaudeModel: String, CaseIterable, Identifiable, Sendable, Equatable {
         guard let stored else { return .default }
         if let model = ClaudeModel(rawValue: stored) { return model }
         switch stored {
-        case "claude-opus-4-8": return .opus5
+        case "claude-opus-5", "claude-opus-4-8": return .opus55
         case "claude-fable-5": return .fable51
         default: return .default
         }
