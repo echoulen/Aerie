@@ -128,8 +128,8 @@ final class ClaudeReviewServiceTests: XCTestCase {
     func test_modelFlag_passedToArgs() async {
         let r = StreamStubRunner()
         r.lines = [#"{"type":"result","result":"{\"verdict\":\"approve\",\"summary\":\"x\",\"issues\":[]}"}"#]
-        _ = await review(svc(r), model: .opus5)
+        _ = await review(svc(r), model: .opus55)
         guard let i = r.lastArgs.firstIndex(of: "--model") else { return XCTFail("no --model flag") }
-        XCTAssertEqual(r.lastArgs[i + 1], "claude-opus-5")
+        XCTAssertEqual(r.lastArgs[i + 1], "claude-opus-5-5")
     }
 }
