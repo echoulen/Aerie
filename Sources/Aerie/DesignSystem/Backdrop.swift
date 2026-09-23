@@ -2,15 +2,14 @@ import SwiftUI
 import AppKit
 
 /// The deep-space field the hull floats on (MARK III, `styles.css .backdrop`).
-/// Everything is slowly adrift:
+/// A still scene, bottom to top:
 ///   1. three nebula clouds (burnt orange upper-right, violet lower-left, a faint
-///      cyan wash at the bottom) swimming against each other,
+///      cyan wash at the bottom),
 ///   2. a space-2 → space-0 base radial,
-///   3. a near starfield — bigger, brighter, twinkling — drifting up-left fastest,
-///   4. a far starfield — finer, dimmer — crawling the same way, slower, for parallax,
-///   5. three planets — Jupiter, Venus, Uranus — drifting slowest of all,
+///   3. a near starfield — bigger, brighter,
+///   4. a far starfield — finer, dimmer,
+///   5. three planets — Jupiter, Venus, Uranus,
 ///   6. film-grain noise.
-/// With Reduce Motion on, every layer holds still.
 struct Backdrop: View {
     // --- Half-transparent glass knobs ---
     //
@@ -32,8 +31,6 @@ struct Backdrop: View {
     /// Draw the planets. Screen snapshot tests turn this off so their
     /// baselines don't hinge on the backdrop art.
     var showsPlanets: Bool = true
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geo in
@@ -57,17 +54,17 @@ struct Backdrop: View {
                 )
                 .opacity(baseOpacity)
 
-                // Nebulae and stars drift on Core Animation (see
-                // `BackdropMotion.swift`) — a SwiftUI animation here would
-                // re-rasterise the whole backdrop every frame.
-                NebulaField(intensity: nebulaIntensity, animated: !reduceMotion)
+                // Nebulae, stars and planets are cached Core Animation layers
+                // (`BackdropMotion.swift`, `BackdropPlanets.swift`), built once
+                // per size rather than rasterised with the SwiftUI tree.
+                NebulaField(intensity: nebulaIntensity)
 
                 if showsStars {
-                    Starfield(animated: !reduceMotion)
+                    Starfield()
                 }
 
                 if showsPlanets {
-                    PlanetField(animated: !reduceMotion)
+                    PlanetField()
                 }
 
                 Image("noise", bundle: .aerieResources)
