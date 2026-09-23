@@ -63,10 +63,14 @@ struct GlassModifier: ViewModifier {
                     .opacity(0.8)
             }
         case .card:
-            // Frosted plate: blur the desktop behind the translucent window,
-            // washed with deep-space tint so text stays legible.
+            // Frosted plate: blur what's under the card *within* the window
+            // (the backdrop, which already carries the frosted desktop), washed
+            // with deep-space tint so text stays legible. Not `.behindWindow`:
+            // every such view is its own desktop blur the render server
+            // recomputes whenever anything behind the window changes, and a
+            // list of cards made a dozen of them.
             ZStack {
-                VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                VisualEffectBlur(material: .hudWindow, blendingMode: .withinWindow)
                 AerieColor.cardGlassTint
                 (hovering ? AerieColor.glass3 : AerieColor.glass2)
                 sheen
