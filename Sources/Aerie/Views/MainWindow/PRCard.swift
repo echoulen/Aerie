@@ -332,7 +332,7 @@ struct PRCard: View {
                     if isApproving {
                         CardArcSpinner(size: 10)
                     } else {
-                        Image(systemName: "checkmark")
+                        Image(systemName: "hand.thumbsup")
                             .font(.system(size: 10, weight: .semibold))
                     }
                     if showsLabel { Text(isApproving ? "Approving…" : "Approve") }
@@ -596,7 +596,9 @@ struct PRCard: View {
                 if isApproving {
                     CardArcSpinner(size: 10)
                 } else {
-                    Image(systemName: "checkmark")
+                    // A checkmark only once approved — on the idle key it read
+                    // as "already approved".
+                    Image(systemName: isApproved ? "checkmark" : "hand.thumbsup")
                         .font(.system(size: 10, weight: .semibold))
                 }
                 Text(isApproving ? "Approving…" : (isApproved ? "Approved" : "Approve"))
