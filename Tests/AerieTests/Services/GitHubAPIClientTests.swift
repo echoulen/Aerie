@@ -237,6 +237,78 @@ final class GitHubAPIClientTests: XCTestCase {
         XCTAssertNil(prs[1].approvedBy, "a PR with no approving review has no approver")
     }
 
+    // Repos without required reviews get `reviewDecision: null` even after an
+    // approval, so the review state has to come from the reviews themselves.
+    func test_reviewState_nullDecision_derivesFromReviews() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let t1 = Date(timeIntervalSince1970: 2_000)
+        func state(_ approvedAt: Date?, _ changesAt: Date?) -> ReviewState {
+            LiveGitHubAPIClient.reviewState(
+                decision: nil, lastApprovalAt: approvedAt, lastChangesRequestAt: changesAt)
+        }
+        XCTAssertEqual(state(nil, nil), .reviewRequired)
+        XCTAssertEqual(state(t0, nil), .approved)
+        XCTAssertEqual(state(nil, t0), .changesRequested)
+        XCTAssertEqual(state(t0, t1), .changesRequested, "a later changes request wins")
+        XCTAssertEqual(state(t1, t0), .approved, "a later approval wins")
+    }
+
+    func test_reviewState_explicitDecisionWins() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(
+            LiveGitHubAPIClient.reviewState(decision: "REVIEW_REQUIRED", lastApprovalAt: t0, lastChangesRequestAt: nil),
+            .reviewRequired)
+        XCTAssertEqual(
+            LiveGitHubAPIClient.reviewState(decision: "APPROVED", lastApprovalAt: nil, lastChangesRequestAt: nil),
+            .approved)
+    }
+
+    func test_listOpenPRs_nullDecisionWithApproval_isApproved() async throws {
+        let responseJSON = """
+        {
+          "data": {
+            "repository": {
+              "pullRequests": {
+                "nodes": [
+                  {
+                    "id": "PR_a",
+                    "number": 1,
+                    "title": "Approved, no branch protection",
+                    "author": { "login": "carlos-li" },
+                    "headRefName": "feat/a",
+                    "state": "OPEN",
+                    "mergeable": "MERGEABLE",
+                    "labels": { "nodes": [] },
+                    "commits": { "nodes": [] },
+                    "reviewDecision": null,
+                    "reviews": { "nodes": [ { "submittedAt": "2026-05-28T10:00:00Z", "author": { "login": "maja-c" } } ] },
+                    "updatedAt": "2026-05-28T10:00:00Z",
+                    "url": "https://github.com/acme/widgets/pull/1"
+                  }
+                ]
+              }
+            }
+          }
+        }
+        """
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let prs = try await client.listOpenPRs(
+            owner: "acme", repo: "widgets", repoId: UUID(), token: "ghp_test"
+        )
+
+        XCTAssertEqual(prs[0].reviewState, .approved)
+        XCTAssertEqual(prs[0].approvedBy, "maja-c")
+    }
+
     func test_listOpenPRs_mapsDiffStats() async throws {
         // The PR's diff size (additions / deletions / changed files) must flow
         // through so the merge dialog can render "+312 -184 · 7 files".

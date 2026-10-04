@@ -323,7 +323,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
               }
             }
             reviewDecision
-            reviews(states: [APPROVED], last: 1) { nodes { author { login } } }
+            reviews(states: [APPROVED], last: 1) { nodes { submittedAt author { login } } }
             changesRequests: reviews(last: 1, states: [CHANGES_REQUESTED]) { nodes { submittedAt author { login } commit { oid } } }
             recentReviews: reviews(last: 5, states: [COMMENTED, APPROVED, DISMISSED]) { nodes { submittedAt author { login } } }
             recentComments: comments(last: 5) { nodes { createdAt author { login } } }
@@ -748,7 +748,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             }
           }
           reviewDecision
-          reviews(states: [APPROVED], last: 1) { nodes { author { login } } }
+          reviews(states: [APPROVED], last: 1) { nodes { submittedAt author { login } } }
           additions
           deletions
           changedFiles
@@ -869,7 +869,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         struct CommitInner: Decodable { let statusCheckRollup: RollupOrNull? }
         struct RollupOrNull: Decodable { let state: String }
         struct ReviewsLayer: Decodable { let nodes: [ReviewNode] }
-        struct ReviewNode: Decodable { let author: Author? }
+        struct ReviewNode: Decodable { let submittedAt: Date?; let author: Author? }
         struct ActivityLayer: Decodable { let nodes: [ActivityNode] }
         struct ActivityNode: Decodable {
             let submittedAt: Date?
@@ -879,6 +879,25 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         }
         struct OidNode: Decodable { let oid: String }
         let data: DataLayer
+    }
+
+    /// GitHub's `reviewDecision` when it has one. It's `null` whenever the
+    /// repo doesn't require reviews (no branch protection) — even after an
+    /// approval — so fall back to the latest approving vs. changes-requesting
+    /// review: whichever came last decides. Internal for unit tests.
+    static func reviewState(decision: String?, lastApprovalAt: Date?, lastChangesRequestAt: Date?) -> ReviewState {
+        switch decision {
+        case "APPROVED": return .approved
+        case "CHANGES_REQUESTED": return .changesRequested
+        case .some: return .reviewRequired
+        case nil: break
+        }
+        switch (lastApprovalAt, lastChangesRequestAt) {
+        case let (approved?, changes?): return changes > approved ? .changesRequested : .approved
+        case (.some, nil): return .approved
+        case (nil, .some): return .changesRequested
+        case (nil, nil): return .reviewRequired
+        }
     }
 
     private static func map(_ node: ListPRsResponse.Node, repoId: UUID) -> PullRequest {
@@ -898,12 +917,10 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
         default: ci = .none
         }
 
-        let review: ReviewState
-        switch node.reviewDecision {
-        case "APPROVED": review = .approved
-        case "CHANGES_REQUESTED": review = .changesRequested
-        default: review = .reviewRequired
-        }
+        let review = reviewState(
+            decision: node.reviewDecision,
+            lastApprovalAt: node.reviews?.nodes.first?.submittedAt,
+            lastChangesRequestAt: node.changesRequests?.nodes.first?.submittedAt)
 
         return PullRequest(
             id: UUID(),
