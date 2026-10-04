@@ -238,19 +238,20 @@ struct PRCard: View {
             }
         }
         .adaptiveRowPlate(widthClass)
-        .popover(isPresented: $showMergeConfirm) { mergeDialog }
-        // A second popover on the same view is unreliable — anchor Approve's
-        // to a background layer of the row instead.
-        .background(Color.clear.popover(isPresented: $showApproveConfirm) { approveDialog })
+        // The ⋯ menu's "Merge…" anchors here — unless the row's own Merge key
+        // is showing, which hosts the popover itself.
+        .popover(isPresented: Binding(
+            get: { showMergeConfirm && !showsNarrowMergeKey },
+            set: { showMergeConfirm = $0 })) { mergeDialog }
         .task(id: row.pr.authorLogin) { await refreshApprovers() }
     }
 
     /// `MediumPRRow` — two lines that keep the regular card's telemetry:
     ///   1. CI dot · repo · #N · YOURS/DRAFT · title (truncates) · updated
     ///   2. branch chip · CI + review pills · +/− · LOCAL/DIRTY · ↓↑ ·
-    ///      [Update] [AI Review] ⋯
-    /// The ⋯ menu keeps Merge, AI Review and Copy Link reachable — the actions
-    /// the row has no key for.
+    ///      [Update] [AI Review] [Approve | Merge] ⋯
+    /// The ⋯ menu keeps every action reachable, including the ones the row
+    /// has no key for (Review, Copy Link).
     private var mediumLine: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 11) {
@@ -308,8 +309,9 @@ struct PRCard: View {
             .overlay(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).strokeBorder(AerieColor.glassLine, lineWidth: 1))
     }
 
-    /// Narrow rows keep one primary key — AI Review — plus Update when the
-    /// branch is behind. Review, Merge and the rest live in the ⋯ menu.
+    /// Narrow rows keep AI Review plus one decision key (Approve, then Merge
+    /// once approved), plus Update when the branch is behind. Review and the
+    /// rest live in the ⋯ menu.
     private var mediumActions: some View {
         HStack(spacing: 7) {
             runningSpinner
@@ -317,9 +319,58 @@ struct PRCard: View {
                 UpdateBranchButton(behind: row.localState?.behind, onUpdate: onUpdateBranch, label: "Update")
             }
             narrowAIReviewKey
+            narrowDecisionKey(showsLabel: true)
             overflowMenu
         }
         .fixedSize()
+    }
+
+    /// Once approved, the narrow rows swap Approve for a Merge key — shown
+    /// while GitHub would accept the merge (or one is running).
+    private var showsNarrowMergeKey: Bool { isApproved && (mergeable || isMerging) }
+
+    /// The narrow rows' decision key. Before approval: a glass `.btn.sm`
+    /// Approve that opens `DialogApprove`. After: a gold `.btn.amber.sm` Merge
+    /// that opens `DialogMerge` (when mergeable). Each popover anchors to its
+    /// key; the ⋯ menu items open the same ones. Icon-only on the compact row,
+    /// where width is tightest.
+    @ViewBuilder
+    private func narrowDecisionKey(showsLabel: Bool) -> some View {
+        if showsNarrowMergeKey {
+            Button {
+                guard !isMerging else { return }
+                showMergeConfirm = true
+            } label: {
+                HStack(spacing: 6) {
+                    if isMerging {
+                        CardArcSpinner(size: 10)
+                    } else {
+                        Image(systemName: "arrow.triangle.merge")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    if showsLabel { Text(isMerging ? "Merging…" : "Merge") }
+                }
+            }
+            .buttonStyle(.hud(isMerging ? .arc : .amber, size: .small))
+            .help("Squash and merge \(row.repo.name) #\(row.pr.number)")
+            .popover(isPresented: $showMergeConfirm) { mergeDialog }
+        } else if !isApproved {
+            Button(action: requestApprove) {
+                HStack(spacing: 6) {
+                    if isApproving {
+                        CardArcSpinner(size: 10)
+                    } else {
+                        Image(systemName: "hand.thumbsup")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    if showsLabel { Text(isApproving ? "Approving…" : "Approve") }
+                }
+            }
+            .buttonStyle(.hud(isApproving ? .arc : .standard, size: .small))
+            .disabled(!canApprove && !isApproving)
+            .help(approveHelp)
+            .popover(isPresented: $showApproveConfirm) { approveDialog }
+        }
     }
 
     /// The narrow rows' primary key: gold `.btn.amber.sm` "AI Review", arc
@@ -332,7 +383,8 @@ struct PRCard: View {
                 Text(aiReviewLabel)
             }
         }
-        .buttonStyle(.hud(isAIReviewing ? .arc : .amber, size: .small))
+        // Gold unless the Merge key is showing — one gold CTA per row.
+        .buttonStyle(.hud(isAIReviewing ? .arc : (showsNarrowMergeKey ? .standard : .amber), size: .small))
         .disabled(row.pr.isDraftPR && !isAIReviewing)
         .help(aiReviewHelp(verb: "Run AI Review for"))
     }
@@ -374,6 +426,7 @@ struct PRCard: View {
                 HStack(spacing: 8) {
                     runningSpinner
                     narrowAIReviewKey
+                    narrowDecisionKey(showsLabel: false)
                     overflowMenu
                 }
             }
@@ -450,9 +503,9 @@ struct PRCard: View {
 
     @ViewBuilder
     private var runningSpinner: some View {
-        // Merge / Approve run from the ⋯ menu, so the row shows they're in
-        // flight here; AI Review shows its own state on its key.
-        if isMerging || isApproving {
+        // A merge started from the ⋯ menu (no Merge key showing) shows it's in
+        // flight here; the keys show their own state.
+        if isMerging && !showsNarrowMergeKey {
             CardArcSpinner(size: 11)
         }
     }
@@ -572,7 +625,9 @@ struct PRCard: View {
                 if isApproving {
                     CardArcSpinner(size: 10)
                 } else {
-                    Image(systemName: "checkmark")
+                    // A checkmark only once approved — on the idle key it read
+                    // as "already approved".
+                    Image(systemName: isApproved ? "checkmark" : "hand.thumbsup")
                         .font(.system(size: 10, weight: .semibold))
                 }
                 Text(isApproving ? "Approving…" : (isApproved ? "Approved" : "Approve"))
