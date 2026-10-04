@@ -239,18 +239,15 @@ struct PRCard: View {
         }
         .adaptiveRowPlate(widthClass)
         .popover(isPresented: $showMergeConfirm) { mergeDialog }
-        // A second popover on the same view is unreliable — anchor Approve's
-        // to a background layer of the row instead.
-        .background(Color.clear.popover(isPresented: $showApproveConfirm) { approveDialog })
         .task(id: row.pr.authorLogin) { await refreshApprovers() }
     }
 
     /// `MediumPRRow` — two lines that keep the regular card's telemetry:
     ///   1. CI dot · repo · #N · YOURS/DRAFT · title (truncates) · updated
     ///   2. branch chip · CI + review pills · +/− · LOCAL/DIRTY · ↓↑ ·
-    ///      [Update] [AI Review] ⋯
-    /// The ⋯ menu keeps Merge, AI Review and Copy Link reachable — the actions
-    /// the row has no key for.
+    ///      [Update] [AI Review] [Approve] ⋯
+    /// The ⋯ menu keeps Merge and Copy Link reachable — the actions the row
+    /// has no key for.
     private var mediumLine: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 11) {
@@ -308,7 +305,7 @@ struct PRCard: View {
             .overlay(RoundedRectangle(cornerRadius: AerieMetric.radiusPill).strokeBorder(AerieColor.glassLine, lineWidth: 1))
     }
 
-    /// Narrow rows keep one primary key — AI Review — plus Update when the
+    /// Narrow rows keep AI Review and Approve as keys, plus Update when the
     /// branch is behind. Review, Merge and the rest live in the ⋯ menu.
     private var mediumActions: some View {
         HStack(spacing: 7) {
@@ -317,9 +314,35 @@ struct PRCard: View {
                 UpdateBranchButton(behind: row.localState?.behind, onUpdate: onUpdateBranch, label: "Update")
             }
             narrowAIReviewKey
+            narrowApproveKey(showsLabel: true)
             overflowMenu
         }
         .fixedSize()
+    }
+
+    /// The narrow rows' Approve key: a glass `.btn.sm` that opens the same
+    /// `DialogApprove` popover (anchored here; the ⋯ menu's "Approve…" opens
+    /// it too). Hidden once the PR is approved — the review chip already says
+    /// so — and icon-only on the compact row, where width is tightest.
+    @ViewBuilder
+    private func narrowApproveKey(showsLabel: Bool) -> some View {
+        if !isApproved {
+            Button(action: requestApprove) {
+                HStack(spacing: 6) {
+                    if isApproving {
+                        CardArcSpinner(size: 10)
+                    } else {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    if showsLabel { Text(isApproving ? "Approving…" : "Approve") }
+                }
+            }
+            .buttonStyle(.hud(isApproving ? .arc : .standard, size: .small))
+            .disabled(!canApprove && !isApproving)
+            .help(approveHelp)
+            .popover(isPresented: $showApproveConfirm) { approveDialog }
+        }
     }
 
     /// The narrow rows' primary key: gold `.btn.amber.sm` "AI Review", arc
@@ -374,6 +397,7 @@ struct PRCard: View {
                 HStack(spacing: 8) {
                     runningSpinner
                     narrowAIReviewKey
+                    narrowApproveKey(showsLabel: false)
                     overflowMenu
                 }
             }
@@ -450,9 +474,9 @@ struct PRCard: View {
 
     @ViewBuilder
     private var runningSpinner: some View {
-        // Merge / Approve run from the ⋯ menu, so the row shows they're in
-        // flight here; AI Review shows its own state on its key.
-        if isMerging || isApproving {
+        // Merge runs from the ⋯ menu, so the row shows it's in flight here;
+        // AI Review and Approve show their own state on their keys.
+        if isMerging {
             CardArcSpinner(size: 11)
         }
     }
