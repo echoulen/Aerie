@@ -7,7 +7,7 @@ import AppKit
 /// Visual contract: `docs/superpowers/design/v2/app.jsx` `PRCard`:
 ///   ┌───────────────────────────────────────────────────────────────┐
 ///   │ <repo> · #N · <author> · [yours] · <updated ago>             │
-///   │ <title>                                     [Review][Merge]  │
+///   │ <title>                           [Review][AI][Approve][Merge]│
 ///   │ <CI pill>  <Review pill>  <Local-state pill>                  │
 ///   └───────────────────────────────────────────────────────────────┘
 ///
@@ -33,6 +33,17 @@ struct PRCard: View {
     /// now owned by the caller and invoked from `PRActionStore.start`).
     /// Returns an error message on failure, nil on success.
     var onMergeConfirmed: (PRRow) async -> String? = { _ in nil }
+    /// Resolves which accounts may approve this PR (and the default one).
+    /// Called when the card appears — to gate the Approve key — and again on
+    /// every tap so the dialog picks up the latest remembered approver.
+    /// Defaulted to "nobody can approve" for previews / snapshot tests.
+    var resolveApprovers: (PRRow) async -> ApproverResolution = { _ in
+        ApproverResolution(eligible: [], defaultApprover: nil)
+    }
+    /// Submits the approving review confirmed in `DialogApprove`, invoked
+    /// from `PRActionStore.start`. Returns an error message on failure, nil
+    /// on success.
+    var onApproveConfirmed: (PRRow, GitHubAccount, String?) async -> String? = { _, _, _ in nil }
     /// Opens the code review screen for this PR. Defaulted to a no-op for
     /// snapshot tests and previews.
     var onReview: () -> Void = {}
@@ -62,6 +73,12 @@ struct PRCard: View {
     var now: Date = Date()
 
     @State private var showMergeConfirm = false
+    @State private var showApproveConfirm = false
+    /// Last resolved approver set; nil until the first resolve finishes.
+    @State private var approverResolution: ApproverResolution?
+    /// Set once an approve from this card succeeds, so the key reads
+    /// "Approved" before the refreshed row's review state lands.
+    @State private var justApproved = false
 
     // MARK: - Derived presentation bits
 
@@ -83,6 +100,19 @@ struct PRCard: View {
         if case .failed(let message) = prActionStore.phase(.merge, for: row) { return message }
         return nil
     }
+
+    private var isApproving: Bool { prActionStore.isRunning(.approve, for: row) }
+
+    private var approveFailure: String? {
+        if case .failed(let message) = prActionStore.phase(.approve, for: row) { return message }
+        return nil
+    }
+
+    private var isApproved: Bool { row.pr.reviewState == .approved || justApproved }
+
+    /// Approve is offered unless the PR is already approved or no configured
+    /// account other than the author could approve it.
+    private var canApprove: Bool { !isApproved && approverResolution?.canApprove == true }
 
     private var isAIReviewing: Bool { if case .running = aiReviewPhase { return true }; return false }
 
@@ -164,7 +194,7 @@ struct PRCard: View {
     }
 
     private var hasFailures: Bool {
-        mergeFailure != nil || aiReviewFailure != nil
+        mergeFailure != nil || approveFailure != nil || aiReviewFailure != nil
     }
 
     private var failureStrips: some View {
@@ -176,6 +206,13 @@ struct PRCard: View {
                     message: mergeFailure,
                     onRetry: { prActionStore.retry(.merge, row: row) },
                     onDismiss: { prActionStore.dismiss(.merge, row: row) })
+            }
+            // Already reads "Approve failed: …".
+            if let approveFailure {
+                ActionErrorStrip(
+                    message: approveFailure,
+                    onRetry: { prActionStore.retry(.approve, row: row) },
+                    onDismiss: { prActionStore.dismiss(.approve, row: row) })
             }
             if let aiReviewFailure {
                 ActionErrorStrip(
@@ -202,6 +239,10 @@ struct PRCard: View {
         }
         .adaptiveRowPlate(widthClass)
         .popover(isPresented: $showMergeConfirm) { mergeDialog }
+        // A second popover on the same view is unreliable — anchor Approve's
+        // to a background layer of the row instead.
+        .background(Color.clear.popover(isPresented: $showApproveConfirm) { approveDialog })
+        .task(id: row.pr.authorLogin) { await refreshApprovers() }
     }
 
     /// `MediumPRRow` — two lines that keep the regular card's telemetry:
@@ -409,9 +450,9 @@ struct PRCard: View {
 
     @ViewBuilder
     private var runningSpinner: some View {
-        // Merge runs from the ⋯ menu, so the row shows it's in flight here;
-        // AI Review shows its own state on its key.
-        if isMerging {
+        // Merge / Approve run from the ⋯ menu, so the row shows they're in
+        // flight here; AI Review shows its own state on its key.
+        if isMerging || isApproving {
             CardArcSpinner(size: 11)
         }
     }
@@ -427,6 +468,8 @@ struct PRCard: View {
                     .disabled(row.pr.isDraftPR)
             }
             Divider()
+            Button(approveMenuLabel, action: requestApprove)
+                .disabled(!canApprove || isApproving)
             Button(isMerging ? "Merging…" : "Merge…") { showMergeConfirm = true }
                 .disabled(!mergeable || isMerging)
             if Self.shouldShowUpdateBranch(row.pr, row.localState) {
@@ -445,6 +488,43 @@ struct PRCard: View {
         return "AI Review"
     }
 
+    private var approveMenuLabel: String {
+        if isApproved { return "Approved" }
+        return isApproving ? "Approving…" : "Approve…"
+    }
+
+    private func refreshApprovers() async {
+        approverResolution = await resolveApprovers(row)
+    }
+
+    /// Re-resolves the approver set (the remembered default may have changed
+    /// since the card appeared), then opens the confirmation.
+    private func requestApprove() {
+        guard !isApproving, !isApproved else { return }
+        Task {
+            await refreshApprovers()
+            if approverResolution?.canApprove == true { showApproveConfirm = true }
+        }
+    }
+
+    @ViewBuilder
+    private var approveDialog: some View {
+        if let approverResolution {
+            DialogApprove(
+                context: PRReviewApproveContext(row: row, resolution: approverResolution),
+                onConfirm: { approver, comment in
+                    showApproveConfirm = false
+                    prActionStore.start(.approve, row: row) {
+                        let error = await onApproveConfirmed(row, approver, comment)
+                        if error == nil { await MainActor.run { justApproved = true } }
+                        return error
+                    }
+                },
+                onCancel: { showApproveConfirm = false }
+            )
+        }
+    }
+
     private var mergeDialog: some View {
         DialogMerge(
             pr: row.pr, repo: row.repo, account: mergeAccount(row),
@@ -458,7 +538,7 @@ struct PRCard: View {
 
     // MARK: - Actions column
     //
-    // Review · AI Review · Merge stacked top→bottom, equal width and centred —
+    // Review · AI Review · Approve · Merge stacked top→bottom, equal width and centred —
     // the design's `PRCard` right column (`v2/app.jsx`: "actions, stacked top →
     // bottom"). All are MARK III `.btn.sm` bevelled keys (`HudButtonStyle`). A
     // fixed column width keeps them equal and the cards' action columns aligned
@@ -473,9 +553,46 @@ struct PRCard: View {
                 CopyLinkButton(url: row.pr.htmlUrl)
             }
             aiReviewButton
+            approveButton
             mergeButton
         }
         .frame(width: Self.actionColumnWidth)
+        .task(id: row.pr.authorLogin) { await refreshApprovers() }
+    }
+
+    // MARK: - Approve button
+
+    /// Glass `.btn.sm` key that opens `DialogApprove` (same confirmation as
+    /// the review screen's Approve). Reads "Approved" (disabled) once the PR
+    /// is approved, turns arc cyan while the approve runs, and is disabled
+    /// when no configured account other than the author may approve.
+    private var approveButton: some View {
+        Button(action: requestApprove) {
+            HStack(spacing: 6) {
+                if isApproving {
+                    CardArcSpinner(size: 10)
+                } else {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                Text(isApproving ? "Approving…" : (isApproved ? "Approved" : "Approve"))
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.hud(isApproving ? .arc : .standard, size: .small))
+        // A running approve stays enabled so the arc key isn't dimmed —
+        // `requestApprove`'s guard ignores taps.
+        .disabled(!canApprove && !isApproving)
+        .help(approveHelp)
+        .popover(isPresented: $showApproveConfirm) { approveDialog }
+    }
+
+    private var approveHelp: String {
+        if isApproved { return row.pr.approvedBy.map { "Approved by \($0)" } ?? "Approved" }
+        if approverResolution?.canApprove == false {
+            return "You can't approve your own PR, and no other account is configured to approve it."
+        }
+        return "Approve \(row.repo.name) #\(row.pr.number)"
     }
 
     // MARK III `.btn.sm` key (glass chrome, gold rim on hover) that drills into

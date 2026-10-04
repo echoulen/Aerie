@@ -9,10 +9,11 @@ import AppKit
 ///
 /// Action wiring:
 /// - "Open" launches the PR's HTML URL via `NSWorkspace`.
-/// - "Merge" is fully owned by `PRCard`: it presents `DialogMerge` as a
-///   popover and, on confirm, hands off to the shared `prActionStore`, which
-///   runs `onMergeConfirmed` (the `MultiAccountAPI.mergePR` call, owned by
-///   `MainShell`) in the background. The screen itself stays state-free and
+/// - "Merge" / "Approve" are fully owned by `PRCard`: each presents its
+///   confirmation (`DialogMerge` / `DialogApprove`) as a popover and, on
+///   confirm, hands off to the shared `prActionStore`, which runs
+///   `onMergeConfirmed` / `onApproveConfirmed` (the `MultiAccountAPI` calls,
+///   owned by `MainShell`) in the background. The screen itself stays state-free and
 ///   performs nothing destructive (mirrors `ReposScreen`'s `onHardReset`).
 struct PRsScreen: View {
     @Bindable var viewModel: PRsViewModel
@@ -36,6 +37,14 @@ struct PRsScreen: View {
     /// Runs the actual squash-merge for a confirmed row. The `MultiAccountAPI`
     /// call + refresh live in `MainShell`.
     var onMergeConfirmed: (PRRow) async -> String? = { _ in nil }
+    /// Resolves which accounts may approve a row (and the default approver)
+    /// for the card's Approve dialog.
+    var resolveApprovers: (PRRow) async -> ApproverResolution = { _ in
+        ApproverResolution(eligible: [], defaultApprover: nil)
+    }
+    /// Submits a confirmed approving review for a row. The `MultiAccountAPI`
+    /// call + refresh live in `MainShell`. Returns an error message on failure.
+    var onApproveConfirmed: (PRRow, GitHubAccount, String?) async -> String? = { _, _, _ in nil }
     /// Runs the base-branch update for a PR's checkout (the status-row "Update
     /// branch" pill). Async so the pill can spin until the row re-syncs; the
     /// `GitService.updateBranchFromBase` call + refresh live in `MainShell`.
@@ -158,6 +167,8 @@ struct PRsScreen: View {
                         prActionStore: prActionStore,
                         mergeAccount: mergeAccount,
                         onMergeConfirmed: onMergeConfirmed,
+                        resolveApprovers: resolveApprovers,
+                        onApproveConfirmed: onApproveConfirmed,
                         onReview: { onReview(row) },
                         aiReviewPhase: aiReviewPhase(row),
                         onStartAIReview: { onStartAIReview(row) },

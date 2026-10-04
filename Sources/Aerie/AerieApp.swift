@@ -193,23 +193,7 @@ struct MainShell: View {
                     await services.lastApprover.logins(forRepo: r.repo.id, author: r.pr.authorLogin)
                 },
                 onBack: { reviewing = nil },
-                onApproveConfirmed: { row, approver, comment in
-                    do {
-                        _ = try await services.multiApi.approvePR(
-                            owner: row.repo.githubOwner,
-                            repo: row.repo.githubRepo,
-                            number: row.pr.number,
-                            body: comment,
-                            accountId: approver.id
-                        )
-                        await services.lastApprover.record(
-                            approver.login, forRepo: row.repo.id, author: row.pr.authorLogin)
-                        await services.refreshNow()
-                        return nil
-                    } catch {
-                        return "Approve failed: \(error.localizedDescription)"
-                    }
-                }
+                onApproveConfirmed: Self.approveConfirmed
             )
             .id("\(row.repo.id.uuidString)#\(row.pr.number)")
         } else {
@@ -244,6 +228,8 @@ struct MainShell: View {
                         return "Merge failed: \(error.localizedDescription)"
                     }
                 },
+                resolveApprovers: Self.resolveApprovers,
+                onApproveConfirmed: Self.approveConfirmed,
                 onUpdateBranch: { row in
                     // One-click "Update branch": ask GitHub to update the PR's
                     // head branch server-side (the analogue of the web "Update
@@ -375,6 +361,40 @@ struct MainShell: View {
         }
     }
 
+    /// Which accounts may approve `row`, defaulting to the last approver
+    /// remembered for its repo + author. Shared by the review screen's and
+    /// PR list's Approve dialogs and the AI-review auto-approve.
+    private static func resolveApprovers(_ row: PRRow) async -> ApproverResolution {
+        let services = AppServices.shared
+        let accounts = await services.auth.allAccounts()
+        let preferred = await services.lastApprover.logins(forRepo: row.repo.id, author: row.pr.authorLogin)
+        return ApproverResolver.resolve(
+            accounts: accounts, boundAccountId: row.repo.primaryAccountId,
+            authorLogin: row.pr.authorLogin, preferredLogins: preferred)
+    }
+
+    /// Submits a confirmed approving review (the Approve dialog's `onConfirm`
+    /// body), remembers the approver, and refreshes. Returns an error message
+    /// on failure, nil on success.
+    private static func approveConfirmed(_ row: PRRow, _ approver: GitHubAccount, _ comment: String?) async -> String? {
+        let services = AppServices.shared
+        do {
+            _ = try await services.multiApi.approvePR(
+                owner: row.repo.githubOwner,
+                repo: row.repo.githubRepo,
+                number: row.pr.number,
+                body: comment,
+                accountId: approver.id
+            )
+            await services.lastApprover.record(
+                approver.login, forRepo: row.repo.id, author: row.pr.authorLogin)
+            await services.refreshNow()
+            return nil
+        } catch {
+            return "Approve failed: \(error.localizedDescription)"
+        }
+    }
+
     /// Builds the AI-review store, wiring its closures to live services. Static so
     /// it can seed the `@State` initial value without touching `self`.
     @MainActor
@@ -407,13 +427,7 @@ struct MainShell: View {
                     diff: diff, followUp: followUp, guidance: guidance,
                     localPath: r.repo.localPath, model: model, onLine: onLine)
             },
-            resolveApprover: { r in
-                let accounts = await services.auth.allAccounts()
-                let preferred = await services.lastApprover.logins(forRepo: r.repo.id, author: r.pr.authorLogin)
-                return ApproverResolver.resolve(
-                    accounts: accounts, boundAccountId: r.repo.primaryAccountId,
-                    authorLogin: r.pr.authorLogin, preferredLogins: preferred)
-            },
+            resolveApprover: { await resolveApprovers($0) },
             approve: { r, approver, body in
                 do {
                     _ = try await services.multiApi.approvePR(
