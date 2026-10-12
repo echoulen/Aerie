@@ -84,6 +84,14 @@ final class WorkingTreeWatcher: WorkingTreeChangeSource, @unchecked Sendable {
         for key in streams.keys { changed[key] = true }
     }
 
+    /// Makes `url`'s tree report a change on its next `consumeChange` — for an
+    /// action that just rewrote it, ahead of FSEvents delivering the writes.
+    func markChanged(at url: URL) {
+        lock.lock(); defer { lock.unlock() }
+        let key = Self.key(url)
+        if streams[key] != nil { changed[key] = true }
+    }
+
     /// Stops and releases every stream. Called from `deinit`; tests call it
     /// explicitly so temp directories can be removed cleanly.
     func stopAll() {
