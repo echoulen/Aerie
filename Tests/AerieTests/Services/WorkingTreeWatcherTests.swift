@@ -79,6 +79,21 @@ final class WorkingTreeWatcherTests: XCTestCase {
         XCTAssertFalse(watcher.consumeChange(at: a))
     }
 
+    // After an action rewrites a tree (reset, discard) its status must be
+    // re-read right away, before FSEvents has delivered the action's writes.
+    func test_markChanged_forcesTheNextReadOfThatTreeOnly() throws {
+        let a = try makeTempDir(), b = try makeTempDir()
+        let watcher = WorkingTreeWatcher()
+        defer { watcher.stopAll() }
+        _ = watcher.consumeChange(at: a)
+        _ = watcher.consumeChange(at: b)
+
+        watcher.markChanged(at: a)
+        XCTAssertTrue(watcher.consumeChange(at: a))
+        XCTAssertFalse(watcher.consumeChange(at: b))
+        XCTAssertFalse(watcher.consumeChange(at: a))
+    }
+
     func test_pathsAreIndependent() throws {
         let a = try makeTempDir(), b = try makeTempDir()
         let watcher = WorkingTreeWatcher()

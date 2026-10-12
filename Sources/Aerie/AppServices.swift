@@ -235,4 +235,16 @@ final class AppServices {
         let repoIds = ((try? await db.repos.all()) ?? []).filter { !$0.hidden }.map(\.id)
         await scheduler.refreshNow(repoIds: repoIds, now: Date())
     }
+
+    /// Re-syncs the one repo an action just touched — the scheduler's usual
+    /// per-repo pass — without waiting for it, so the action's spinner ends
+    /// when the action itself lands. (`refreshNow` re-syncs every repo and
+    /// forces every working-tree walk: awaiting it after an approve kept the
+    /// key spinning 6–15 s.) Pass `treeChanged` when the action rewrote the
+    /// working tree, so status is re-read before FSEvents reports the writes.
+    func refreshInBackground(_ repo: Repository, treeChanged: Bool = false) {
+        if treeChanged { workingTreeWatcher.markChanged(at: repo.localPath) }
+        let scheduler = self.scheduler
+        Task { await scheduler.refreshNow(repoIds: [repo.id], now: Date()) }
+    }
 }

@@ -222,7 +222,7 @@ struct MainShell: View {
                             number: row.pr.number,
                             method: .squash
                         )
-                        await services.refreshNow()
+                        services.refreshInBackground(row.repo)
                         return nil
                     } catch {
                         return "Merge failed: \(error.localizedDescription)"
@@ -254,7 +254,7 @@ struct MainShell: View {
                     } catch {
                         NSLog("Update branch failed for \(row.repo.name) #\(row.pr.number): \(error.localizedDescription)")
                     }
-                    await services.refreshNow()
+                    services.refreshInBackground(row.repo)
                 },
                 onReview: { reviewing = $0 },
                 aiReviewPhase: { aiReviewStore.phase(for: $0) },
@@ -295,7 +295,7 @@ struct MainShell: View {
                                 NSLog("Reset succeeded but couldn't delete merged branch \(merged.branch): \(error.localizedDescription)")
                             }
                         }
-                        await services.refreshNow()
+                        services.refreshInBackground(row.repo, treeChanged: true)
                         return nil
                     } catch {
                         return "Reset failed: \(error.localizedDescription)"
@@ -304,7 +304,7 @@ struct MainShell: View {
                 onDiscardConfirmed: { row in
                     do {
                         try await services.gitService.discardUnstaged(repoAt: row.repo.localPath)
-                        await services.refreshNow()
+                        services.refreshInBackground(row.repo, treeChanged: true)
                         return nil
                     } catch {
                         return "Discard failed: \(error.localizedDescription)"
@@ -374,8 +374,8 @@ struct MainShell: View {
     }
 
     /// Submits a confirmed approving review (the Approve dialog's `onConfirm`
-    /// body), remembers the approver, and refreshes. Returns an error message
-    /// on failure, nil on success.
+    /// body), remembers the approver, and re-syncs its repo in the background.
+    /// Returns an error message on failure, nil on success.
     private static func approveConfirmed(_ row: PRRow, _ approver: GitHubAccount, _ comment: String?) async -> String? {
         let services = AppServices.shared
         do {
@@ -388,7 +388,7 @@ struct MainShell: View {
             )
             await services.lastApprover.record(
                 approver.login, forRepo: row.repo.id, author: row.pr.authorLogin)
-            await services.refreshNow()
+            services.refreshInBackground(row.repo)
             return nil
         } catch {
             return "Approve failed: \(error.localizedDescription)"
@@ -434,7 +434,7 @@ struct MainShell: View {
                         owner: r.repo.githubOwner, repo: r.repo.githubRepo,
                         number: r.pr.number, body: body, accountId: approver.id)
                     await services.lastApprover.record(approver.login, forRepo: r.repo.id, author: r.pr.authorLogin)
-                    await services.refreshNow()
+                    services.refreshInBackground(r.repo)
                     return nil
                 } catch { return error.localizedDescription }
             },
@@ -448,7 +448,7 @@ struct MainShell: View {
                     // collaborator approves later, so the next review on this
                     // repo must default to this account or the PR stays stuck.
                     await services.lastApprover.record(approver.login, forRepo: r.repo.id, author: r.pr.authorLogin)
-                    await services.refreshNow()
+                    services.refreshInBackground(r.repo)
                     return nil
                 } catch { return error.localizedDescription }
             })
