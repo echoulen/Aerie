@@ -186,6 +186,7 @@ struct PRCard: View {
                     onUpdate: onUpdateBranch
                 )
             }
+            diffStat
         } actions: {
             actionColumn
         } footer: {
@@ -280,18 +281,26 @@ struct PRCard: View {
                 FlowLayout(itemSpacing: 8, rowSpacing: 6) {
                     mediumBranchChip
                     prInfoChips
-                    if let add = row.pr.additions, let del = row.pr.deletions {
-                        HStack(spacing: 4) {
-                            Text("+\(add)").foregroundStyle(AerieColor.ok)
-                            Text("−\(del)").foregroundStyle(AerieColor.crimsonHot)
-                        }
-                        .aerieFont(AerieFont.code(10.5))
-                        .fixedSize()
-                    }
+                    diffStat
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 mediumActions
             }
+        }
+    }
+
+    /// `+N −N` lines changed, when the fetch supplied the numbers (older
+    /// cached PRs predate them). Shared by the regular card's status row and
+    /// the medium row's second line.
+    @ViewBuilder
+    private var diffStat: some View {
+        if let add = row.pr.additions, let del = row.pr.deletions {
+            HStack(spacing: 4) {
+                Text("+\(add)").foregroundStyle(AerieColor.ok)
+                Text("−\(del)").foregroundStyle(AerieColor.crimsonHot)
+            }
+            .aerieFont(AerieFont.code(widthClass == .regular ? 11 : 10.5))
+            .fixedSize()
         }
     }
 
