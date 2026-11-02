@@ -21,4 +21,16 @@ final class BundleResourcesTests: XCTestCase {
             "app-icon.png must be loadable from the resolved resource bundle"
         )
     }
+
+    /// The phone PWA is served from the same bundle; `MobileStatic` must use
+    /// `Bundle.aerieResources` too (it used `.module` and crashed the shipped
+    /// app on the first page load).
+    func test_aerieResources_resolvesMobileWebShell() {
+        for (path, asset) in MobileStatic.routes {
+            XCTAssertNotNil(
+                Bundle.aerieResources.url(forResource: asset.resource, withExtension: asset.ext,
+                                          subdirectory: asset.subdirectory),
+                "\(path) must resolve from the shipped resource bundle")
+        }
+    }
 }

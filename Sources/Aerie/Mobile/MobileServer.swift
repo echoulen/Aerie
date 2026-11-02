@@ -51,7 +51,10 @@ actor MobileServer {
             logger: logger
         )
         let task = Task {
-            do { try await app.runService() } catch {
+            // No graceful-shutdown signals: by default ServiceLifecycle traps
+            // SIGTERM/SIGINT to stop just this server, which left Aerie
+            // running (and deaf to `kill`) with the phone backend gone.
+            do { try await app.runService(gracefulShutdownSignals: []) } catch {
                 running.continuation.finish()
                 throw error
             }
@@ -462,7 +465,7 @@ enum MobileStatic {
     }()
 
     static func response(_ asset: Asset) -> Response {
-        guard let url = Bundle.module.url(forResource: asset.resource, withExtension: asset.ext,
+        guard let url = Bundle.aerieResources.url(forResource: asset.resource, withExtension: asset.ext,
                                           subdirectory: asset.subdirectory),
               let data = try? Data(contentsOf: url) else {
             return MobileRoutes.response(status: .notFound, contentType: "text/plain", data: Data("Not found".utf8))
