@@ -122,8 +122,8 @@ private struct AppRoot: View {
 /// auto-refresh and the toast overlay are tracked as Known Issues in the plan.
 struct MainShell: View {
     private let services = AppServices.shared
-    @State private var aiReviewStore: AIReviewStore = MainShell.makeAIReviewStore()
-    @State private var prActionStore = PRActionStore()
+    private var aiReviewStore: AIReviewStore { services.aiReviewStore }
+    private var prActionStore: PRActionStore { services.prActionStore }
     @State private var repoActionStore = RepoActionStore()
     @Environment(\.openWindow) private var openWindow
     @State private var appVM = AppViewModel()
@@ -193,7 +193,7 @@ struct MainShell: View {
                     await services.lastApprover.logins(forRepo: r.repo.id, author: r.pr.authorLogin)
                 },
                 onBack: { reviewing = nil },
-                onApproveConfirmed: Self.approveConfirmed
+                onApproveConfirmed: { await services.approveConfirmed($0, $1, $2) }
             )
             .id("\(row.repo.id.uuidString)#\(row.pr.number)")
         } else {
@@ -215,25 +215,11 @@ struct MainShell: View {
                         ?? GitHubAccount(id: row.repo.primaryAccountId, login: "unknown", host: "github.com")
                 },
                 onMergeConfirmed: { row in
-                    do {
-                        _ = try await services.multiApi.mergePR(
-                            owner: row.repo.githubOwner,
-                            repo: row.repo.githubRepo,
-                            number: row.pr.number,
-                            method: .squash
-                        )
-                        services.refreshInBackground(row.repo)
-                        await services.prSync.scheduleResync(repoId: row.repo.id)
-                        return nil
-                    } catch {
-                        // A refused merge means the row was stale: re-sync so
-                        // the card shows why (e.g. Conflicts), not just the error.
-                        services.refreshInBackground(row.repo)
-                        return "Merge failed: \(error.localizedDescription)"
-                    }
+                    if case .failed(let message) = await services.mergeConfirmed(row) { return message }
+                    return nil
                 },
-                resolveApprovers: Self.resolveApprovers,
-                onApproveConfirmed: Self.approveConfirmed,
+                resolveApprovers: { await services.resolveApprovers($0) },
+                onApproveConfirmed: { await services.approveConfirmed($0, $1, $2) },
                 onUpdateBranch: { row in
                     // One-click "Update branch": ask GitHub to update the PR's
                     // head branch server-side (the analogue of the web "Update
@@ -365,99 +351,6 @@ struct MainShell: View {
         }
     }
 
-    /// Which accounts may approve `row`, defaulting to the last approver
-    /// remembered for its repo + author. Shared by the review screen's and
-    /// PR list's Approve dialogs and the AI-review auto-approve.
-    private static func resolveApprovers(_ row: PRRow) async -> ApproverResolution {
-        let services = AppServices.shared
-        let accounts = await services.auth.allAccounts()
-        let preferred = await services.lastApprover.logins(forRepo: row.repo.id, author: row.pr.authorLogin)
-        return ApproverResolver.resolve(
-            accounts: accounts, boundAccountId: row.repo.primaryAccountId,
-            authorLogin: row.pr.authorLogin, preferredLogins: preferred)
-    }
-
-    /// Submits a confirmed approving review (the Approve dialog's `onConfirm`
-    /// body), remembers the approver, and re-syncs its repo in the background.
-    /// Returns an error message on failure, nil on success.
-    private static func approveConfirmed(_ row: PRRow, _ approver: GitHubAccount, _ comment: String?) async -> String? {
-        let services = AppServices.shared
-        do {
-            _ = try await services.multiApi.approvePR(
-                owner: row.repo.githubOwner,
-                repo: row.repo.githubRepo,
-                number: row.pr.number,
-                body: comment,
-                accountId: approver.id
-            )
-            await services.lastApprover.record(
-                approver.login, forRepo: row.repo.id, author: row.pr.authorLogin)
-            services.refreshInBackground(row.repo)
-            return nil
-        } catch {
-            return "Approve failed: \(error.localizedDescription)"
-        }
-    }
-
-    /// Builds the AI-review store, wiring its closures to live services. Static so
-    /// it can seed the `@State` initial value without touching `self`.
-    @MainActor
-    private static func makeAIReviewStore() -> AIReviewStore {
-        let services = AppServices.shared
-        let claude: ClaudeReviewService = LiveClaudeReviewService()
-        return AIReviewStore(
-            loadFiles: { r in
-                try await services.multiApi.fetchPRFiles(
-                    owner: r.repo.githubOwner, repo: r.repo.githubRepo,
-                    number: r.pr.number, accountId: r.repo.primaryAccountId).value
-            },
-            loadFollowUp: { r in
-                let conversation = try await services.multiApi.fetchPRConversation(
-                    owner: r.repo.githubOwner, repo: r.repo.githubRepo,
-                    number: r.pr.number, accountId: r.repo.primaryAccountId).value
-                return AIReviewFollowUp.from(conversation)
-            },
-            runReview: { r, diff, followUp, onLine in
-                // Read the model and guidance fresh on every run (not at store construction)
-                // so Settings edits apply to the next click.
-                let storedModel = (try? await services.db.settings.getString(AIModelViewModel.settingsKey)) ?? nil
-                let model = ClaudeModel.resolve(stored: storedModel)
-                let guidance = AIReviewGuidance.resolve(
-                    firstPass: (try? await services.db.settings.getString(AIReviewGuidance.firstPassKey)) ?? nil,
-                    followUp: (try? await services.db.settings.getString(AIReviewGuidance.followUpKey)) ?? nil)
-                return await claude.review(
-                    owner: r.repo.githubOwner, repo: r.repo.githubRepo, number: r.pr.number,
-                    title: r.pr.title, author: r.pr.authorLogin, sourceBranch: r.pr.sourceBranch,
-                    diff: diff, followUp: followUp, guidance: guidance,
-                    localPath: r.repo.localPath, model: model, onLine: onLine)
-            },
-            resolveApprover: { await resolveApprovers($0) },
-            approve: { r, approver, body in
-                do {
-                    _ = try await services.multiApi.approvePR(
-                        owner: r.repo.githubOwner, repo: r.repo.githubRepo,
-                        number: r.pr.number, body: body, accountId: approver.id)
-                    await services.lastApprover.record(approver.login, forRepo: r.repo.id, author: r.pr.authorLogin)
-                    services.refreshInBackground(r.repo)
-                    return nil
-                } catch { return error.localizedDescription }
-            },
-            requestChanges: { r, approver, body in
-                do {
-                    _ = try await services.multiApi.requestChangesPR(
-                        owner: r.repo.githubOwner, repo: r.repo.githubRepo,
-                        number: r.pr.number, body: body, accountId: approver.id)
-                    // Remember the account here too, not just on approve: GitHub
-                    // only lifts a changes-requested block when the SAME
-                    // collaborator approves later, so the next review on this
-                    // repo must default to this account or the PR stays stuck.
-                    await services.lastApprover.record(approver.login, forRepo: r.repo.id, author: r.pr.authorLogin)
-                    services.refreshInBackground(r.repo)
-                    return nil
-                } catch { return error.localizedDescription }
-            })
-    }
-
     var body: some View {
         AppFrame(
             viewModel: appVM,
@@ -541,5 +434,6 @@ struct MainShell: View {
 final class AerieAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task.detached(priority: .utility) { LegacyMCPCleanup().run() }
+        Task { await AppServices.shared.mobile.bootstrap() }
     }
 }

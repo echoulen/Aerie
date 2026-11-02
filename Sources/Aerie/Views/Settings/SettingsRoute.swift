@@ -1,7 +1,7 @@
 import Foundation
 
 enum SettingsRoute: String, CaseIterable, Identifiable, Equatable {
-    case accounts, repositories, aiModel, aiReview, appearance, advanced, about
+    case accounts, repositories, aiModel, aiReview, appearance, advanced, mobile, about
     var id: String { rawValue }
 
     var displayName: String {
@@ -12,6 +12,7 @@ enum SettingsRoute: String, CaseIterable, Identifiable, Equatable {
         case .aiReview: return "AI Review"
         case .appearance: return "Appearance"
         case .advanced: return "Advanced"
+        case .mobile: return "Mobile"
         case .about: return "About"
         }
     }
@@ -24,6 +25,7 @@ enum SettingsRoute: String, CaseIterable, Identifiable, Equatable {
         case .aiReview: return "sparkles"
         case .appearance: return "textformat.size"
         case .advanced: return "slider.horizontal.3"
+        case .mobile: return "iphone"
         case .about: return "info.circle"
         }
     }

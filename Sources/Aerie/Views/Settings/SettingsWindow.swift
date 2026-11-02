@@ -223,6 +223,8 @@ struct SettingsWindow: View {
             AppearanceScreen(viewModel: appearanceVM)
         case .advanced:
             AdvancedScreen(viewModel: advancedVM)
+        case .mobile:
+            MobileScreen(controller: services.mobile)
         case .about:
             AboutScreen()
         }
@@ -236,6 +238,7 @@ struct SettingsWindow: View {
         case .aiReview:     await aiReviewVM.refresh()
         case .appearance:   await appearanceVM.refresh()
         case .advanced:     await advancedVM.refresh()
+        case .mobile:       await services.mobile.reloadDevices()
         case .about:        break
         }
     }
