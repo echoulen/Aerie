@@ -151,6 +151,17 @@ actor PollingScheduler {
         }
     }
 
+    /// Seconds until the next repo comes due (0 when one is due now), and the
+    /// cadence it runs on. Read by the phone's polling countdown.
+    func nextDue(repoIds: [UUID], now: Date) -> (cadence: TimeInterval, remaining: TimeInterval) {
+        let (active, _) = effectiveCadences(now: now)
+        let remaining = repoIds.map { id -> TimeInterval in
+            guard let last = fetchedAt[id] else { return 0 }
+            return max(0, active - now.timeIntervalSince(last))
+        }.min() ?? active
+        return (active, remaining)
+    }
+
     /// Applies the rate-limit throttle (if a current snapshot says we are
     /// below the threshold and the reset epoch has not yet passed) and the
     /// background-app multiplier (if the app isn't frontmost). The two

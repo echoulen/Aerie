@@ -5,7 +5,7 @@ import SwiftUI
 /// the requested point size, stroked at the design's 1.4 px weight with round
 /// caps/joins — matching the thin-line house style rather than SF Symbols.
 struct SidebarIcon: View {
-    enum Kind { case key, folder, cpu, spark, appearance, sliders, info }
+    enum Kind { case key, folder, cpu, spark, appearance, sliders, phone, info }
 
     let kind: Kind
     var size: CGFloat = 14
@@ -69,6 +69,13 @@ struct SidebarIcon: View {
                 stroke.move(to: P(7, 12)); stroke.addLine(to: P(14, 12))
                 stroke.addEllipse(in: CGRect(x: 8.5 * s, y: 2.5 * s, width: 3 * s, height: 3 * s))
                 stroke.addEllipse(in: CGRect(x: 4.5 * s, y: 10.5 * s, width: 3 * s, height: 3 * s))
+
+            case .phone:
+                // A handset: rounded body plus a home-button dot.
+                stroke.addRoundedRect(
+                    in: CGRect(x: 4.5 * s, y: 1.5 * s, width: 7 * s, height: 13 * s),
+                    cornerSize: CGSize(width: 1.6 * s, height: 1.6 * s))
+                stroke.move(to: P(7.2, 12)); stroke.addLine(to: P(8.8, 12))
 
             case .info:
                 stroke.addEllipse(in: CGRect(x: 2 * s, y: 2 * s, width: 12 * s, height: 12 * s))

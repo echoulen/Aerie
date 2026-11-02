@@ -58,6 +58,7 @@ struct SettingsSidebar: View {
         case .aiReview:     return .spark
         case .appearance:   return .appearance
         case .advanced:     return .sliders
+        case .mobile:       return .phone
         case .about:        return .info
         }
     }

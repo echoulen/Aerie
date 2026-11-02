@@ -83,6 +83,15 @@ final class AppServices {
     /// outlives any single window.
     let updates = UpdateStore()
 
+    /// Background state for the PR-scoped actions (Merge, Approve). Held here,
+    /// not in the main window, so a merge started from the phone shows on the
+    /// desktop card and survives the main window closing.
+    let prActionStore = PRActionStore()
+    /// AI-review runs for every PR, shared by the desktop and the phone.
+    private(set) lazy var aiReviewStore: AIReviewStore = makeAIReviewStore()
+    /// The phone backend (off unless enabled in Settings · Mobile).
+    private(set) lazy var mobile: MobileController = MobileController(services: self)
+
     /// Per-repo (and per-repo + author) memory of the account the last approval was submitted as. Used to
     /// default the approver picker (manual + AI Review) to the user's last choice.
     var lastApprover: LastApproverStore { LastApproverStore(settings: db.settings) }
@@ -246,5 +255,121 @@ final class AppServices {
         if treeChanged { workingTreeWatcher.markChanged(at: repo.localPath) }
         let scheduler = self.scheduler
         Task { await scheduler.refreshNow(repoIds: [repo.id], now: Date()) }
+    }
+
+    // MARK: - PR actions (shared by the desktop and the phone)
+
+    /// Which accounts may approve `row`, defaulting to the last approver
+    /// remembered for its repo + author. Shared by the review screen's and
+    /// PR list's Approve dialogs, the AI-review auto-approve, and the phone.
+    func resolveApprovers(_ row: PRRow) async -> ApproverResolution {
+        let accounts = await auth.allAccounts()
+        let preferred = await lastApprover.logins(forRepo: row.repo.id, author: row.pr.authorLogin)
+        return ApproverResolver.resolve(
+            accounts: accounts, boundAccountId: row.repo.primaryAccountId,
+            authorLogin: row.pr.authorLogin, preferredLogins: preferred)
+    }
+
+    /// Submits a confirmed approving review (the Approve dialog's `onConfirm`
+    /// body), remembers the approver, and re-syncs its repo in the background.
+    /// Returns an error message on failure, nil on success.
+    func approveConfirmed(_ row: PRRow, _ approver: GitHubAccount, _ comment: String?) async -> String? {
+        do {
+            _ = try await multiApi.approvePR(
+                owner: row.repo.githubOwner,
+                repo: row.repo.githubRepo,
+                number: row.pr.number,
+                body: comment,
+                accountId: approver.id
+            )
+            await lastApprover.record(
+                approver.login, forRepo: row.repo.id, author: row.pr.authorLogin)
+            refreshInBackground(row.repo)
+            return nil
+        } catch {
+            return "Approve failed: \(error.localizedDescription)"
+        }
+    }
+
+    enum MergeOutcome: Equatable {
+        case merged(sha: String)
+        case failed(String)
+    }
+
+    /// Squash-merges a confirmed PR (the Merge dialog's `onConfirm` body) and
+    /// re-syncs its repo.
+    func mergeConfirmed(_ row: PRRow) async -> MergeOutcome {
+        do {
+            let result = try await multiApi.mergePR(
+                owner: row.repo.githubOwner,
+                repo: row.repo.githubRepo,
+                number: row.pr.number,
+                method: .squash
+            )
+            refreshInBackground(row.repo)
+            await prSync.scheduleResync(repoId: row.repo.id)
+            return .merged(sha: result.value.sha)
+        } catch {
+            // A refused merge means the row was stale: re-sync so
+            // the card shows why (e.g. Conflicts), not just the error.
+            refreshInBackground(row.repo)
+            return .failed("Merge failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Builds the AI-review store, wiring its closures to live services.
+    private func makeAIReviewStore() -> AIReviewStore {
+        let claude: ClaudeReviewService = LiveClaudeReviewService()
+        return AIReviewStore(
+            loadFiles: { [unowned self] r in
+                try await multiApi.fetchPRFiles(
+                    owner: r.repo.githubOwner, repo: r.repo.githubRepo,
+                    number: r.pr.number, accountId: r.repo.primaryAccountId).value
+            },
+            loadFollowUp: { [unowned self] r in
+                let conversation = try await multiApi.fetchPRConversation(
+                    owner: r.repo.githubOwner, repo: r.repo.githubRepo,
+                    number: r.pr.number, accountId: r.repo.primaryAccountId).value
+                return AIReviewFollowUp.from(conversation)
+            },
+            runReview: { [unowned self] r, diff, followUp, onLine in
+                // Read the model and guidance fresh on every run (not at store construction)
+                // so Settings edits apply to the next click.
+                let storedModel = (try? await db.settings.getString(AIModelViewModel.settingsKey)) ?? nil
+                let model = ClaudeModel.resolve(stored: storedModel)
+                let guidance = AIReviewGuidance.resolve(
+                    firstPass: (try? await db.settings.getString(AIReviewGuidance.firstPassKey)) ?? nil,
+                    followUp: (try? await db.settings.getString(AIReviewGuidance.followUpKey)) ?? nil)
+                return await claude.review(
+                    owner: r.repo.githubOwner, repo: r.repo.githubRepo, number: r.pr.number,
+                    title: r.pr.title, author: r.pr.authorLogin, sourceBranch: r.pr.sourceBranch,
+                    diff: diff, followUp: followUp, guidance: guidance,
+                    localPath: r.repo.localPath, model: model, onLine: onLine)
+            },
+            resolveApprover: { [unowned self] in await resolveApprovers($0) },
+            approve: { [unowned self] r, approver, body in
+                do {
+                    _ = try await multiApi.approvePR(
+                        owner: r.repo.githubOwner, repo: r.repo.githubRepo,
+                        number: r.pr.number, body: body, accountId: approver.id)
+                    await lastApprover.record(approver.login, forRepo: r.repo.id, author: r.pr.authorLogin)
+                    refreshInBackground(r.repo)
+                    return nil
+                } catch { return error.localizedDescription }
+            },
+            requestChanges: { [unowned self] r, approver, body in
+                do {
+                    _ = try await multiApi.requestChangesPR(
+                        owner: r.repo.githubOwner, repo: r.repo.githubRepo,
+                        number: r.pr.number, body: body, accountId: approver.id)
+                    // Remember the account here too, not just on approve: GitHub
+                    // only lifts a changes-requested block when the SAME
+                    // collaborator approves later, so the next review on this
+                    // repo must default to this account or the PR stays stuck.
+                    await lastApprover.record(approver.login, forRepo: r.repo.id, author: r.pr.authorLogin)
+                    refreshInBackground(r.repo)
+                    return nil
+                } catch { return error.localizedDescription }
+            })
     }
 }

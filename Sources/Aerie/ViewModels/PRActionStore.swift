@@ -53,6 +53,21 @@ final class PRActionStore {
         }
     }
 
+    /// Like `start`, but waits for `work` and returns its result — for callers
+    /// (the phone API) that answer only once the action has landed. Returns
+    /// an error without running when one is already in flight for the key.
+    func run(_ kind: Kind, row: PRRow, work: @escaping () async -> String?) async -> String? {
+        let key = Self.key(row, kind)
+        guard !running.contains(key) else { return "Already in progress." }
+        running.insert(key)
+        phases[key] = .running
+        retryWork[key] = work
+        defer { running.remove(key) }
+        let err = await work()
+        phases[key] = err.map { .failed($0) } ?? .idle
+        return err
+    }
+
     /// Re-runs the last `work` passed to `start` for this key, without asking
     /// for confirmation again — matches how the old modal dialogs behaved on
     /// a failed attempt (same dialog, same primary button, no re-prompt).

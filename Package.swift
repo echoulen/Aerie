@@ -24,13 +24,14 @@ let package = Package(
                 .product(name: "Splash", package: "Splash"),
             ],
             exclude: ["Resources/Info.plist", "Resources/Assets.xcassets"],
-            resources: [.process("Resources")]
+            resources: [.process("Resources"), .copy("MobileWeb")]
         ),
         .testTarget(
             name: "AerieTests",
             dependencies: [
                 "Aerie",
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
+                .product(name: "HummingbirdTesting", package: "hummingbird"),
             ],
             // swift-snapshot-testing reads baselines from disk relative to
             // the test source file (via `#file`), not from the test bundle,
