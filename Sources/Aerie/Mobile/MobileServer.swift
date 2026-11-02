@@ -51,7 +51,10 @@ actor MobileServer {
             logger: logger
         )
         let task = Task {
-            do { try await app.runService() } catch {
+            // No graceful-shutdown signals: by default ServiceLifecycle traps
+            // SIGTERM/SIGINT to stop just this server, which left Aerie
+            // running (and deaf to `kill`) with the phone backend gone.
+            do { try await app.runService(gracefulShutdownSignals: []) } catch {
                 running.continuation.finish()
                 throw error
             }
