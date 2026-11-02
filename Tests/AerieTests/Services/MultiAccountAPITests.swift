@@ -105,13 +105,28 @@ actor StubGitHubAPIClient: GitHubAPIClient {
         freshPRByToken[token] = pr
     }
 
+    /// Consumed first, one per read, to script a state that changes between
+    /// re-reads. Once empty, reads fall back to `freshPRByToken`.
+    var freshPRSequenceByToken: [String: [PullRequest]] = [:]
+    private(set) var fetchMergeStateCount = 0
+
+    func setFreshPRSequence(_ prs: [PullRequest], forToken token: String) {
+        freshPRSequenceByToken[token] = prs
+    }
+
     func fetchMergeState(
         owner: String,
         repo: String,
         number: Int,
         token: String
     ) async throws -> PullRequest? {
-        freshPRByToken[token]
+        fetchMergeStateCount += 1
+        if var sequence = freshPRSequenceByToken[token], !sequence.isEmpty {
+            let next = sequence.removeFirst()
+            freshPRSequenceByToken[token] = sequence
+            return next
+        }
+        return freshPRByToken[token]
     }
 
     // MARK: Approve recording
@@ -740,6 +755,85 @@ final class MultiAccountAPITests: XCTestCase {
         XCTAssertTrue(result.value.merged)
         let count = await stub.callCount
         XCTAssertEqual(count, 0, "an already-merged PR must not fire the merge PUT")
+    }
+
+    // GitHub computes mergeability lazily: the read right after a base move is
+    // UNKNOWN even when the PR is really conflicting. The reported bug: a stale
+    // CLEAN row lit Merge, and the click failed with "still computing".
+
+    func test_mergePR_waitsOutUnknownAndReportsTheRealReason() async throws {
+        let primary = UUID()
+        let token = "tok"
+        let stub = StubGitHubAPIClient()
+        await stub.setFreshPRSequence([
+            makePR(repoId: UUID(), number: 7, mergeStateStatus: "UNKNOWN"),
+            makePR(repoId: UUID(), number: 7, mergeStateStatus: "DIRTY"),
+        ], forToken: token)
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: token] },
+            accountsInOrder: { [primary] },
+            mergeStateSettleDelays: [.zero, .zero, .zero]
+        )
+
+        do {
+            _ = try await api.mergePR(owner: "acme", repo: "widgets", number: 7, method: .squash)
+            XCTFail("expected the conflicting PR to be refused")
+        } catch let error as GitHubAPIError {
+            XCTAssertTrue(error.message.contains("merge conflicts"), error.message)
+        }
+        let reads = await stub.fetchMergeStateCount
+        XCTAssertEqual(reads, 2, "stops re-reading once the state is definite")
+        let puts = await stub.callCount
+        XCTAssertEqual(puts, 0)
+    }
+
+    func test_mergePR_mergesWhenUnknownSettlesToClean() async throws {
+        let primary = UUID()
+        let token = "tok"
+        let stub = StubGitHubAPIClient()
+        await stub.setFreshPRSequence([
+            makePR(repoId: UUID(), number: 7, mergeStateStatus: "UNKNOWN"),
+            makePR(repoId: UUID(), number: 7, mergeStateStatus: "CLEAN"),
+        ], forToken: token)
+        await stub.enqueue(.merge(MergeResult(sha: "abc", merged: true)), forToken: token)
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: token] },
+            accountsInOrder: { [primary] },
+            mergeStateSettleDelays: [.zero, .zero, .zero]
+        )
+
+        let result = try await api.mergePR(owner: "acme", repo: "widgets", number: 7, method: .squash)
+        XCTAssertTrue(result.value.merged)
+    }
+
+    func test_mergePR_refusesWhenUnknownNeverSettles() async throws {
+        let primary = UUID()
+        let token = "tok"
+        let stub = StubGitHubAPIClient()
+        await stub.setFreshPR(
+            makePR(repoId: UUID(), number: 7, mergeStateStatus: "UNKNOWN"),
+            forToken: token
+        )
+
+        let api = MultiAccountAPI(
+            client: stub,
+            tokensByAccount: { [primary: token] },
+            accountsInOrder: { [primary] },
+            mergeStateSettleDelays: [.zero, .zero, .zero]
+        )
+
+        do {
+            _ = try await api.mergePR(owner: "acme", repo: "widgets", number: 7, method: .squash)
+            XCTFail("expected an undecided PR to be refused")
+        } catch let error as GitHubAPIError {
+            XCTAssertTrue(error.message.contains("still computing"), error.message)
+        }
+        let reads = await stub.fetchMergeStateCount
+        XCTAssertEqual(reads, 4, "the first read plus one per settle delay")
     }
 
     // MARK: approvePR
