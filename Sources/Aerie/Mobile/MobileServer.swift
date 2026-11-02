@@ -462,7 +462,7 @@ enum MobileStatic {
     }()
 
     static func response(_ asset: Asset) -> Response {
-        guard let url = Bundle.module.url(forResource: asset.resource, withExtension: asset.ext,
+        guard let url = Bundle.aerieResources.url(forResource: asset.resource, withExtension: asset.ext,
                                           subdirectory: asset.subdirectory),
               let data = try? Data(contentsOf: url) else {
             return MobileRoutes.response(status: .notFound, contentType: "text/plain", data: Data("Not found".utf8))
