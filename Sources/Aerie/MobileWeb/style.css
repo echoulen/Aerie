@@ -119,21 +119,57 @@ b { font-weight: 600; }
 }
 
 /* ── PR list ───────────────────────────────────────────────────── */
-.seg-row { padding: 12px 16px 10px; gap: 8px; flex-shrink: 0; }
-.seg-row .segmented { flex: 1; }
-.seg-row .segmented button { flex: 1; height: 44px; padding: 6px 4px; }
+/* Status summary — doubles as the filter (tap again to clear). */
+.summary-row { padding: 12px 16px 10px; gap: 6px; flex-shrink: 0; }
+.summary-tile {
+  appearance: none; border: 0; font: inherit; cursor: pointer;
+  flex: 1; height: 50px; justify-content: center; align-items: center; gap: 1px;
+  background: rgba(0, 0, 0, 0.32); box-shadow: inset 0 0 0 1px var(--glass-line);
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  -webkit-tap-highlight-color: transparent;
+  transition: background 180ms, box-shadow 180ms;
+}
+.summary-tile .n { font-size: 17px; font-weight: 600; line-height: 1.1; }
+.summary-tile .l { font-size: 9.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
+.summary-tile.ready .n   { color: var(--amber); }
+.summary-tile.you .n     { color: oklch(0.92 0.12 90); }
+.summary-tile.blocked .n { color: var(--crimson-hot); }
+.summary-tile.active { background: var(--glass-3); box-shadow: inset 0 0 0 1px var(--amber-line), 0 0 16px -6px var(--amber-glow); }
+.summary-tile.active .l { color: var(--text-1); }
 
 .pr-row {
   appearance: none; border: 0; text-align: left; color: inherit; font: inherit;
   display: block; width: 100%;
-  padding: 12px 14px; min-height: 44px; cursor: pointer;
+  padding: 11px 14px 11px 16px; min-height: 44px; cursor: pointer;
+  --tone: var(--text-3); --tone-bg: rgba(0,0,0,0.3); --tone-line: var(--glass-line); --tone-glow: transparent;
 }
-.pr-row .r1 { gap: 7px; }
+.pr-row::after { display: none; }  /* the verdict bar replaces the card's gold edge */
+.pr-row.tone-amber { --tone: var(--amber); --tone-bg: var(--amber-soft); --tone-line: var(--amber-line); --tone-glow: var(--amber-glow); }
+.pr-row.tone-you   { --tone: oklch(0.92 0.12 90); --tone-bg: rgba(255,214,160,0.08); --tone-line: var(--glass-line-2); }
+.pr-row.tone-err   { --tone: var(--crimson-hot); --tone-bg: var(--crimson-soft); --tone-line: var(--crimson-line); --tone-glow: oklch(0.66 0.215 26 / 0.6); }
+.pr-row.tone-arc   { --tone: var(--arc); --tone-bg: var(--arc-soft); --tone-line: var(--arc-line); --tone-glow: var(--arc-glow); }
+.verdict-bar { position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; background: var(--tone); box-shadow: 0 0 10px var(--tone-glow); }
+.pr-row.tone-muted .verdict-bar { opacity: 0.4; }
+.pr-row .r1 { gap: 8px; }
+.verdict {
+  gap: 5px; padding: 2px 7px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--tone); background: var(--tone-bg); box-shadow: inset 0 0 0 1px var(--tone-line); white-space: nowrap;
+}
+.verdict .spinner { border-width: 1.5px; }
+.pr-row.tone-muted .pr-title { color: var(--text-2); }
+.pr-signal { gap: 4px; font-family: var(--font-mono); font-size: 10.5px; white-space: nowrap; }
+.pr-signal .glyph { font-size: 11px; }
+.pr-signal.ok { color: var(--ok); }
+.pr-signal.err { color: var(--crimson-hot); }
+.pr-signal.run { color: var(--arc); }
+.pr-signal.wait { color: var(--text-3); }
+.pr-signal.wait .glyph { color: var(--text-4); }
 .pr-meta { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
 .mini-pill { padding: 0 5px; font-size: 8.5px; }
 .pr-updated { font-size: 10px; color: var(--text-4); }
-.pr-title { font-size: 14px; color: var(--text-1); line-height: 1.4; margin-top: 6px; text-wrap: pretty; overflow-wrap: anywhere; }
-.pr-row .r3 { gap: 8px; margin-top: 8px; }
+.pr-title { font-size: 14px; color: var(--text-1); line-height: 1.38; margin-top: 7px; text-wrap: pretty; overflow-wrap: anywhere; }
+.pr-row .r3 { gap: 12px; margin-top: 7px; min-width: 0; }
+.pr-row .r3 .pr-meta { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; }
 .delta { font-size: 10.5px; white-space: nowrap; }
 .add { color: var(--ok); }
 .del { color: var(--crimson-hot); }
