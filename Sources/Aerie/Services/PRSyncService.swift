@@ -33,13 +33,23 @@ actor PRSyncService {
     private let api: PRFetching
     private let git: any GitService
     private let onChange: @Sendable () async -> Void
+    private let resyncDelay: Duration
+
+    /// Pending follow-up sync per repo (see `scheduleResync`).
+    private var resyncTasks: [UUID: Task<Void, Never>] = [:]
+    /// Follow-ups spent on the repo's current run of `UNKNOWN` rows.
+    private var unknownResyncs: [UUID: Int] = [:]
+
+    private static let maxUnknownResyncs = 3
 
     init(
         db: AppDatabase,
         api: PRFetching,
         git: any GitService,
-        onChange: @escaping @Sendable () async -> Void = {}
+        onChange: @escaping @Sendable () async -> Void = {},
+        resyncDelay: Duration = .seconds(5)
     ) {
+        self.resyncDelay = resyncDelay
         self.db = db
         self.api = api
         self.git = git
@@ -78,11 +88,44 @@ actor PRSyncService {
             }
 
             await onChange()
+            resyncIfMergeStateUnknown(result.value, repoId: repoId)
         } catch {
             // Swallow — one repo's failure shouldn't abort the tick. The stale
             // cache (if any) stays put; the next tick retries.
             NSLog("PRSyncService: sync failed for repo \(repoId): \(error)")
         }
+    }
+
+    /// Syncs the repo again shortly, without waiting for the next poll. For when
+    /// its PRs' merge state is known to be in flux: right after a merge moves
+    /// the base, GitHub can still report siblings as CLEAN, which would keep
+    /// their Merge keys lit on an answer that's about to change.
+    func scheduleResync(repoId: UUID) {
+        guard resyncTasks[repoId] == nil else { return }
+        let delay = resyncDelay
+        resyncTasks[repoId] = Task {
+            try? await Task.sleep(for: delay)
+            await self.runResync(repoId: repoId)
+        }
+    }
+
+    private func runResync(repoId: UUID) async {
+        resyncTasks[repoId] = nil
+        await sync(repoId: repoId)
+    }
+
+    /// `UNKNOWN` resolves within seconds, but only a later read shows it, so
+    /// follow up rather than leave the row undecided until the next poll.
+    /// Capped so a PR GitHub never resolves falls back to the poll cadence.
+    private func resyncIfMergeStateUnknown(_ prs: [PullRequest], repoId: UUID) {
+        guard prs.contains(where: { $0.mergeStateStatus == "UNKNOWN" }) else {
+            unknownResyncs[repoId] = nil
+            return
+        }
+        let spent = unknownResyncs[repoId, default: 0]
+        guard spent < Self.maxUnknownResyncs, resyncTasks[repoId] == nil else { return }
+        unknownResyncs[repoId] = spent + 1
+        scheduleResync(repoId: repoId)
     }
 
     /// Syncs every non-hidden repo, in order. Used for the initial fetch on

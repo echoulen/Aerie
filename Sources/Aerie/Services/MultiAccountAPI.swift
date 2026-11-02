@@ -36,12 +36,17 @@ actor MultiAccountAPI {
     /// argument and gets the wall clock.
     private let now: @Sendable () -> Date
 
+    /// Pauses between re-reads while GitHub reports `UNKNOWN` before a merge.
+    private let mergeStateSettleDelays: [Duration]
+
     init(
         client: GitHubAPIClient,
         tokensByAccount: @escaping @Sendable () async -> [UUID: String],
         accountsInOrder: @escaping @Sendable () async -> [UUID],
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        mergeStateSettleDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(3)]
     ) {
+        self.mergeStateSettleDelays = mergeStateSettleDelays
         self.client = client
         self.tokensByAccount = tokensByAccount
         self.accountsInOrder = accountsInOrder
@@ -156,7 +161,7 @@ actor MultiAccountAPI {
             // swallows auth/network errors), fall through to the merge and let
             // its own error surface — and an auth failure here re-occurs on the
             // merge call below, so cross-account fallback still works.
-            if let fresh = try? await self.client.fetchMergeState(
+            if let fresh = await self.settledMergeState(
                 owner: owner, repo: repo, number: number, token: token
             ) {
                 // Already merged — e.g. an enabled auto-merge (or another
@@ -174,7 +179,7 @@ actor MultiAccountAPI {
                 if let reason = fresh.mergeBlockReason {
                     throw GitHubAPIError(
                         status: 405,
-                        message: "GitHub won't merge this PR right now — \(reason). Try refreshing."
+                        message: "GitHub won't merge this PR right now — \(reason)."
                     )
                 }
             }
@@ -186,6 +191,31 @@ actor MultiAccountAPI {
                 token: token
             )
         }
+    }
+
+    /// Reads the PR's live merge state, waiting out `UNKNOWN`. GitHub computes
+    /// mergeability lazily, so the read that follows a base move is often
+    /// `UNKNOWN` even though the answer (commonly a conflict) is seconds away —
+    /// and that answer is what the user needs instead of "still computing".
+    /// A re-read that can't run keeps the last state seen.
+    private func settledMergeState(
+        owner: String,
+        repo: String,
+        number: Int,
+        token: String
+    ) async -> PullRequest? {
+        var fresh = try? await client.fetchMergeState(
+            owner: owner, repo: repo, number: number, token: token
+        )
+        for delay in mergeStateSettleDelays where fresh?.mergeStateStatus == "UNKNOWN" {
+            try? await Task.sleep(for: delay)
+            if let next = try? await client.fetchMergeState(
+                owner: owner, repo: repo, number: number, token: token
+            ) {
+                fresh = next
+            }
+        }
+        return fresh
     }
 
     /// Brings a PR's head branch up to date with its base via GitHub's

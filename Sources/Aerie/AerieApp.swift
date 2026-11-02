@@ -223,8 +223,12 @@ struct MainShell: View {
                             method: .squash
                         )
                         services.refreshInBackground(row.repo)
+                        await services.prSync.scheduleResync(repoId: row.repo.id)
                         return nil
                     } catch {
+                        // A refused merge means the row was stale: re-sync so
+                        // the card shows why (e.g. Conflicts), not just the error.
+                        services.refreshInBackground(row.repo)
                         return "Merge failed: \(error.localizedDescription)"
                     }
                 },

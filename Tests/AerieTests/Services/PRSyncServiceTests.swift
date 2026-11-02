@@ -154,6 +154,82 @@ final class PRSyncServiceTests: XCTestCase {
         )
     }
 
+    // MARK: follow-up resync
+
+    private func makePR(repoId: UUID, number: Int, mergeStateStatus: String) -> PullRequest {
+        var pr = makePR(repoId: repoId, number: number)
+        pr.mergeStateStatus = mergeStateStatus
+        return pr
+    }
+
+    private func waitForCalls(_ fetcher: StubPRFetcher, atLeast count: Int) async throws {
+        for _ in 0..<200 {
+            if await fetcher.callCount() >= count { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    func test_sync_followsUpOnUnknown_soTheRowResolvesBeforeTheNextPoll() async throws {
+        let db = try makeDB()
+        let repo = try await insertRepo(db, accountId: try insertAccount(db))
+        let fetcher = StubPRFetcher()
+        await fetcher.setResult([makePR(repoId: repo.id, number: 1, mergeStateStatus: "UNKNOWN")], forRepo: repo.id)
+
+        let service = PRSyncService(db: db, api: fetcher, git: LiveGitService(), resyncDelay: .milliseconds(100))
+        await service.sync(repoId: repo.id)
+        await fetcher.setResult([makePR(repoId: repo.id, number: 1, mergeStateStatus: "DIRTY")], forRepo: repo.id)
+
+        try await waitForCalls(fetcher, atLeast: 2)
+        try await Task.sleep(for: .milliseconds(200))
+        let cached = try await db.prCache.prs(forRepo: repo.id)
+        XCTAssertEqual(cached.first?.mergeStateStatus, "DIRTY")
+        let calls = await fetcher.callCount()
+        XCTAssertEqual(calls, 2, "a definite state ends the follow-ups")
+    }
+
+    func test_sync_capsFollowUpsWhenUnknownNeverResolves() async throws {
+        let db = try makeDB()
+        let repo = try await insertRepo(db, accountId: try insertAccount(db))
+        let fetcher = StubPRFetcher()
+        await fetcher.setResult([makePR(repoId: repo.id, number: 1, mergeStateStatus: "UNKNOWN")], forRepo: repo.id)
+
+        let service = PRSyncService(db: db, api: fetcher, git: LiveGitService(), resyncDelay: .milliseconds(1))
+        await service.sync(repoId: repo.id)
+
+        try await waitForCalls(fetcher, atLeast: 4)
+        try await Task.sleep(for: .milliseconds(100))
+        let calls = await fetcher.callCount()
+        XCTAssertEqual(calls, 4, "the first sync plus three follow-ups")
+    }
+
+    func test_sync_doesNotFollowUpOnDefiniteState() async throws {
+        let db = try makeDB()
+        let repo = try await insertRepo(db, accountId: try insertAccount(db))
+        let fetcher = StubPRFetcher()
+        await fetcher.setResult([makePR(repoId: repo.id, number: 1, mergeStateStatus: "CLEAN")], forRepo: repo.id)
+
+        let service = PRSyncService(db: db, api: fetcher, git: LiveGitService(), resyncDelay: .milliseconds(1))
+        await service.sync(repoId: repo.id)
+
+        try await Task.sleep(for: .milliseconds(100))
+        let calls = await fetcher.callCount()
+        XCTAssertEqual(calls, 1)
+    }
+
+    func test_scheduleResync_refetchesEvenWhenStateLooksDefinite() async throws {
+        let db = try makeDB()
+        let repo = try await insertRepo(db, accountId: try insertAccount(db))
+        let fetcher = StubPRFetcher()
+        await fetcher.setResult([makePR(repoId: repo.id, number: 1, mergeStateStatus: "CLEAN")], forRepo: repo.id)
+
+        let service = PRSyncService(db: db, api: fetcher, git: LiveGitService(), resyncDelay: .milliseconds(1))
+        await service.scheduleResync(repoId: repo.id)
+
+        try await waitForCalls(fetcher, atLeast: 1)
+        let calls = await fetcher.callCount()
+        XCTAssertEqual(calls, 1)
+    }
+
     // MARK: sync(repoId:)
 
     func test_sync_fetchesWithBoundAccount_upsertsCache_andNotifies() async throws {
