@@ -99,7 +99,7 @@
     pair: { phase: "idle", error: null, pending: null }, // idle | waiting | approved | creating
     launch: { busy: false, error: null, needTap: false },
     route: { name: "prs" },
-    filter: "all",
+    filter: null,           // null | ready | you | blocked — the PR list summary tiles
     data: freshData(),
     sheet: null,            // {kind: "approve"|"merge", running, error}
     merged: null,           // {pr, merge, result}
@@ -417,7 +417,8 @@
         }));
       }
       if (route.name === "prs") {
-        const f = S.filter;
+        // The verdict tiles filter client-side, so the list is always the full one.
+        const f = "all";
         jobs.push(api("m/api/prs?filter=" + f).then((r) => {
           if (!S.data.listLoaded[f] || !sameJSON(r.prs, S.data.lists[f])) changed = true;
           S.data.lists[f] = r.prs || [];
@@ -552,7 +553,11 @@
     ["settings", "Settings", "#/settings", "M8 5.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM8 1v2M8 13v2M1 8h2M13 8h2"],
   ];
   function tabbar(active) {
-    const review = S.data.state && S.data.state.counts ? S.data.state.counts.review : 0;
+    // Same rule as the "for you" tile once the list is loaded; the server's
+    // count (not mine + review requested) until then.
+    const review = S.data.listLoaded.all
+      ? S.data.lists.all.filter((pr) => prVerdict(pr).k === "you").length
+      : (S.data.state && S.data.state.counts ? S.data.state.counts.review : 0);
     return h("nav", { class: "tabbar" }, TABS.map(([id, label, hash, d]) =>
       h("button", { class: "tab" + (id === active ? " on" : ""), "aria-label": label, onClick: () => go(hash) },
         svg("svg", { viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", "stroke-width": "1.4", "stroke-linecap": "round", "stroke-linejoin": "round" }, svg("path", { d })),
@@ -694,47 +699,77 @@
   }
 
   // ── PR list (SEPRList) ─────────────────────────────────────────────
+  // Each row leads with ONE verdict — what the PR needs next — then the two
+  // signals that produced it (CI, review). Rows are sorted by verdict so the
+  // actionable ones sit on top; the summary tiles double as the filter.
+  function prVerdict(pr) {
+    const ciOK = pr.ci === "success" || pr.ci === "none";
+    if (pr.isDraft) return { k: "draft", label: "Draft", tone: "muted", rank: 4 };
+    if (pr.ci === "failure") return { k: "blocked", label: "CI failing", tone: "err", rank: 2 };
+    if (pr.review === "changesRequested") return { k: "blocked", label: "Changes requested", tone: "err", rank: 2 };
+    if (ciOK && pr.review === "approved") return { k: "ready", label: "Ready to merge", tone: "amber", rank: 0 };
+    if (pr.review === "reviewRequired" && !pr.isMine) return { k: "you", label: "Needs your review", tone: "you", rank: 1 };
+    if (pr.ci === "pending") return { k: "running", label: "CI running", tone: "arc", rank: 3 };
+    return { k: "waiting", label: "Waiting for review", tone: "muted", rank: 3 };
+  }
+
+  const SUMMARY = [["ready", "ready"], ["you", "for you"], ["blocked", "blocked"]];
+
+  function signal(label, state) {
+    const glyph = { ok: "✓", err: "✕", run: "◌", wait: "·" }[state];
+    return h("span", { class: "row pr-signal " + state }, h("span", { class: "glyph" }, glyph), label);
+  }
+
   function prRow(pr) {
-    return h("button", { class: "card pr-row", onClick: () => go(`#/pr/${encodeURIComponent(pr.repoId)}/${encodeURIComponent(pr.number)}`) },
+    const v = prVerdict(pr);
+    const ciState = { success: "ok", failure: "err", pending: "run" }[pr.ci] || "wait";
+    const rvState = { approved: "ok", changesRequested: "err" }[pr.review] || "wait";
+    const rvLabel = { approved: "approved", changesRequested: "changes", reviewRequired: "review requested" }[pr.review] || "no review";
+    return h("button", { class: "card pr-row tone-" + v.tone, onClick: () => go(`#/pr/${encodeURIComponent(pr.repoId)}/${encodeURIComponent(pr.number)}`) },
+      h("span", { class: "verdict-bar" }),
       h("div", { class: "row r1" },
-        h("span", { class: "dot " + ciDot(pr.ci) }),
-        h("span", { class: "mono pr-meta" }, `${pr.repo} · #${pr.number}`),
-        pr.isMine ? h("span", { class: "pill amber mini-pill" }, "yours") : null,
-        pr.isDraft ? h("span", { class: "pill mini-pill" }, "draft") : null,
+        h("span", { class: "row verdict" }, v.tone === "arc" ? spinner(8) : null, v.label),
         spacer(),
         h("span", { class: "mono pr-updated" }, ago(pr.updatedAt))),
       h("div", { class: "pr-title" }, pr.title),
       h("div", { class: "row r3" },
-        delta(pr.additions, pr.deletions),
-        h("span", { class: "mono pr-branch" }, pr.branch),
+        h("span", { class: "mono pr-meta" }, `${pr.repo} #${pr.number}`),
+        signal("CI", ciState),
+        signal(rvLabel, rvState),
         spacer(),
         h("span", { class: "chev" }, "›")));
   }
 
   function viewPRList() {
     const st = S.data.state;
-    const counts = (st && st.counts) || {};
+    const all = S.data.lists.all || [];
+    const rows = all.map((pr, i) => ({ pr, v: prVerdict(pr), i }))
+      .sort((x, y) => x.v.rank - y.v.rank || x.i - y.i);
+    const counts = rows.reduce((m, r) => (m[r.v.k] = (m[r.v.k] || 0) + 1, m), {});
     const f = S.filter;
-    const segs = [["all", "ALL"], ["mine", "MINE"], ["review", "REVIEW"]];
-    const list = S.data.lists[f];
+    const shown = f ? rows.filter((r) => r.v.k === f) : rows;
     const ptrText = { pull: "pull to sync", ready: "release to sync", syncing: "syncing on your mac" }[S.ptr.state];
     let content;
-    if (!S.data.listLoaded[f]) content = loadingBlock("loading");
-    else if (!list.length) {
-      content = emptyBlock(
-        f === "review" ? "Nothing to review" : f === "mine" ? "No open PRs of yours" : "No open pull requests",
+    if (!S.data.listLoaded.all) content = loadingBlock("loading");
+    else if (!shown.length) {
+      const label = f ? { ready: "Nothing ready to merge", you: "Nothing needs your review", blocked: "Nothing blocked" }[f] : "No open pull requests";
+      content = emptyBlock(label,
         st && st.reposShown < st.reposTotal ? `Showing ${st.reposShown} of ${st.reposTotal} repositories — change it in Settings.` : "Pull down to sync now.");
-    } else content = h("div", { class: "stack" }, list.map(prRow));
+    } else content = h("div", { class: "stack" }, shown.map((r) => prRow(r.pr)));
     return screen([
       header({
         eyebrow: "AERIE · REMOTE", title: "Pull Requests",
         right: h("div", { class: "row live-clock" }, h("span", { class: "dot ok live" }), h("span", { class: "mono", "data-countdown": "" }, countdownText())),
       }),
-      h("div", { class: "row seg-row" },
-        h("div", { class: "segmented" }, segs.map(([id, label]) =>
-          h("button", { class: id === f ? "active" : "", onClick: () => { if (S.filter !== id) { saveScroll(); S.filter = id; render(); poll(false); } } },
-            label + (counts[id] != null ? " " + counts[id] : ""))))),
-      h("div", { class: "scroll", "data-sid": "prs:" + f },
+      h("div", { class: "row summary-row" }, SUMMARY.map(([k, label]) =>
+        h("button", {
+          class: "col summary-tile " + k + (f === k ? " active" : ""),
+          "aria-pressed": f === k ? "true" : "false",
+          onClick: () => { saveScroll(); S.filter = S.filter === k ? null : k; render(); },
+        },
+          h("span", { class: "mono n" }, String(S.data.listLoaded.all ? counts[k] || 0 : "–")),
+          h("span", { class: "l" }, label)))),
+      h("div", { class: "scroll", "data-sid": "prs:" + (f || "all") },
         h("div", { class: "ptr" + (S.ptr.state === "syncing" ? "" : ""), style: { height: S.ptr.state === "syncing" ? "40px" : "0px" } },
           S.ptr.state === "syncing" ? spinner(11) : null,
           h("span", { class: "hud-note" }, ptrText || "")),
