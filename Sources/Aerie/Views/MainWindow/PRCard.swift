@@ -175,6 +175,11 @@ struct PRCard: View {
             if row.pr.hasMergeConflicts {
                 StatusPill(text: "Conflicts", tone: .err)
             }
+            // Auto-merge is armed: GitHub will merge this by itself once its
+            // requirements pass. Arc = live automation, like a running process.
+            if row.pr.autoMergeEnabled == true {
+                StatusPill(text: "Auto-merge", tone: .arc)
+            }
             StatusPill(text: localStatus.text, tone: localStatus.tone)
             // Behind its base → offer a one-click update, glued right after the
             // sync chip (never the actions column). `behind` is the local count
@@ -471,7 +476,7 @@ struct PRCard: View {
     }
 
     /// The regular card's status chips in the narrow rows' dense form, in the
-    /// same order: Draft · CI · Review · Conflicts · local state. Local state
+    /// same order: Draft · CI · Review · Conflicts · Auto-merge · local state. Local state
     /// mirrors the regular sentence pill: not checked out / LOCAL + DIRTY /
     /// LOCAL + ahead · behind · unpushed / LOCAL + IN SYNC.
     @ViewBuilder
@@ -480,6 +485,7 @@ struct PRCard: View {
         MiniPill(text: ciShortLabel, tone: ciTone)
         MiniPill(text: reviewShortLabel, tone: reviewTone)
         if row.pr.hasMergeConflicts { MiniPill(text: "conflicts", tone: .err) }
+        if row.pr.autoMergeEnabled == true { MiniPill(text: "auto-merge", tone: .arc) }
         if let local = row.localState, local.isCurrentBranch {
             let ahead = local.ahead ?? 0, behind = local.behind ?? 0, unpushed = local.unpushed ?? 0
             MiniPill(text: "local", tone: .amber)

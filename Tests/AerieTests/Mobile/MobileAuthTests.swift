@@ -216,6 +216,15 @@ final class MobileProjectionTests: XCTestCase {
         XCTAssertEqual(MobileProjection.filter(rows, .review).map(\.pr.number), [2])
     }
 
+    func test_row_carriesAutoMerge() {
+        var r = row(mine: true, review: .approved, number: 5)
+        XCTAssertFalse(MobileProjection.row(r).autoMerge)
+        var pr = r.pr
+        pr.autoMergeEnabled = true
+        r = PRRow(pr: pr, repo: r.repo, localState: nil)
+        XCTAssertTrue(MobileProjection.row(r).autoMerge)
+    }
+
     func test_files_mapDiffLines() {
         let files = MobileProjection.files([
             PRFileChange(filename: "a.swift", status: .modified, additions: 1, deletions: 1,

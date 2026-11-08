@@ -538,6 +538,42 @@ final class GitHubAPIClientTests: XCTestCase {
         XCTAssertFalse(prs[1].isDraftPR)
     }
 
+    func test_listOpenPRs_mapsAutoMergeRequest() async throws {
+        // `autoMergeRequest` is non-null exactly when auto-merge is armed.
+        func node(_ n: Int, autoMerge: String) -> String {
+            """
+            {
+              "id": "PR_\(n)", "number": \(n), "title": "t", "author": { "login": "a" },
+              "headRefName": "feat/\(n)", "state": "OPEN", "isDraft": false, "mergeable": "MERGEABLE",
+              "labels": { "nodes": [] }, "commits": { "nodes": [] }, "reviewDecision": null,
+              "mergeStateStatus": "BLOCKED", "autoMergeRequest": \(autoMerge),
+              "updatedAt": "2026-05-28T10:00:00Z", "url": "https://github.com/acme/widgets/pull/\(n)"
+            }
+            """
+        }
+        let responseJSON = """
+        { "data": { "repository": { "pullRequests": { "nodes": [
+          \(node(1, autoMerge: #"{ "enabledAt": "2026-05-28T09:00:00Z" }"#)),
+          \(node(2, autoMerge: "null"))
+        ] } } } }
+        """
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(responseJSON.utf8))
+        }
+
+        let client = LiveGitHubAPIClient(session: makeStubSession())
+        let prs = try await client.listOpenPRs(
+            owner: "acme", repo: "widgets", repoId: UUID(), token: "ghp_test"
+        )
+
+        XCTAssertEqual(prs.map(\.autoMergeEnabled), [true, false])
+    }
+
     func test_listOpenPRs_sendsCorrectQuery() async throws {
         let responseJSON = """
         { "data": { "repository": { "pullRequests": { "nodes": [] } } } }

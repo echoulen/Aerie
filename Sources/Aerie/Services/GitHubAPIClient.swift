@@ -314,6 +314,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             isDraft
             mergeable
             mergeStateStatus
+            autoMergeRequest { enabledAt }
             labels(first: 10) { nodes { name } }
             commits(last: 1) {
               nodes {
@@ -739,6 +740,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
           isDraft
           mergeable
           mergeStateStatus
+          autoMergeRequest { enabledAt }
           labels(first: 10) { nodes { name } }
           commits(last: 1) {
             nodes {
@@ -848,6 +850,8 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             let isDraft: Bool?
             let mergeable: String
             let mergeStateStatus: String?
+            /// Non-null exactly when auto-merge is enabled on the PR.
+            let autoMergeRequest: AutoMergeNode?
             let labels: LabelLayer
             let commits: CommitsLayer
             let reviewDecision: String?
@@ -862,6 +866,7 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             let url: URL
         }
         struct Author: Decodable { let login: String }
+        struct AutoMergeNode: Decodable { let enabledAt: Date? }
         struct LabelLayer: Decodable { let nodes: [LabelNode] }
         struct LabelNode: Decodable { let name: String }
         struct CommitsLayer: Decodable { let nodes: [CommitNode] }
@@ -942,7 +947,8 @@ actor LiveGitHubAPIClient: GitHubAPIClient {
             changedFiles: node.changedFiles,
             respondedToChangesRequest: Self.respondedToChangesRequest(node),
             isDraft: node.isDraft,
-            mergeStateStatus: node.mergeStateStatus
+            mergeStateStatus: node.mergeStateStatus,
+            autoMergeEnabled: node.autoMergeRequest != nil
         )
     }
 
