@@ -3,7 +3,7 @@
 // phone gets the files of the build that's running now (a new Aerie build shows
 // up on the next launch). The cache is only the fallback that lets the app open
 // and say "Mac offline" when the Mac can't be reached. /m/api/* is never cached.
-const CACHE = "aerie-shell-v3";
+const CACHE = "aerie-shell-v4";
 const SHELL = [
   "/", "/app.js", "/style.css", "/aerie.css", "/manifest.webmanifest", "/icon.png",
   "/fonts/ChakraPetch-Regular.ttf", "/fonts/ChakraPetch-Medium.ttf",

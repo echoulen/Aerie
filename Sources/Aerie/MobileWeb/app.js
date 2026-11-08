@@ -441,8 +441,12 @@
       if (S.gate !== "ready") return;
     }
     if (seq !== pollSeq) return;
-    if ((changed || first) && routeId() === rid) render();
-    else updateCountdown();
+    if ((changed || first) && routeId() === rid) {
+      // Under an open sheet the screen behind it isn't visible; repainting it
+      // would also rebuild the sheet mid-merge. Closing the sheet repaints
+      // with whatever the polls loaded meanwhile.
+      if (!S.sheet || first) render();
+    } else updateCountdown();
     schedulePoll();
   }
 
@@ -512,12 +516,15 @@
     if (el) scrollMemory.set(el.dataset.sid, el.scrollTop);
   }
 
+  const backdropEl = h("div", { class: "backdrop" });
   function render() {
     if (touching) { pendingRender = true; return; }
     pendingRender = false;
     saveScroll();
     const view = renderView();
-    root.replaceChildren(h("div", { class: "backdrop" }), ...[].concat(view));
+    // Reuse one backdrop node: a fresh one restarts the starfield drift, so
+    // every re-render made the background jump.
+    root.replaceChildren(backdropEl, ...[].concat(view));
     const sc = root.querySelector(".scroll");
     if (sc && scrollMemory.has(sc.dataset.sid)) sc.scrollTop = scrollMemory.get(sc.dataset.sid);
     if (sc && S.route.name === "prs" && S.gate === "ready") attachPullToRefresh(sc);
@@ -1023,11 +1030,15 @@
   }
 
   // ── Sheets (approve / merge) ───────────────────────────────────────
-  function openSheet(kind) { S.sheet = { kind, running: false, error: null }; render(); }
+  function openSheet(kind) { S.sheet = { kind, running: false, error: null, shown: false }; render(); }
   function closeSheet() { if (S.sheet && S.sheet.running) return; S.sheet = null; render(); }
 
   function sheetShell(kids) {
-    return h("div", { class: "sheet-wrap" },
+    // Only the first paint of an opening animates in; repaints (running,
+    // error) keep it still instead of sliding it up again.
+    const settled = S.sheet && S.sheet.shown;
+    if (S.sheet) S.sheet.shown = true;
+    return h("div", { class: "sheet-wrap" + (settled ? " settled" : "") },
       h("div", { class: "sheet-dim", onClick: closeSheet }),
       h("div", { class: "sheet", role: "dialog", "aria-modal": "true" }, h("div", { class: "sheet-grip" }), kids));
   }
