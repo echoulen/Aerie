@@ -729,6 +729,8 @@
       h("span", { class: "verdict-bar" }),
       h("div", { class: "row r1" },
         h("span", { class: "row verdict" }, v.tone === "arc" ? spinner(8) : null, v.label),
+        // GitHub will merge it by itself once requirements pass.
+        pr.autoMerge ? h("span", { class: "row automerge-tag" }, h("span", { class: "glyph" }, "⑂"), "auto-merge") : null,
         spacer(),
         h("span", { class: "mono pr-updated" }, ago(pr.updatedAt))),
       h("div", { class: "pr-title" }, pr.title),

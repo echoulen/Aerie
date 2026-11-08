@@ -108,6 +108,13 @@ final class PRCardTests: XCTestCase {
         assertSnapshot(of: host(row), as: .image(size: CGSize(width: 980, height: 280)))
     }
 
+    func test_prCard_autoMergeEnabled_showsArcPill() {
+        var pr = makePR(author: "another-dev", isMine: false, ci: .pending, review: .approved)
+        pr.autoMergeEnabled = true
+        let row = PRRow(pr: pr, repo: makeRepo(), localState: nil)
+        assertSnapshot(of: host(row), as: .image(size: CGSize(width: 980, height: 280)))
+    }
+
     func test_prCard_notMergeable_failingCI() {
         let row = PRRow(
             pr: makePR(

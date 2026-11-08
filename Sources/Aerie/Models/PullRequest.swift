@@ -54,6 +54,10 @@ struct PullRequest: Codable, Equatable, Identifiable {
     /// BLOCKED, DIRTY, DRAFT, BEHIND, HAS_HOOKS, UNKNOWN. Drives whether the
     /// Merge button lights up. Optional + defaulted (older cached rows lack it).
     var mergeStateStatus: String? = nil
+    /// Whether auto-merge is enabled on the PR (GraphQL `autoMergeRequest`
+    /// non-null): GitHub merges it by itself once its requirements pass.
+    /// Optional + defaulted for the same back-compat reason as `approvedBy`.
+    var autoMergeEnabled: Bool? = nil
 }
 
 extension PullRequest {

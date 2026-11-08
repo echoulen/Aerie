@@ -13,6 +13,7 @@ enum MobileDTO {
         let branch: String
         let isMine: Bool
         let isDraft: Bool
+        let autoMerge: Bool
         let ci: String
         let review: String
         let approvedBy: String?
@@ -129,6 +130,7 @@ enum MobileProjection {
             slug: "\(r.repo.githubOwner)/\(r.repo.githubRepo)",
             number: r.pr.number, title: r.pr.title, author: r.pr.authorLogin,
             branch: r.pr.sourceBranch, isMine: r.pr.isMine, isDraft: r.pr.isDraftPR,
+            autoMerge: r.pr.autoMergeEnabled == true,
             ci: r.pr.ciState.rawValue, review: r.pr.reviewState.rawValue,
             approvedBy: r.pr.approvedBy, additions: r.pr.additions, deletions: r.pr.deletions,
             changedFiles: r.pr.changedFiles, updatedAt: r.pr.updatedAt, htmlUrl: r.pr.htmlUrl)
