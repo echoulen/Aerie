@@ -516,15 +516,19 @@
     if (el) scrollMemory.set(el.dataset.sid, el.scrollTop);
   }
 
-  const backdropEl = h("div", { class: "backdrop" });
+  // The backdrop never leaves the DOM: a fresh node, or even re-inserting the
+  // same one (replaceChildren detaches it first), restarts the nebula and
+  // starfield animations, so every re-render made the background jump.
+  // Only the nodes after it are swapped. index.html ships it as #app's child.
+  let backdropEl = root.querySelector(".backdrop");
+  if (!backdropEl) root.prepend(backdropEl = h("div", { class: "backdrop" }));
   function render() {
     if (touching) { pendingRender = true; return; }
     pendingRender = false;
     saveScroll();
     const view = renderView();
-    // Reuse one backdrop node: a fresh one restarts the starfield drift, so
-    // every re-render made the background jump.
-    root.replaceChildren(backdropEl, ...[].concat(view));
+    while (backdropEl.nextSibling) backdropEl.nextSibling.remove();
+    append(root, [view]);
     const sc = root.querySelector(".scroll");
     if (sc && scrollMemory.has(sc.dataset.sid)) sc.scrollTop = scrollMemory.get(sc.dataset.sid);
     if (sc && S.route.name === "prs" && S.gate === "ready") attachPullToRefresh(sc);
